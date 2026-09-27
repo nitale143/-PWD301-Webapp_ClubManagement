@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block title %}Event{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Su kien</h1>
+    {% if current_user.is_bdh() %}
+    <a class="btn-primary" href="{{ url_for('event.event_new') }}">+ Tao su kien</a>
+    {% endif %}
+</div>
+
+<div class="event-list">
+    {% for ev in events %}
+    <a class="event-summary-card" href="{{ url_for('event.event_detail', event_id=ev.id) }}">
+        <strong>{{ ev.ten_su_kien }}</strong> <span class="tag">{{ ev.ma_su_kien }}</span>
+        <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ ev.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p>
+        <span class="status-badge status-{{ ev.trang_thai }}">{{ ev.trang_thai }}</span>
+    </a>
+    {% else %}
+    <p class="muted">Chua co su kien nao.</p>
+    {% endfor %}
+</div>
+{% endblock %}

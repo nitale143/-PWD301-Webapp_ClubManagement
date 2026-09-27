@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block title %}Ho so ca nhan{% endblock %}
+{% block content %}
+<div class="profile-header">
+    <img src="{{ member.avatar_url }}" alt="avatar" class="profile-avatar">
+    <div>
+        <h1>{{ member.ho_ten }}</h1>
+        <p class="muted">MSSV: {{ member.mssv }} &middot; Chuc vu: {{ member.chuc_vu }}</p>
+        <p class="muted">{{ member.ban_links|map(attribute='ban.ten_ban')|join(', ') }}</p>
+    </div>
+</div>
+
+{% if is_self %}
+<details class="new-task-box">
+    <summary>Doi anh dai dien</summary>
+    <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data">
+        <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp" required>
+        <button type="submit">Tai len</button>
+    </form>
+</details>
+{% endif %}
+
+{% if can_see_full %}
+<section class="panel">
+    <h2>Thong tin lien he</h2>
+    <p>SDT: {{ member.sdt }}</p>
+    <p>Email: {{ member.email }}</p>
+    <p>Facebook: <a href="{{ member.facebook_link }}" target="_blank">{{ member.facebook_link }}</a></p>
+    <p>Ngay sinh: {{ member.ngay_sinh.strftime('%d/%m/%Y') }}</p>
+    <p>Tinh trang hoat dong (tong quan): {{ member.hoat_dong_status }}</p>
+</section>
+
+<section class="panel">
+    <h2>Tinh trang hoat dong theo ban / ky</h2>
+    {% if activities %}
+    <table class="data-table">
+        <thead><tr><th>Ky</th><th>Ban</th><th>Task hoan thanh / tong</th><th>%</th><th>Xep loai</th></tr></thead>
+        <tbody>
+        {% for a in activities %}
+            <tr>
+                <td>{{ a.period.ten_ky }}</td>
+                <td>{{ a.ban.ten_ban }}</td>
+                <td>{{ a.task_hoan_thanh }} / {{ a.tong_task }}</td>
+                <td>{{ a.phan_tram }}%</td>
+                <td>{{ a.trang_thai }}</td>
+            </tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Chua co du lieu (se duoc cap nhat sau khi cac su kien ket thuc).</p>
+    {% endif %}
+</section>
+
+<section class="panel">
+    <h2>Tinh trang dong quy</h2>
+    {% if dues %}
+    <table class="data-table">
+        <thead><tr><th>Ky</th><th>Da dong</th></tr></thead>
+        <tbody>
+        {% for d in dues %}
+            <tr><td>{{ d.period.ten_ky }}</td><td>{{ 'Co' if d.da_dong else 'Chua' }}</td></tr>
+        {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+    <p class="muted">Chua co du lieu dong quy.</p>
+    {% endif %}
+</section>
+{% endif %}
+{% endblock %}

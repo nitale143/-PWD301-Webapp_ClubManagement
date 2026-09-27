@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+{% block title %}{{ event.ten_su_kien }}{% endblock %}
+{% block content %}
+<div class="page-header">
+    <div>
+        <h1>{{ event.ten_su_kien }} <span class="tag">{{ event.ma_su_kien }}</span></h1>
+        <p class="muted">{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }} &middot; Trang thai: <span class="status-badge status-{{ event.trang_thai }}">{{ event.trang_thai }}</span></p>
+    </div>
+    {% if is_bdh and event.trang_thai != 'da_ket_thuc' %}
+    <form method="post" action="{{ url_for('event.event_end', event_id=event.id) }}"
+          onsubmit="return confirm('Danh dau su kien da ket thuc? Tinh trang hoat dong lien quan se duoc cap nhat lai.');">
+        <button type="submit" class="btn-secondary">Ket thuc su kien</button>
+    </form>
+    {% endif %}
+</div>
+
+{% if is_bdh %}
+<details class="new-task-box">
+    <summary>+ Them task con</summary>
+    <form method="post" action="{{ url_for('event.task_new', event_id=event.id) }}">
+        <label>Ten task</label>
+        <input type="text" name="ten_task" required>
+        <label>Mo ta</label>
+        <textarea name="mo_ta"></textarea>
+        <label>Deadline</label>
+        <input type="datetime-local" name="deadline" required>
+        <label>Ban phu trach task nay</label>
+        <select name="ban_id" required>
+            {% for ban in bans %}
+            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
+            {% endfor %}
+        </select>
+        <label>MSSV nguoi phu trach (bat buoc)</label>
+        <input type="text" name="assignee_mssv" required>
+        <button type="submit">Them task</button>
+    </form>
+</details>
+{% endif %}
+
+<div class="task-list">
+    {% for task in event.tasks %}
+    <details class="task-card">
+        <summary>
+            <strong>{{ task.ten_task }}</strong>
+            {% if task.ban %}<span class="tag">{{ task.ban.ten_ban }}</span>{% endif %}
+            <span class="status-badge status-{{ task.trang_thai }}">{{ task.trang_thai }}</span>
+            &middot; Han: {{ task.deadline.strftime('%d/%m/%Y %H:%M') }}
+        </summary>
+
+        <p>{{ task.mo_ta }}</p>
+        <p><strong>Nguoi phu trach:</strong> {{ task.assignee.ho_ten }} ({{ task.assignee.mssv }}, {{ task.assignee.sdt }})</p>
+
+        {% if is_bdh %}
+        <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form">
+            <input type="text" name="assignee_mssv" placeholder="MSSV nguoi phu trach moi">
+            <button type="submit">Chi dinh lai</button>
+        </form>
+        {% endif %}
+
+        <div class="submission-box">
+            <h4>San pham / nhan xet</h4>
+            {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] %}
+            <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}">
+                <textarea name="noi_dung_nop" placeholder="Dan link hoac mo ta san pham...">{{ task.noi_dung_nop or '' }}</textarea>
+                <button type="submit">Nop san pham</button>
+            </form>
+            {% elif task.noi_dung_nop %}
+            <p class="small">{{ task.noi_dung_nop }}</p>
+            {% endif %}
+
+            {% if task.nhan_xet_bdh %}
+            <p class="small"><strong>Nhan xet BDH:</strong> {{ task.nhan_xet_bdh }}</p>
+            {% endif %}
+
+            {% if is_bdh and task.trang_thai == 'cho_duyet' %}
+            <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form">
+                <select name="trang_thai">
+                    <option value="hoan_thanh">Hoan thanh</option>
+                    <option value="lam_lai">Yeu cau lam lai</option>
+                    <option value="huy">Huy</option>
+                </select>
+                <input type="text" name="nhan_xet_bdh" placeholder="Nhan xet (bat buoc neu lam lai)">
+                <button type="submit">Cap nhat</button>
+            </form>
+            {% endif %}
+        </div>
+    </details>
+    {% else %}
+    <p class="muted">Chua co task nao trong su kien nay.</p>
+    {% endfor %}
+</div>
+{% endblock %}

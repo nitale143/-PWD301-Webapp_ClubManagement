@@ -1,0 +1,38 @@
+{% extends "base.html" %}
+{% block title %}Home{% endblock %}
+{% block content %}
+<div class="home-grid">
+    <section class="panel">
+        <h2>Thong bao</h2>
+        {% if notifications %}
+        <ul class="notif-list">
+            {% for n in notifications %}
+            <li class="{{ 'unread' if not n.da_doc }}">{{ n.noi_dung }}
+                <span class="muted small">{{ n.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</span>
+            </li>
+            {% endfor %}
+        </ul>
+        {% else %}
+        <p class="muted">Chua co thong bao nao.</p>
+        {% endif %}
+    </section>
+
+    <section class="panel">
+        <h2>Su kien sap dien ra</h2>
+        {% if upcoming_events %}
+        {% for ev in upcoming_events %}
+        <div class="event-card">
+            <a href="{{ url_for('event.event_detail', event_id=ev.id) }}"><strong>{{ ev.ten_su_kien }}</strong> ({{ ev.ma_su_kien }})</a>
+            <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} - Trang thai: {{ ev.trang_thai }}</p>
+            {% set participants = event_participants.get(ev.id, []) %}
+            {% if participants %}
+            <p class="small">Nguoi tham gia: {{ participants|map(attribute='ho_ten')|join(', ') }}</p>
+            {% endif %}
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="muted">Khong co su kien sap toi.</p>
+        {% endif %}
+    </section>
+</div>
+{% endblock %}

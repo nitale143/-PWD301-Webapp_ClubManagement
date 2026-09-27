@@ -1,0 +1,49 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>{% block title %}CLB Manager{% endblock %}</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+{% if current_user.is_authenticated and current_user.status == 'approved' %}
+<header class="navbar">
+    <div class="nav-left">
+        <a href="{{ url_for('main.home') }}" class="brand">CLB Manager</a>
+        <a href="{{ url_for('main.home') }}" class="{{ 'active' if request.endpoint == 'main.home' }}">Home</a>
+        <a href="{{ url_for('member.member_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('member.') }}">Member</a>
+        <a href="{{ url_for('event.event_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('event.') }}">Event</a>
+        <a href="{{ url_for('funds.funds_home') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('funds.') }}">Funds</a>
+        <a href="{{ url_for('ai.ai_chat') }}" class="{{ 'active' if request.endpoint == 'ai.ai_chat' }}">AI</a>
+        {% if current_user.is_bdh() %}
+        <a href="{{ url_for('admin.approve_list') }}" class="{{ 'active' if request.endpoint and request.endpoint.startswith('admin.') }}">BDH</a>
+        {% endif %}
+    </div>
+    <div class="nav-right">
+        <a href="{{ url_for('auth.logout') }}" class="logout-link">Dang xuat</a>
+        <div class="avatar-block">
+            <a href="{{ url_for('profile.view_profile') }}">
+                <img src="{{ current_user.avatar_url }}" alt="avatar" class="avatar-img">
+            </a>
+            <span class="avatar-name">{{ current_user.ho_ten }}</span>
+        </div>
+    </div>
+</header>
+{% endif %}
+
+<main class="content">
+    {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+        <div class="flash-container">
+            {% for category, message in messages %}
+            <div class="flash flash-{{ category }}">{{ message }}</div>
+            {% endfor %}
+        </div>
+        {% endif %}
+    {% endwith %}
+
+    {% block content %}{% endblock %}
+</main>
+</body>
+</html>

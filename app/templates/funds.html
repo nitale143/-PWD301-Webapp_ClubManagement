@@ -1,0 +1,96 @@
+{% extends "base.html" %}
+{% block title %}Funds{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Quy CLB</h1>
+    {% if period %}
+    <a class="btn-secondary" href="{{ url_for('funds.export_funds_excel') }}">Xuat Excel</a>
+    {% endif %}
+</div>
+
+{% if is_thu_quy %}
+<details class="new-task-box">
+    <summary>+ Mo ky moi (Spring / Summer / Fall...)</summary>
+    <form method="post" action="{{ url_for('funds.period_new') }}">
+        <label>Ten ky (vd: Spring 2027)</label>
+        <input type="text" name="ten_ky" required>
+        <label>Ngay bat dau</label>
+        <input type="date" name="ngay_bat_dau" required>
+        <label>Ngay ket thuc (theo lich hoc)</label>
+        <input type="date" name="ngay_ket_thuc">
+        <p class="muted small">Mo ky moi se tu dong dong ky dang mo hien tai (neu co).</p>
+        <button type="submit">Mo ky moi</button>
+    </form>
+</details>
+{% endif %}
+
+{% if period %}
+<div class="summary-cards">
+    <div class="summary-card">Ky hien tai<br><strong>{{ period.ten_ky }}</strong></div>
+    <div class="summary-card">So du<br><strong>{{ "%.0f"|format(so_du) }} d</strong></div>
+    <div class="summary-card">Tong thu<br><strong>{{ "%.0f"|format(tong_thu) }} d</strong></div>
+    <div class="summary-card">Tong chi<br><strong>{{ "%.0f"|format(tong_chi) }} d</strong></div>
+</div>
+
+{% if is_thu_quy %}
+<details class="new-task-box">
+    <summary>+ Ghi nhan thu / chi</summary>
+    <form method="post" action="{{ url_for('funds.transaction_new') }}">
+        <label>Danh muc</label>
+        <input type="text" name="danh_muc" required>
+        <label>Noi dung</label>
+        <input type="text" name="noi_dung">
+        <label>Ngay</label>
+        <input type="date" name="ngay" required>
+        <label>So tien (thu: duong, chi: am)</label>
+        <input type="number" step="1" name="so_tien" required>
+        <button type="submit">Luu</button>
+    </form>
+</details>
+{% endif %}
+
+<h2>Lich su giao dich</h2>
+<table class="data-table">
+    <thead><tr><th>Ngay</th><th>Danh muc</th><th>Noi dung</th><th>So tien</th></tr></thead>
+    <tbody>
+    {% for tx in transactions %}
+        <tr>
+            <td>{{ tx.ngay.strftime('%d/%m/%Y') }}</td>
+            <td>{{ tx.danh_muc }}</td>
+            <td>{{ tx.noi_dung }}</td>
+            <td class="{{ 'text-pos' if tx.so_tien >= 0 else 'text-neg' }}">{{ "%.0f"|format(tx.so_tien) }}</td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+<div class="page-header">
+    <h2>Danh sach dong quy</h2>
+    {% if is_thu_quy %}
+    <form method="post" action="{{ url_for('funds.remind_unpaid') }}">
+        <button type="submit" class="btn-secondary">Nhac dong quy (mail)</button>
+    </form>
+    {% endif %}
+</div>
+<table class="data-table">
+    <thead><tr><th>Thanh vien</th><th>Da dong</th>{% if is_thu_quy %}<th></th>{% endif %}</tr></thead>
+    <tbody>
+    {% for due in dues %}
+        <tr>
+            <td>{{ due.user.ho_ten }} ({{ due.user.mssv }})</td>
+            <td>{{ 'Co' if due.da_dong else 'Chua' }}</td>
+            {% if is_thu_quy %}
+            <td>
+                <form method="post" action="{{ url_for('funds.toggle_due', user_id=due.user_id) }}">
+                    <button type="submit">Doi trang thai</button>
+                </form>
+            </td>
+            {% endif %}
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% else %}
+<p class="muted">Chua co ky quy nao duoc mo.{% if is_thu_quy %} Dung form "Mo ky moi" o tren de bat dau.{% endif %}</p>
+{% endif %}
+{% endblock %}

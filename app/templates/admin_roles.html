@@ -1,0 +1,63 @@
+{% extends "base.html" %}
+{% block title %}Quan ly chuc vu{% endblock %}
+{% block content %}
+<h1>Quan ly chuc vu BDH</h1>
+<p class="muted small">Gioi han: CN toi da 1, PCN toi da 2, TB toi da 3, Thu ky/Thu quy toi da 1. Chi nguoi quyen cao hon moi duoc chi dinh xuong.</p>
+
+{% if current_user.chuc_vu != 'THANH_VIEN' %}
+<details class="new-task-box">
+    <summary>Nhuong quyen chuc vu cua ban ({{ current_user.chuc_vu }})</summary>
+    <form method="post" action="#">
+        <p class="small muted">Chon thanh vien de nhuong lai chuc vu <strong>{{ current_user.chuc_vu }}</strong> cua ban. Ban se tro thanh thanh vien thuong.</p>
+        <select name="target_id" id="nhuong-target">
+            {% for m in members if m.id != current_user.id %}
+            <option value="{{ m.id }}">{{ m.ho_ten }} ({{ m.mssv }})</option>
+            {% endfor %}
+        </select>
+        {% if current_user.chuc_vu == 'TB' %}
+        <select name="ban_id">
+            {% for ban in bans %}
+            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
+            {% endfor %}
+        </select>
+        {% endif %}
+        <button type="submit" formaction="{{ url_for('admin.nhuong_quyen', user_id=0) }}"
+                onclick="this.form.action = this.form.action.replace('/0/', '/' + document.getElementById('nhuong-target').value + '/'); return true;">
+            Xac nhan nhuong quyen
+        </button>
+    </form>
+</details>
+{% endif %}
+
+<table class="data-table">
+    <thead><tr><th>Ho ten</th><th>MSSV</th><th>Chuc vu hien tai</th><th>Ban quan ly</th><th>Chi dinh chuc vu moi</th></tr></thead>
+    <tbody>
+    {% for m in members %}
+        <tr>
+            <td>{{ m.ho_ten }}</td>
+            <td>{{ m.mssv }}</td>
+            <td>{{ m.chuc_vu }}</td>
+            <td>{{ m.ban_links|selectattr('is_truong_ban')|map(attribute='ban.ten_ban')|join(', ') }}</td>
+            <td>
+                <form method="post" action="{{ url_for('admin.assign_role', user_id=m.id) }}" class="inline-form">
+                    <select name="chuc_vu">
+                        <option value="THANH_VIEN">Thanh vien</option>
+                        <option value="THUKY_THUQUY">Thu ky/Thu quy</option>
+                        <option value="TB">Truong ban</option>
+                        <option value="PCN">Pho chu nhiem</option>
+                        <option value="CN">Chu nhiem</option>
+                    </select>
+                    <select name="ban_id">
+                        <option value="">(neu la Truong ban) chon ban</option>
+                        {% for ban in bans %}
+                        <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
+                        {% endfor %}
+                    </select>
+                    <button type="submit">Chi dinh</button>
+                </form>
+            </td>
+        </tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

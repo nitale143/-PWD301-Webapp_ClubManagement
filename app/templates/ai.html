@@ -1,0 +1,21 @@
+{% extends "base.html" %}
+{% block title %}AI Agent{% endblock %}
+{% block content %}
+<h1>AI Agent</h1>
+<div class="chat-box">
+    <div class="chat-history">
+        {% for msg in history %}
+        <div class="chat-msg chat-{{ msg.role }}">
+            <span class="chat-role">{{ 'Ban' if msg.role == 'user' else 'AI' }}</span>
+            <p>{{ msg.content }}</p>
+        </div>
+        {% else %}
+        <p class="muted">Chua co lich su tro chuyen.</p>
+        {% endfor %}
+    </div>
+    <form method="post" class="chat-input-row">
+        <input type="text" name="message" placeholder="Hoi AI Agent ve thanh vien, su kien, task..." required autocomplete="off">
+        <button type="submit">Gui</button>
+    </form>
+</div>
+{% endblock %}

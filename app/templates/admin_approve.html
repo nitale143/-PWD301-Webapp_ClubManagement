@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}Duyet thanh vien{% endblock %}
+{% block content %}
+<div class="page-header">
+    <h1>Duyet thanh vien moi</h1>
+    <a class="btn-secondary" href="{{ url_for('admin.role_list') }}">Quan ly chuc vu</a>
+</div>
+
+<table class="data-table">
+    <thead><tr><th>Ho ten</th><th>MSSV</th><th>Ngay sinh</th><th>SDT</th><th>Email</th><th>Facebook</th><th>Hanh dong</th></tr></thead>
+    <tbody>
+    {% for u in pending_users %}
+        <tr>
+            <td>{{ u.ho_ten }}</td>
+            <td>{{ u.mssv }}</td>
+            <td>{{ u.ngay_sinh.strftime('%d/%m/%Y') }}</td>
+            <td>{{ u.sdt }}</td>
+            <td>{{ u.email }}</td>
+            <td><a href="{{ u.facebook_link }}" target="_blank">Link</a></td>
+            <td>
+                <form method="post" action="{{ url_for('admin.approve_user', user_id=u.id) }}" class="inline-form">
+                    <button type="submit" name="action" value="accept">Duyet</button>
+                    <button type="submit" name="action" value="reject" class="btn-danger">Tu choi</button>
+                </form>
+            </td>
+        </tr>
+    {% else %}
+        <tr><td colspan="7" class="muted">Khong co yeu cau nao dang cho duyet.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+{% endblock %}
