@@ -164,7 +164,7 @@ class FundTransaction(db.Model):
     danh_muc = db.Column(db.String(100), nullable=False)
     noi_dung = db.Column(db.String(255))
     ngay = db.Column(db.Date, nullable=False)
-    so_tien = db.Column(db.Float, nullable=False)  # thu: +, chi: -
+    so_tien = db.Column(db.Numeric(14, 2), nullable=False)  # thu: +, chi: -
     tao_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"))
 
 
@@ -226,3 +226,226 @@ class Notification(db.Model):
     noi_dung = db.Column(db.String(255), nullable=False)
     da_doc = db.Column(db.Boolean, default=False)
     thoi_gian = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+# Nghiệp vụ mở rộng. Các bảng riêng giữ nguyên dữ liệu của webapp nhóm hiện có.
+class MemberRecord(db.Model):
+    __tablename__ = "member_record"
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), primary_key=True)
+    ngay_gia_nhap = db.Column(db.Date, nullable=False, default=lambda: datetime.utcnow().date())
+    tinh_trang = db.Column(db.String(20), nullable=False, default="active")
+    ghi_chu = db.Column(db.Text, nullable=False, default="")
+    luu_tru_luc = db.Column(db.DateTime)
+    user = db.relationship("User", backref=db.backref("member_record", uselist=False))
+    __table_args__ = (
+        db.CheckConstraint("tinh_trang IN ('active','paused','left')", name="ck_member_status"),
+    )
+
+
+class FundCollection(db.Model):
+    __tablename__ = "fund_collection"
+    id = db.Column(db.Integer, primary_key=True)
+    ten_khoan_thu = db.Column(db.String(180), nullable=False)
+    loai = db.Column(db.String(20), nullable=False)
+    so_tien = db.Column(db.Numeric(14, 2), nullable=False)
+    ngay_bat_dau = db.Column(db.Date, nullable=False)
+    han_dong = db.Column(db.Date, nullable=False, index=True)
+    tat_ca_thanh_vien = db.Column(db.Boolean, nullable=False, default=True)
+    mo_ta = db.Column(db.Text, nullable=False, default="")
+    trang_thai = db.Column(db.String(12), nullable=False, default="draft", index=True)
+    tao_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    tao_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.CheckConstraint("so_tien >= 0", name="ck_fund_collection_amount"),
+        db.CheckConstraint("han_dong >= ngay_bat_dau", name="ck_fund_collection_dates"),
+        db.CheckConstraint("loai IN ('monthly','semester','yearly','event','voluntary','other')", name="ck_fund_collection_type"),
+        db.CheckConstraint("trang_thai IN ('draft','open','closed','cancelled')", name="ck_fund_collection_status"),
+        db.Index("ix_fund_collection_status_due", "trang_thai", "han_dong"),
+    )
+
+
+class FundTargetBan(db.Model):
+    __tablename__ = "fund_target_ban"
+    fund_id = db.Column(db.Integer, db.ForeignKey("fund_collection.id"), primary_key=True)
+    ban_id = db.Column(db.Integer, db.ForeignKey("ban.id"), primary_key=True)
+
+
+class FundAdjustment(db.Model):
+    __tablename__ = "fund_adjustment"
+    id = db.Column(db.Integer, primary_key=True)
+    fund_id = db.Column(db.Integer, db.ForeignKey("fund_collection.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    loai = db.Column(db.String(10), nullable=False)
+    so_tien = db.Column(db.Numeric(14, 2), nullable=False, default=0)
+    ly_do = db.Column(db.Text, nullable=False)
+    tao_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    tao_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint("fund_id", "user_id", name="uq_fund_adjustment_member"),
+        db.CheckConstraint("loai IN ('exempt','reduce')", name="ck_fund_adjustment_type"),
+        db.CheckConstraint("so_tien >= 0", name="ck_fund_adjustment_amount"),
+        db.CheckConstraint("length(trim(ly_do)) > 0", name="ck_fund_adjustment_reason"),
+    )
+
+
+class FundPayment(db.Model):
+    __tablename__ = "fund_payment"
+    id = db.Column(db.Integer, primary_key=True)
+    fund_id = db.Column(db.Integer, db.ForeignKey("fund_collection.id"), nullable=False, index=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    so_tien = db.Column(db.Numeric(14, 2), nullable=False)
+    ngay_dong = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    phuong_thuc = db.Column(db.String(20), nullable=False)
+    ma_giao_dich = db.Column(db.String(100), nullable=False, default="")
+    trang_thai = db.Column(db.String(12), nullable=False, default="pending", index=True)
+    xac_nhan_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    xac_nhan_luc = db.Column(db.DateTime)
+    ghi_chu = db.Column(db.Text, nullable=False, default="")
+    __table_args__ = (
+        db.CheckConstraint("so_tien > 0", name="ck_fund_payment_amount"),
+        db.CheckConstraint("trang_thai IN ('pending','confirmed','rejected')", name="ck_fund_payment_status"),
+        db.CheckConstraint("trang_thai != 'confirmed' OR xac_nhan_boi_id IS NOT NULL", name="ck_fund_payment_reviewer"),
+        db.Index("ix_fund_payment_fund_member_status", "fund_id", "user_id", "trang_thai"),
+    )
+
+
+class PaymentEvidence(db.Model):
+    __tablename__ = "payment_evidence"
+    id = db.Column(db.Integer, primary_key=True)
+    payment_id = db.Column(db.Integer, db.ForeignKey("fund_payment.id"), nullable=False)
+    duong_dan = db.Column(db.String(255), nullable=False)
+    tai_len_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EventDetail(db.Model):
+    __tablename__ = "event_detail"
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), primary_key=True)
+    loai = db.Column(db.String(100), nullable=False, default="other")
+    noi_dung = db.Column(db.Text, nullable=False, default="")
+    dia_diem = db.Column(db.String(300), nullable=False, default="")
+    anh_dai_dien = db.Column(db.String(255), nullable=False, default="")
+    han_dang_ky = db.Column(db.DateTime)
+    so_nguoi_toi_da = db.Column(db.Integer)
+    phu_trach_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    fund_id = db.Column(db.Integer, db.ForeignKey("fund_collection.id"))
+    tat_ca_thanh_vien = db.Column(db.Boolean, nullable=False, default=True)
+    event = db.relationship("Event", backref=db.backref("detail", uselist=False))
+    __table_args__ = (
+        db.CheckConstraint("so_nguoi_toi_da IS NULL OR so_nguoi_toi_da > 0", name="ck_event_capacity"),
+    )
+
+
+class EventTargetBan(db.Model):
+    __tablename__ = "event_target_ban"
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), primary_key=True)
+    ban_id = db.Column(db.Integer, db.ForeignKey("ban.id"), primary_key=True)
+
+
+class EventRegistration(db.Model):
+    __tablename__ = "event_registration"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    trang_thai = db.Column(db.String(12), nullable=False, default="registered")
+    dang_ky_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    huy_luc = db.Column(db.DateTime)
+    user = db.relationship("User")
+    event = db.relationship("Event", backref="registrations")
+    __table_args__ = (
+        db.UniqueConstraint("event_id", "user_id", name="uq_event_registration_member"),
+        db.CheckConstraint("trang_thai IN ('registered','waitlist','cancelled')", name="ck_event_registration_status"),
+        db.Index("ix_event_registration_event_status", "event_id", "trang_thai"),
+    )
+
+
+class Attendance(db.Model):
+    __tablename__ = "attendance"
+    id = db.Column(db.Integer, primary_key=True)
+    registration_id = db.Column(db.Integer, db.ForeignKey("event_registration.id"), nullable=False, unique=True)
+    trang_thai = db.Column(db.String(12), nullable=False, default="pending")
+    checkin_luc = db.Column(db.DateTime)
+    checkin_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    ghi_chu = db.Column(db.Text, nullable=False, default="")
+    registration = db.relationship("EventRegistration", backref=db.backref("attendance", uselist=False))
+    __table_args__ = (
+        db.CheckConstraint("trang_thai IN ('on_time','late','excused','absent','pending')", name="ck_attendance_status"),
+    )
+
+
+class QRCheckinLog(db.Model):
+    __tablename__ = "qr_checkin_log"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    account_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    checkin_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class EventFeedback(db.Model):
+    __tablename__ = "event_feedback"
+    id = db.Column(db.Integer, primary_key=True)
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"), nullable=False)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    danh_gia = db.Column(db.Integer, nullable=False)
+    binh_luan = db.Column(db.Text, nullable=False, default="")
+    tao_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.UniqueConstraint("event_id", "user_id", name="uq_event_feedback_member"),
+        db.CheckConstraint("danh_gia BETWEEN 1 AND 5", name="ck_event_feedback_rating"),
+    )
+
+
+class ActivityPoint(db.Model):
+    __tablename__ = "activity_point"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    event_id = db.Column(db.Integer, db.ForeignKey("event.id"))
+    so_diem = db.Column(db.Integer, nullable=False)
+    loai = db.Column(db.String(12), nullable=False)
+    ly_do = db.Column(db.Text, nullable=False)
+    tao_boi_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    tao_luc = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    __table_args__ = (
+        db.CheckConstraint("length(trim(ly_do)) > 0", name="ck_activity_point_reason"),
+        db.Index("ix_activity_point_member_time", "user_id", "tao_luc"),
+    )
+
+
+class ClubSetting(db.Model):
+    __tablename__ = "club_setting"
+    key = db.Column(db.String(100), primary_key=True)
+    value = db.Column(db.JSON, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+
+class AuditLog(db.Model):
+    __tablename__ = "audit_log"
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    action = db.Column(db.String(100), nullable=False, index=True)
+    object_type = db.Column(db.String(100), nullable=False)
+    object_id = db.Column(db.String(100), nullable=False)
+    details = db.Column(db.JSON, nullable=False, default=dict)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class AIProposal(db.Model):
+    """An AI suggestion is inert until a board member explicitly approves it."""
+
+    __tablename__ = "ai_proposal"
+    id = db.Column(db.Integer, primary_key=True)
+    kind = db.Column(db.String(10), nullable=False)
+    request_text = db.Column(db.Text, nullable=False)
+    payload = db.Column(db.JSON, nullable=False)
+    provider = db.Column(db.String(20), nullable=False)
+    status = db.Column(db.String(12), nullable=False, default="pending", index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime)
+    result_ids = db.Column(db.JSON, nullable=False, default=list)
+    __table_args__ = (
+        db.CheckConstraint("kind IN ('event','task')", name="ck_ai_proposal_kind"),
+        db.CheckConstraint("status IN ('pending','approved','rejected')", name="ck_ai_proposal_status"),
+        db.Index("ix_ai_proposal_creator_status", "created_by_id", "status"),
+    )

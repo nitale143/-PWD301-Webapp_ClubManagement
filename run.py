@@ -4,9 +4,11 @@ Chay: python run.py
 Mac dinh chay o http://127.0.0.1:5000
 """
 from datetime import date
+from dotenv import load_dotenv
 from app import create_app, db
 from app.models import User, Ban
 
+load_dotenv()
 app = create_app()
 
 

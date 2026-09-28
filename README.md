@@ -1,18 +1,17 @@
 # CLB Manager - Khung du an (Flask)
 
-Webapp noi bo quan ly Cau lac bo (CLB) voi AI Agent ho tro, xay theo yeu cau
-trong `webapp_requirements.txt`. Day la **khung du an day du** (models,
-routes, templates, permissions) da chay duoc, nhung mot so phan (gui mail
-that, ket noi LLM that, sinh bao cao AI nang cao) con la **stub** de ban
-tiep tuc phat trien.
+Webapp noi bo quan ly Cau lac bo (CLB) voi AI Agent ho tro. Du an dung Flask;
+tro ly co che do quy tac khi khong co API key va ket noi Claude khi cau hinh
+key chung cua CLB. Khong luu API key trong repo.
 
 ## Cai dat
 
 ```bash
-cd clb_webapp
-python -m venv venv
-source venv/bin/activate      # Windows: venv\Scripts\activate
+cd /home/phanquang/my-project
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
+cp .env.example .env          # sua SECRET_KEY; dien AI_API_KEY neu dung Claude
 
 flask --app run.py init-db        # tao database SQLite + 3 ban hoat dong
 flask --app run.py create-cn      # tao tai khoan Chu nhiem dau tien (bootstrap BDH)
@@ -41,7 +40,9 @@ clb_webapp/
       event.py              # trang Event + task (xung phong, chi dinh, doi trang thai)
       funds.py               # trang Funds (thu/chi, danh sach dong quy, xuat excel)
       ai.py                 # trang AI chat (luu lich su)
+      api.py                # JSON API /api/v1
       admin.py               # duyet thanh vien + chi dinh chuc vu + nhuong quyen
+    services/               # nghiep vu quy, su kien, hoat dong, tro ly, de xuat AI
     templates/              # HTML (Jinja2), dung chung base.html + navbar
     static/css/style.css     # giao dien don gian, sach se
 ```
@@ -64,7 +65,7 @@ clb_webapp/
 - Trang Event: tao su kien (kiem tra trung ma), task con voi 5 trang thai
   dung dung rule (`dang_lam -> cho_duyet` chi user tu doi va chi khi noi
   dung nop thay doi; `lam_lai`/`hoan_thanh`/`huy` chi BDH doi, bat buoc
-  nhan xet khi lam lai); co che xung phong nhan task voi han xung phong.
+  nhan xet khi lam lai); task co nguoi phu trach tu luc tao.
 - Trang Funds: quan ly theo ky, chi thu quy duoc sua, hien so du/tong
   thu/tong chi cua ky hien tai, danh sach dong quy, xuat Excel.
 - Trang AI: giao dien chat + luu lich su theo tung user.
@@ -98,21 +99,24 @@ clb_webapp/
   phu trach), va nut "Nhac dong quy" o trang Funds (thu quy bam de nhac
   thanh vien chua dong quy).
 
-## Con la STUB - can ban lam tiep
+## AI Agent, de xuat va nhuong quyen
 
-1. **Ket noi LLM that cho AI Agent** (`app/routes/ai.py -> generate_ai_reply`):
-   da chot dung 1 API key CHUNG do CLB quan ly (cau hinh `AI_PROVIDER`,
-   `AI_API_KEY`, `AI_MODEL` trong `app/config.py`, doc tu bien moi
-   truong), khong cho tung user tu nhap key rieng. Hien tai van la stub
-   (chua goi API that) vi chua co key - ban chi can dien `AI_API_KEY` va
-   goi API model trong ham nay, truyen kem du lieu member/event/fund lam
-   ngu canh.
-2. **AI de xuat chia task + tu tao event sau khi BDH duyet**: can thiet ke
-   luong "AI de xuat -> BDH bam duyet -> he thong tu thuc thi" (co the
-   dung bang trung gian AIProposal luu de xuat cho toi khi duoc duyet).
-3. Nut "Nhuong quyen" o `admin_roles.html` van dang dung mot doan JS don
-   gian de gan user_id vao URL - nen thay bang mot form/route rieng cho
-   gon hon truoc khi dung that.
+- Dien `AI_API_KEY` vao `.env` va de `AI_PROVIDER=anthropic` de chat goi
+  Claude Messages API. `AI_MODEL` chon model. Neu khong co key, tro ly van
+  tra loi bang intent va truy van ORM dinh san (`AI_PROVIDER=rules` co the
+  ep che do nay). `python run.py` va `flask --app run.py run` deu doc `.env`.
+- Du lieu gui toi AI duoc gioi han theo quyen nguoi hoi; khong gui email,
+  SDT hay ngay sinh. Model chi co quyen doc ban tom tat, khong duoc nhan
+  cong cu sua database. Loi API duoc thong bao, khong hien API key.
+- BDH vao trang AI, mo muc "De xuat su kien hoac chia task", dien yeu cau
+  va tao ban xem truoc. He thong luu `AIProposal` o trang thai `pending`;
+  chua tao Event/Task. BDH kiem tra noi dung roi bam "Duyet va ap dung"
+  hoac "Tu choi". Khi duyet, backend kiem tra lai quyen, thoi gian, ban,
+  nguoi phu trach, sau do moi tao Event/Task va ghi audit log.
+- Neu khong co API key, de xuat van dung duoc theo quy tac don gian de demo
+  luong duyet. De AI sinh noi dung va phan chia task linh hoat, can key.
+- Nut "Nhuong quyen" gui `target_id` qua form POST toi
+  `/admin/roles/nhuong-quyen`; khong con dung JavaScript ghep URL.
 
 ## Da fix / hoan thien them theo yeu cau
 
@@ -152,3 +156,56 @@ clb_webapp/
 - Xem xet gioi han so lan dang nhap sai (rate limiting) cho `/login`.
 - Kiem tra lai toan bo permission cho tung route truoc khi trien khai that,
   day chi la khung ban dau.
+
+## Backend nghiệp vụ mở rộng (Flask, giai đoạn 1)
+
+Theo lựa chọn của nhóm, dự án tiếp tục dùng Flask và giữ nguyên HTML/CSS.
+`create_app()` tự tạo các bảng mới khi khởi động; cơ sở dữ liệu SQLite hiện
+có không bị xóa. Nên sao lưu `instance/clb.db` trước khi cập nhật ứng dụng.
+
+Các bảng mới lưu trạng thái thành viên, khoản thu và các lần thanh toán,
+miễn/giảm, minh chứng, sự kiện chi tiết, đăng ký/danh sách chờ, điểm danh,
+điểm hoạt động, cấu hình và audit log. Tiền của nghiệp vụ mới dùng `Numeric`
+và `Decimal`. Trang quỹ theo kỳ cũ vẫn hoạt động độc lập để không làm vỡ UI.
+
+API JSON tại `/api/v1` dùng phiên đăng nhập hiện có (`/login`); chưa đăng
+nhập trả 401, chưa được duyệt trả 403. Danh sách hỗ trợ `page` và
+`page_size` (tối đa 100). Các nhóm endpoint chính:
+
+| Nhóm | Đường dẫn tiêu biểu |
+| --- | --- |
+| Thành viên | `GET/POST /members`, `POST /members/import`, `PATCH /members/<id>`, `POST /members/<id>/archive`, `GET /members/<id>/activity` |
+| Quỹ | `POST /funds`, `PATCH /funds/<id>/status`, `GET /funds/<id>/balances`, `POST /funds/<id>/payments` |
+| Thanh toán | `GET /payments`, `POST /payments/<id>/review`, `POST /payments/<id>/evidence` |
+| Sự kiện | `POST /events`, `PATCH /events/<id>`, `POST /events/<id>/copy`, `POST /events/<id>/cancel` |
+| Tham gia | `POST /events/<id>/registrations`, `POST /registrations/<id>/cancel`, `GET /events/<id>/qr.png`, `POST /attendance/checkin` |
+| Thống kê và AI | `GET /dashboard`, `GET /reports/funds.xlsx`, `GET /reports/members.xlsx`, `POST /assistant`, `GET/POST /assistant/proposals`, `POST /assistant/proposals/<id>/review` |
+
+Ví dụ tạo khoản thu khi đã đăng nhập bằng tài khoản Thủ quỹ hoặc Chủ nhiệm:
+
+```json
+POST /api/v1/funds
+{
+  "name": "Quỹ tháng 10",
+  "type": "monthly",
+  "amount": "100000.00",
+  "start_date": "2026-10-01",
+  "due_date": "2026-10-31",
+  "applies_to_all": true,
+  "status": "open"
+}
+```
+
+Chạy kiểm thử độc lập, không đụng tới `instance/clb.db`:
+
+```bash
+python -m unittest discover -s tests -v
+```
+
+Tệp nhập thành viên CSV/XLSX cần các cột `code,name,birth_date,email,phone,department_ids,password`;
+`department_ids` là danh sách mã ban cách nhau bằng dấu phẩy. Nhập thất bại
+ở bất kỳ dòng nào sẽ hoàn tác cả tệp. Mật khẩu chỉ được băm, không lưu nguyên văn.
+
+Đây là lớp BE đầu tiên: dữ liệu từ API chưa được gắn vào giao diện quỹ và
+sự kiện cũ. Bộ lọc/biểu đồ báo cáo nâng cao và bộ migration cho PostgreSQL
+sẽ thực hiện ở bước tiếp theo.

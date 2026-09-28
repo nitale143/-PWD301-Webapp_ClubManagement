@@ -7,12 +7,14 @@ from app import db
 from app.models import FundPeriod, FundTransaction, FundDue, User
 from app.permissions import approved_required
 from app.mail import send_email
+from app.services.access import approved, is_treasurer, visible_members
+from app.services.common import DomainError, audit, parse_money
 
 funds_bp = Blueprint("funds", __name__)
 
 
 def _is_thu_quy():
-    return current_user.chuc_vu == "THUKY_THUQUY"
+    return is_treasurer(current_user)
 
 
 @funds_bp.route("/funds/period/new", methods=["POST"])
@@ -55,9 +57,11 @@ def period_new():
     db.session.flush()
 
     # Tao san ban ghi FundDue (chua dong) cho tat ca thanh vien dang hoat dong
-    for member in User.query.filter_by(status="approved").all():
-        db.session.add(FundDue(period_id=period.id, user_id=member.id, da_dong=False))
+    for member in visible_members(current_user).all():
+        if approved(member):
+            db.session.add(FundDue(period_id=period.id, user_id=member.id, da_dong=False))
 
+    audit(current_user, "legacy_period_create", period)
     db.session.commit()
     flash(f"Da mo ky moi: {ten_ky}.", "success")
     return redirect(url_for("funds.funds_home"))
@@ -71,15 +75,18 @@ def funds_home():
     transactions, dues, so_du, tong_thu, tong_chi = [], [], 0, 0, 0
 
     if period:
-        transactions = (
-            FundTransaction.query.filter_by(period_id=period.id)
-            .order_by(FundTransaction.ngay.desc())
-            .all()
-        )
+        if _is_thu_quy():
+            transactions = (
+                FundTransaction.query.filter_by(period_id=period.id)
+                .order_by(FundTransaction.ngay.desc()).all()
+            )
         tong_thu = sum(t.so_tien for t in transactions if t.so_tien > 0)
         tong_chi = sum(t.so_tien for t in transactions if t.so_tien < 0)
         so_du = tong_thu + tong_chi
-        dues = FundDue.query.filter_by(period_id=period.id).all()
+        due_query = FundDue.query.filter_by(period_id=period.id)
+        if not _is_thu_quy():
+            due_query = due_query.filter_by(user_id=current_user.id)
+        dues = due_query.all()
 
     return render_template(
         "funds.html",
@@ -104,16 +111,31 @@ def transaction_new():
         flash("Chua co ky quy nao dang mo.", "error")
         return redirect(url_for("funds.funds_home"))
 
-    so_tien = float(request.form.get("so_tien", 0))
+    try:
+        raw_amount = str(request.form.get("so_tien", "")).strip()
+        if raw_amount.startswith("-"):
+            so_tien = -parse_money(raw_amount[1:])
+        else:
+            so_tien = parse_money(raw_amount)
+        ngay = datetime.strptime(request.form.get("ngay", ""), "%Y-%m-%d").date()
+    except (DomainError, ValueError):
+        flash("Số tiền hoặc ngày giao dịch không hợp lệ.", "error")
+        return redirect(url_for("funds.funds_home"))
+    danh_muc = request.form.get("danh_muc", "").strip()
+    if not danh_muc:
+        flash("Vui lòng nhập danh mục giao dịch.", "error")
+        return redirect(url_for("funds.funds_home"))
     tx = FundTransaction(
         period_id=period.id,
-        danh_muc=request.form.get("danh_muc", "").strip(),
+        danh_muc=danh_muc,
         noi_dung=request.form.get("noi_dung", "").strip(),
-        ngay=datetime.strptime(request.form.get("ngay"), "%Y-%m-%d").date(),
+        ngay=ngay,
         so_tien=so_tien,
         tao_boi_id=current_user.id,
     )
     db.session.add(tx)
+    db.session.flush()
+    audit(current_user, "legacy_fund_transaction", tx, {"amount": str(so_tien)})
     db.session.commit()
     flash("Da ghi nhan giao dich.", "success")
     return redirect(url_for("funds.funds_home"))
@@ -128,6 +150,9 @@ def toggle_due(user_id):
     period = FundPeriod.query.filter_by(is_current=True).first()
     if not period:
         abort(400)
+    member = db.session.get(User, user_id)
+    if not member or member.status != "approved":
+        abort(404)
 
     due = FundDue.query.filter_by(period_id=period.id, user_id=user_id).first()
     if not due:
@@ -136,6 +161,8 @@ def toggle_due(user_id):
 
     due.da_dong = not due.da_dong
     due.ngay_dong = datetime.utcnow().date() if due.da_dong else None
+    db.session.flush()
+    audit(current_user, "legacy_fund_due_toggle", due, {"paid": due.da_dong})
     db.session.commit()
     return redirect(url_for("funds.funds_home"))
 
@@ -176,14 +203,17 @@ def export_funds_excel():
     ws = wb.active
     ws.title = "Thu chi"
     ws.append(["Ngay", "Danh muc", "Noi dung", "So tien"])
-    if period:
+    if period and _is_thu_quy():
         for tx in FundTransaction.query.filter_by(period_id=period.id):
             ws.append([tx.ngay.isoformat(), tx.danh_muc, tx.noi_dung, tx.so_tien])
 
     ws2 = wb.create_sheet("Dong quy")
     ws2.append(["Ho ten", "MSSV", "Da dong"])
     if period:
-        for due in FundDue.query.filter_by(period_id=period.id):
+        due_query = FundDue.query.filter_by(period_id=period.id)
+        if not _is_thu_quy():
+            due_query = due_query.filter_by(user_id=current_user.id)
+        for due in due_query:
             ws2.append([due.user.ho_ten, due.user.mssv, "Co" if due.da_dong else "Chua"])
 
     buf = io.BytesIO()

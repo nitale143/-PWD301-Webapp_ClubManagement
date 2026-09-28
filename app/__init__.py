@@ -9,9 +9,11 @@ login_manager.login_view = "auth.login"
 login_manager.login_message = "Vui long dang nhap de tiep tuc."
 
 
-def create_app():
+def create_app(config_override=None):
     app = Flask(__name__, instance_relative_config=True)
     app.config.from_object("app.config.Config")
+    if config_override:
+        app.config.update(config_override)
 
     os.makedirs(app.instance_path, exist_ok=True)
 
@@ -29,6 +31,7 @@ def create_app():
     from app.routes.ai import ai_bp
     from app.routes.admin import admin_bp
     from app.routes.profile import profile_bp
+    from app.routes.api import api_bp
 
     app.register_blueprint(auth_bp)
     app.register_blueprint(main_bp)
@@ -38,6 +41,7 @@ def create_app():
     app.register_blueprint(ai_bp)
     app.register_blueprint(admin_bp)
     app.register_blueprint(profile_bp)
+    app.register_blueprint(api_bp)
 
     with app.app_context():
         db.create_all()

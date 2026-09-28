@@ -33,6 +33,15 @@ def validate_registration(form):
     ban_ids = form.getlist("ban_hoat_dong") if hasattr(form, "getlist") else form.get("ban_hoat_dong")
     if not ban_ids:
         errors["ban_hoat_dong"] = "Vui long chon it nhat 1 ban hoat dong."
+    else:
+        from app.models import Ban
+        ids = ban_ids if isinstance(ban_ids, list) else [ban_ids]
+        try:
+            unique_ids = {int(value) for value in ids}
+        except (TypeError, ValueError):
+            unique_ids = set()
+        if not unique_ids or Ban.query.filter(Ban.id.in_(unique_ids)).count() != len(unique_ids):
+            errors["ban_hoat_dong"] = "Ban hoat dong khong hop le."
 
     sdt = form.get("sdt", "").strip()
     if not PHONE_RE.match(sdt):

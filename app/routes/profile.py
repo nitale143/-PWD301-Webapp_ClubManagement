@@ -6,6 +6,8 @@ from werkzeug.utils import secure_filename
 from app import db
 from app.models import User, MemberActivity, FundDue
 from app.permissions import approved_required
+from app.services.access import can_view_member, can_view_all_members
+from flask import abort
 
 profile_bp = Blueprint("profile", __name__)
 
@@ -25,8 +27,10 @@ def view_profile(user_id=None):
     Xem nguoi khac chi hien thong tin cong khai (giong rule trang Member).
     """
     user = User.query.get_or_404(user_id) if user_id else current_user
+    if not can_view_member(current_user, user):
+        abort(403)
     is_self = user.id == current_user.id
-    can_see_full = is_self or current_user.is_bdh()
+    can_see_full = is_self or can_view_all_members(current_user)
 
     activities = (
         MemberActivity.query.filter_by(user_id=user.id)

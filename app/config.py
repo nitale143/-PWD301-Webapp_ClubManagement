@@ -62,6 +62,8 @@ class Config:
     AI_PROVIDER = os.environ.get("AI_PROVIDER", "anthropic")
     AI_API_KEY = os.environ.get("AI_API_KEY", "")
     AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
+    AI_WORKSPACE_ID = os.environ.get("AI_WORKSPACE_ID", "")
+    AI_TIMEOUT_SECONDS = 20
 
     # --- Upload avatar (luu truc tiep tren server, phuc vu demo) ---
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "app", "static", "uploads", "avatars")

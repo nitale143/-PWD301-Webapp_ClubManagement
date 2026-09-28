@@ -1,40 +1,19 @@
-from flask import Blueprint, render_template, request, redirect, url_for
+from flask import Blueprint, render_template, request, redirect, url_for, flash
 from flask_login import login_required, current_user
 
 from app import db
-from app.models import ChatMessage
-from app.permissions import approved_required
+from app.models import AIProposal, Ban, ChatMessage, Event
+from app.permissions import approved_required, bdh_required
+from app.services.assistant import get_provider
+from app.services.access import is_board
+from app.services.common import audit, DomainError
+from app.services.proposals import can_review, create_proposal, proposal_preview, review_proposal
 
 ai_bp = Blueprint("ai", __name__)
 
 
-def generate_ai_reply(user_message: str) -> str:
-    """
-    O day la noi ket noi voi mot LLM that (vi du Anthropic API) de:
-      - tom tat/loc/sap xep danh sach thanh vien theo yeu cau BDH
-      - tong hop su kien, tinh hoat dong theo ban
-      - de xuat chia task con (chi thuc thi sau khi BDH duyet)
-      - soan mail thong bao khi doi trang thai / canh bao deadline 7 ngay
-
-    Quyet dinh thiet ke: dung 1 API key CHUNG do CLB quan ly (cau hinh o
-    app/config.py: AI_PROVIDER, AI_API_KEY, AI_MODEL - lay tu bien moi
-    truong), KHONG cho tung thanh vien tu nhap API key rieng. Ly do: tranh
-    phai luu tru/ma hoa key ca nhan cua tung nguoi, de kiem soat chi phi
-    chung, va da so thanh vien khong ranh ky thuat de tu lay API key.
-
-    Hien tai la ham stub (chua goi API that vi chua co AI_API_KEY) de
-    webapp chay duoc ngay. De ket noi that: doc current_app.config["AI_API_KEY"],
-    goi API model, truyen kem du lieu member/event/fund lien quan (query
-    tu DB) lam ngu canh (context) cho model.
-    """
-    return (
-        "(AI Agent demo) Da nhan yeu cau: \""
-        + user_message
-        + "\". Ket noi mot LLM that (vi du qua Anthropic API, dung chung "
-        "1 API key cau hinh o AI_API_KEY) trong app/routes/ai.py -> "
-        "generate_ai_reply() de tra loi thuc te dua tren du lieu thanh vien "
-        "/ su kien / quy hien co."
-    )
+def generate_ai_reply(user_message: str) -> dict:
+    return get_provider().answer(current_user, user_message)
 
 
 @ai_bp.route("/ai", methods=["GET", "POST"])
@@ -43,10 +22,19 @@ def generate_ai_reply(user_message: str) -> str:
 def ai_chat():
     if request.method == "POST":
         content = request.form.get("message", "").strip()
-        if content:
+        if content and len(content) <= 2000:
             db.session.add(ChatMessage(user_id=current_user.id, role="user", content=content))
-            reply = generate_ai_reply(content)
+            try:
+                result = generate_ai_reply(content)
+                reply = result["answer"]
+                intent = result["intent"]
+                provider = result.get("provider", "rules")
+            except DomainError as exc:
+                reply = str(exc)
+                intent = "denied"
+                provider = "error"
             db.session.add(ChatMessage(user_id=current_user.id, role="ai", content=reply))
+            audit(current_user, "assistant_query", current_user, {"intent": intent, "provider": provider})
             db.session.commit()
         return redirect(url_for("ai.ai_chat"))
 
@@ -55,4 +43,41 @@ def ai_chat():
         .order_by(ChatMessage.thoi_gian.asc())
         .all()
     )
-    return render_template("ai.html", history=history)
+    proposals = []
+    if is_board(current_user):
+        query = AIProposal.query.filter_by(status="pending").order_by(AIProposal.created_at.desc())
+        if current_user.chuc_vu == "TB":
+            query = query.filter_by(created_by_id=current_user.id)
+        proposals = [proposal for proposal in query.limit(30) if can_review(current_user, proposal)]
+    return render_template("ai.html", history=history, proposals=proposals,
+                           proposal_preview=proposal_preview,
+                           bans=Ban.query.all() if is_board(current_user) else [],
+                           events=Event.query.filter(Event.trang_thai.notin_(["da_ket_thuc", "cancelled"])).all()
+                           if is_board(current_user) else [])
+
+
+@ai_bp.route("/ai/proposals/new", methods=["POST"])
+@login_required
+@bdh_required
+def proposal_new():
+    try:
+        create_proposal(current_user, request.form)
+        flash("Đã tạo bản xem trước. Cần BDH duyệt trước khi áp dụng.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("ai.ai_chat"))
+
+
+@ai_bp.route("/ai/proposals/<int:proposal_id>/<decision>", methods=["POST"])
+@login_required
+@bdh_required
+def proposal_review(proposal_id, decision):
+    proposal = AIProposal.query.get_or_404(proposal_id)
+    try:
+        review_proposal(current_user, proposal, decision)
+        flash("Đã duyệt và áp dụng đề xuất." if decision == "approved" else "Đã từ chối đề xuất.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("ai.ai_chat"))

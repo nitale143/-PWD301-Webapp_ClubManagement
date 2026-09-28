@@ -7,7 +7,7 @@
 {% if current_user.chuc_vu != 'THANH_VIEN' %}
 <details class="new-task-box">
     <summary>Nhuong quyen chuc vu cua ban ({{ current_user.chuc_vu }})</summary>
-    <form method="post" action="#">
+    <form method="post" action="{{ url_for('admin.nhuong_quyen') }}">
         <p class="small muted">Chon thanh vien de nhuong lai chuc vu <strong>{{ current_user.chuc_vu }}</strong> cua ban. Ban se tro thanh thanh vien thuong.</p>
         <select name="target_id" id="nhuong-target">
             {% for m in members if m.id != current_user.id %}
@@ -21,8 +21,7 @@
             {% endfor %}
         </select>
         {% endif %}
-        <button type="submit" formaction="{{ url_for('admin.nhuong_quyen', user_id=0) }}"
-                onclick="this.form.action = this.form.action.replace('/0/', '/' + document.getElementById('nhuong-target').value + '/'); return true;">
+        <button type="submit">
             Xac nhan nhuong quyen
         </button>
     </form>

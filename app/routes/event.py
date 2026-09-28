@@ -11,6 +11,12 @@ from app.activity import cap_nhat_hoat_dong_khi_event_ket_thuc
 event_bp = Blueprint("event", __name__)
 
 
+def _can_manage_task(task):
+    return current_user.chuc_vu in {"CN", "PCN"} or (
+        current_user.chuc_vu == "TB" and task.ban_id in current_user.quan_ly_ban_ids()
+    )
+
+
 @event_bp.route("/event")
 @login_required
 @approved_required
@@ -25,19 +31,25 @@ def event_list():
 def event_new():
     if request.method == "POST":
         ma = request.form.get("ma_su_kien", "").strip()
+        name = request.form.get("ten_su_kien", "").strip()
+        try:
+            starts = datetime.strptime(request.form.get("thoi_gian_bat_dau", ""), "%Y-%m-%dT%H:%M")
+            ends = datetime.strptime(request.form.get("thoi_gian_ket_thuc", ""), "%Y-%m-%dT%H:%M")
+        except ValueError:
+            flash("Thoi gian su kien khong hop le.", "error")
+            return render_template("event_form.html", form=request.form)
+        if not name or not ma or ends <= starts:
+            flash("Ten, ma va thoi gian su kien khong hop le.", "error")
+            return render_template("event_form.html", form=request.form)
         if Event.query.filter_by(ma_su_kien=ma).first():
             flash("Ma su kien da ton tai, vui long chon ma khac.", "error")
             return render_template("event_form.html", form=request.form)
 
         ev = Event(
-            ten_su_kien=request.form.get("ten_su_kien", "").strip(),
+            ten_su_kien=name,
             ma_su_kien=ma,
-            thoi_gian_bat_dau=datetime.strptime(
-                request.form.get("thoi_gian_bat_dau"), "%Y-%m-%dT%H:%M"
-            ),
-            thoi_gian_ket_thuc=datetime.strptime(
-                request.form.get("thoi_gian_ket_thuc"), "%Y-%m-%dT%H:%M"
-            ),
+            thoi_gian_bat_dau=starts,
+            thoi_gian_ket_thuc=ends,
             trang_thai="sap_dien_ra",
             tao_boi_id=current_user.id,
         )
@@ -69,6 +81,8 @@ def task_new(event_id):
     (khong con co che mo cho thanh vien xung phong).
     """
     ev = Event.query.get_or_404(event_id)
+    if ev.trang_thai == "da_ket_thuc":
+        abort(400)
 
     assignee_mssv = request.form.get("assignee_mssv", "").strip()
     assignee = User.query.filter_by(mssv=assignee_mssv, status="approved").first()
@@ -77,12 +91,28 @@ def task_new(event_id):
         return redirect(url_for("event.event_detail", event_id=ev.id))
 
     ban_id = request.form.get("ban_id", type=int)
+    if not ban_id or not Ban.query.get(ban_id):
+        flash("Ban hoat dong khong hop le.", "error")
+        return redirect(url_for("event.event_detail", event_id=ev.id))
+    if current_user.chuc_vu == "TB" and ban_id not in current_user.quan_ly_ban_ids():
+        abort(403)
+    if not any(link.ban_id == ban_id for link in assignee.ban_links):
+        flash("Nguoi phu trach khong thuoc ban cua task.", "error")
+        return redirect(url_for("event.event_detail", event_id=ev.id))
+    try:
+        deadline = datetime.strptime(request.form.get("deadline", ""), "%Y-%m-%dT%H:%M")
+    except ValueError:
+        flash("Han task khong hop le.", "error")
+        return redirect(url_for("event.event_detail", event_id=ev.id))
+    if not request.form.get("ten_task", "").strip() or deadline > ev.thoi_gian_ket_thuc:
+        flash("Ten task hoac han task khong hop le.", "error")
+        return redirect(url_for("event.event_detail", event_id=ev.id))
 
     task = Task(
         event_id=ev.id,
         ten_task=request.form.get("ten_task", "").strip(),
         mo_ta=request.form.get("mo_ta", "").strip(),
-        deadline=datetime.strptime(request.form.get("deadline"), "%Y-%m-%dT%H:%M"),
+        deadline=deadline,
         assignee_id=assignee.id,
         ban_id=ban_id,
         trang_thai="dang_lam",
@@ -108,10 +138,17 @@ def task_new(event_id):
 def task_reassign(task_id):
     """BDH doi lai nguoi phu trach mot task da ton tai (van la chi dinh, khong phai xung phong)."""
     task = Task.query.get_or_404(task_id)
+    if not _can_manage_task(task):
+        abort(403)
+    if task.event.trang_thai == "da_ket_thuc" or task.trang_thai in {"hoan_thanh", "huy"}:
+        abort(400)
     mssv = request.form.get("assignee_mssv", "").strip()
     assignee = User.query.filter_by(mssv=mssv, status="approved").first()
     if not assignee:
         flash("Khong tim thay thanh vien voi MSSV nay.", "error")
+        return redirect(url_for("event.event_detail", event_id=task.event_id))
+    if task.ban_id and not any(link.ban_id == task.ban_id for link in assignee.ban_links):
+        flash("Nguoi phu trach moi khong thuoc ban cua task.", "error")
         return redirect(url_for("event.event_detail", event_id=task.event_id))
 
     task.assignee_id = assignee.id
@@ -137,6 +174,8 @@ def task_submit(task_id):
     task = Task.query.get_or_404(task_id)
     if task.assignee_id != current_user.id:
         abort(403)
+    if task.trang_thai not in {"dang_lam", "lam_lai"} or task.event.trang_thai == "da_ket_thuc":
+        abort(400)
 
     noi_dung_moi = request.form.get("noi_dung_nop", "").strip()
     # "Neu chua co thay doi trong o nop san pham thi trang thai khong duoc doi."
@@ -168,10 +207,16 @@ def task_submit(task_id):
 def task_update_status(task_id):
     """BDH doi trang thai: lam_lai (can nhan xet) / hoan_thanh / huy. Khong duoc tu dat 'dang_lam' hay 'cho_duyet'."""
     task = Task.query.get_or_404(task_id)
+    if not _can_manage_task(task):
+        abort(403)
+    if task.event.trang_thai == "da_ket_thuc" or task.trang_thai in {"hoan_thanh", "huy"}:
+        abort(400)
     new_status = request.form.get("trang_thai")
     nhan_xet = request.form.get("nhan_xet_bdh", "").strip()
 
     if new_status not in ("lam_lai", "hoan_thanh", "huy"):
+        abort(400)
+    if new_status in {"lam_lai", "hoan_thanh"} and task.trang_thai != "cho_duyet":
         abort(400)
     if new_status == "lam_lai" and not nhan_xet:
         flash("Phai nhap nhan xet khi yeu cau lam lai.", "error")
@@ -205,6 +250,10 @@ def event_end(event_id):
     trang hoat dong cua cac thanh vien lien quan (theo ban) duoc cap nhat lai.
     """
     ev = Event.query.get_or_404(event_id)
+    if ev.trang_thai == "da_ket_thuc":
+        abort(400)
+    if current_user.chuc_vu == "TB" and any(task.ban_id not in current_user.quan_ly_ban_ids() for task in ev.tasks):
+        abort(403)
     ev.trang_thai = "da_ket_thuc"
     db.session.commit()
 

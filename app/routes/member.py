@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 
 from app.models import User, Ban
 from app.permissions import approved_required
+from app.services.access import visible_members, can_view_all_members
 
 member_bp = Blueprint("member", __name__)
 
@@ -18,7 +19,7 @@ def _parse_filters():
 def _filtered_members():
     q, ban_id, sort_by = _parse_filters()
 
-    members = User.query.filter_by(status="approved")
+    members = visible_members(current_user)
 
     if q:
         like = f"%{q}%"
@@ -48,7 +49,7 @@ def member_list():
         "member.html",
         members=members,
         bans=bans,
-        is_bdh=current_user.is_bdh(),
+        is_bdh=can_view_all_members(current_user),
         selected_q=q,
         selected_ban_id=ban_id,
         selected_sort=sort_by,
@@ -67,7 +68,7 @@ def export_excel():
     ws = wb.active
     ws.title = "Danh sach thanh vien"
 
-    if current_user.is_bdh():
+    if can_view_all_members(current_user):
         headers = ["Ho ten", "MSSV", "Chuc vu", "Ban hoat dong", "SDT", "Email", "Tinh trang HD"]
     else:
         headers = ["Ho ten", "MSSV", "Chuc vu", "Ban hoat dong"]
@@ -76,7 +77,7 @@ def export_excel():
     for m in members:
         ban_names = ", ".join(link.ban.ten_ban for link in m.ban_links)
         row = [m.ho_ten, m.mssv, m.chuc_vu, ban_names]
-        if current_user.is_bdh():
+        if can_view_all_members(current_user):
             row += [m.sdt, m.email, m.hoat_dong_status]
         ws.append(row)
 

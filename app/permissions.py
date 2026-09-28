@@ -10,6 +10,7 @@ Quy tac quyen han (theo yeu cau):
 from functools import wraps
 from flask import abort
 from flask_login import current_user
+from app.services.access import approved, is_board, can_manage_member
 
 
 def approved_required(view_func):
@@ -19,7 +20,7 @@ def approved_required(view_func):
     def wrapped(*args, **kwargs):
         if not current_user.is_authenticated:
             abort(401)
-        if current_user.status != "approved":
+        if not approved(current_user):
             abort(403)
         return view_func(*args, **kwargs)
 
@@ -27,11 +28,11 @@ def approved_required(view_func):
 
 
 def bdh_required(view_func):
-    """Chi BDH (bat ky chuc vu nao khac Thanh vien) moi duoc truy cap."""
+    """Chỉ Ban chủ nhiệm (CN, PCN, TB) được truy cập."""
 
     @wraps(view_func)
     def wrapped(*args, **kwargs):
-        if not current_user.is_authenticated or not current_user.is_bdh():
+        if not current_user.is_authenticated or not is_board(current_user):
             abort(403)
         return view_func(*args, **kwargs)
 
@@ -44,7 +45,7 @@ def role_required(*roles):
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(*args, **kwargs):
-            if not current_user.is_authenticated or current_user.chuc_vu not in roles:
+            if not current_user.is_authenticated or not approved(current_user) or current_user.chuc_vu not in roles:
                 abort(403)
             return view_func(*args, **kwargs)
 
@@ -63,6 +64,12 @@ def can_assign_role(assigner, target, new_role, current_counts):
     order = Config.ROLE_ORDER
     if new_role not in order:
         return False, "Chuc vu khong hop le."
+    if not approved(assigner) or not approved(target) or assigner.id == target.id:
+        return False, "Chi duoc chi dinh cho thanh vien khac da duoc duyet."
+    if assigner.chuc_vu not in {"CN", "PCN"} or not can_manage_member(assigner, target):
+        return False, "Ban khong co quyen phan vai tro nay."
+    if not assigner.outranks(target):
+        return False, "Ban chi duoc thay doi chuc vu cua nguoi co quyen thap hon."
 
     # Nguoi chi dinh phai co quyen cao hon chuc vu moi (khong duoc ngang hoac thap hon)
     if order.index(assigner.chuc_vu) >= order.index(new_role):
