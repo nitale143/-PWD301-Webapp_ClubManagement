@@ -14,6 +14,52 @@
     {% endif %}
 </div>
 
+<div class="new-task-box">
+    <h2>Tham gia sự kiện</h2>
+    {% if detail %}<p class="muted small">{{ detail.dia_diem }}{% if detail.so_nguoi_toi_da %} · Tối đa {{ detail.so_nguoi_toi_da }} người{% endif %}{% if detail.han_dang_ky %} · Hạn đăng ký {{ detail.han_dang_ky.strftime('%d/%m/%Y %H:%M') }}{% endif %}</p>{% endif %}
+    <p class="small">Đã đăng ký: {{ registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length }} · Chờ: {{ registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length }}</p>
+    {% if registration and registration.trang_thai != 'cancelled' %}
+        <p>Trạng thái của bạn: <strong>{{ registration.trang_thai }}</strong>{% if registration.attendance %} · Điểm danh: {{ registration.attendance.trang_thai }}{% endif %}</p>
+        {% if event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
+        <form method="post" action="{{ url_for('event.event_cancel_registration', event_id=event.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit" class="btn-secondary">Hủy đăng ký</button>
+        </form>
+        {% endif %}
+    {% elif can_register %}
+        <form method="post" action="{{ url_for('event.event_register', event_id=event.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Đăng ký tham gia</button>
+        </form>
+    {% endif %}
+    {% if registration and registration.trang_thai == 'registered' and event.trang_thai == 'da_ket_thuc' %}
+    <form method="post" action="{{ url_for('event.event_feedback', event_id=event.id) }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Đánh giá sự kiện</label><select name="rating">{% for score in range(5, 0, -1) %}<option value="{{ score }}" {% if prior_feedback and prior_feedback.danh_gia == score %}selected{% endif %}>{{ score }} sao</option>{% endfor %}</select>
+        <label>Nhận xét</label><textarea name="comment">{{ prior_feedback.binh_luan if prior_feedback else '' }}</textarea>
+        <button type="submit">Lưu đánh giá</button>
+    </form>
+    {% endif %}
+</div>
+
+{% if is_board %}
+<details class="new-task-box">
+    <summary>Điểm danh sự kiện</summary>
+    <p class="muted small">Mã QR hết hạn sau 15 phút; tải lại trang để lấy mã mới.</p>
+    <img src="{{ url_for('api.event_qr_png', event_id=event.id) }}" alt="Mã QR điểm danh" width="180" height="180">
+    <table class="data-table">
+        <thead><tr><th>Thành viên</th><th>Đăng ký</th><th>Điểm danh</th><th>Cập nhật</th></tr></thead>
+        <tbody>{% for item in registrations if item.trang_thai == 'registered' %}
+        <tr><td>{{ item.user.ho_ten }}</td><td>{{ item.trang_thai }}</td><td>{{ item.attendance.trang_thai if item.attendance else 'pending' }}</td>
+            <td><form method="post" action="{{ url_for('event.event_manual_attendance', event_id=event.id, registration_id=item.id) }}" class="inline-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <select name="status"><option value="on_time">Có mặt</option><option value="late">Đi muộn</option><option value="excused">Có phép</option><option value="absent">Vắng</option></select>
+                <input name="note" placeholder="Ghi chú"><button type="submit">Lưu</button>
+            </form></td></tr>{% endfor %}</tbody>
+    </table>
+</details>
+{% endif %}
+
 {% if is_bdh %}
 <details class="new-task-box">
     <summary>+ Them task con</summary>

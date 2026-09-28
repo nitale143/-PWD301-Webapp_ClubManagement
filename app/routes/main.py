@@ -1,9 +1,9 @@
-from datetime import datetime
 from flask import Blueprint, render_template
 from flask_login import login_required, current_user
 
 from app.models import Notification, Event, Task
 from app.permissions import approved_required
+from app.services.common import club_now
 
 main_bp = Blueprint("main", __name__)
 
@@ -22,7 +22,8 @@ def home():
 
     # Cot phai: su kien sap dien ra + nguoi tham gia/duoc giao task
     upcoming_events = (
-        Event.query.filter(Event.trang_thai.in_(["sap_dien_ra", "dang_dien_ra"]))
+        Event.query.filter(Event.trang_thai.in_(["sap_dien_ra", "dang_dien_ra"]),
+                           Event.thoi_gian_ket_thuc >= club_now())
         .order_by(Event.thoi_gian_bat_dau.asc())
         .limit(5)
         .all()

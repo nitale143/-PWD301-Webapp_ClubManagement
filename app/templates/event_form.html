@@ -4,6 +4,7 @@
 <div class="auth-box wide">
     <h1>Tao su kien moi</h1>
     <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Ten su kien</label>
         <input type="text" name="ten_su_kien" value="{{ form.get('ten_su_kien','') }}" required>
 
@@ -15,6 +16,11 @@
 
         <label>Thoi gian ket thuc</label>
         <input type="datetime-local" name="thoi_gian_ket_thuc" required>
+
+        <label>Địa điểm</label><input type="text" name="dia_diem" value="{{ form.get('dia_diem','') }}">
+        <label>Nội dung</label><textarea name="noi_dung">{{ form.get('noi_dung','') }}</textarea>
+        <label>Hạn đăng ký (nếu có)</label><input type="datetime-local" name="han_dang_ky">
+        <label>Số người tối đa (nếu có)</label><input type="number" name="so_nguoi_toi_da" min="1">
 
         <button type="submit">Tao su kien</button>
     </form>

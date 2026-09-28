@@ -8,6 +8,7 @@
 <details class="new-task-box">
     <summary>Nhuong quyen chuc vu cua ban ({{ current_user.chuc_vu }})</summary>
     <form method="post" action="{{ url_for('admin.nhuong_quyen') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <p class="small muted">Chon thanh vien de nhuong lai chuc vu <strong>{{ current_user.chuc_vu }}</strong> cua ban. Ban se tro thanh thanh vien thuong.</p>
         <select name="target_id" id="nhuong-target">
             {% for m in members if m.id != current_user.id %}
@@ -39,6 +40,7 @@
             <td>{{ m.ban_links|selectattr('is_truong_ban')|map(attribute='ban.ten_ban')|join(', ') }}</td>
             <td>
                 <form method="post" action="{{ url_for('admin.assign_role', user_id=m.id) }}" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <select name="chuc_vu">
                         <option value="THANH_VIEN">Thanh vien</option>
                         <option value="THUKY_THUQUY">Thu ky/Thu quy</option>

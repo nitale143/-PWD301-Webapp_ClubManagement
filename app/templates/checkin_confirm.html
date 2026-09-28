@@ -1,0 +1,12 @@
+{% extends "base.html" %}
+{% block title %}Điểm danh{% endblock %}
+{% block content %}
+<div class="auth-box wide">
+    <h1>Điểm danh: {{ event.ten_su_kien }}</h1>
+    <p class="muted">Xác nhận điểm danh bằng tài khoản của bạn.</p>
+    <form method="post">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Xác nhận điểm danh</button>
+    </form>
+</div>
+{% endblock %}

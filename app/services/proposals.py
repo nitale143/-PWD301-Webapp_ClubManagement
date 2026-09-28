@@ -11,7 +11,7 @@ from app.models import (
 )
 from .access import approved, is_board, require
 from .assistant import AnthropicProvider, get_provider
-from .common import DomainError, audit, parse_datetime
+from .common import DomainError, audit, club_now, parse_datetime
 
 
 def _integer(value, label):
@@ -54,7 +54,7 @@ def _model_suggestion(provider, kind, brief, context):
 def _event_payload(actor, data, brief, provider):
     start = parse_datetime(data.get("start_at"), "Giờ bắt đầu")
     end = parse_datetime(data.get("end_at"), "Giờ kết thúc")
-    if start <= datetime.utcnow() or end <= start:
+    if start <= club_now() or end <= start:
         raise DomainError("Sự kiện phải bắt đầu trong tương lai và kết thúc sau khi bắt đầu.")
     ban_id = _integer(data["ban_id"], "Mã ban") if data.get("ban_id") else None
     if ban_id and not db.session.get(Ban, ban_id):
@@ -96,7 +96,7 @@ def _task_payload(actor, data, brief, provider):
     if actor.chuc_vu == "TB" and ban_id not in actor.quan_ly_ban_ids():
         raise DomainError("Trưởng ban chỉ được chia task cho ban mình quản lý.", 403)
     deadline = parse_datetime(data.get("deadline"), "Hạn task")
-    if deadline <= datetime.utcnow() or deadline > event.thoi_gian_ket_thuc:
+    if deadline <= club_now() or deadline > event.thoi_gian_ket_thuc:
         raise DomainError("Hạn task phải còn hiệu lực và không sau khi sự kiện kết thúc.")
     candidates = (User.query.join(UserBan).filter(UserBan.ban_id == ban_id,
                     User.status == "approved").order_by(User.id).all())
@@ -177,13 +177,21 @@ def review_proposal(actor, proposal, decision):
         raise DomainError("Đề xuất đã được xử lý.")
     if decision not in {"approved", "rejected"}:
         raise DomainError("Quyết định không hợp lệ.")
+    # Claim the pending row atomically before creating anything. A second reviewer
+    # will see rowcount=0 after the first transaction commits.
+    claimed = db.session.execute(
+        db.update(AIProposal).where(AIProposal.id == proposal.id, AIProposal.status == "pending")
+        .values(status=decision)
+    )
+    if claimed.rowcount != 1:
+        raise DomainError("Đề xuất đã được xử lý.")
     ids = []
     if decision == "approved":
         payload = proposal.payload
         if proposal.kind == "event":
             start = parse_datetime(payload["start_at"], "Giờ bắt đầu")
             end = parse_datetime(payload["end_at"], "Giờ kết thúc")
-            if start <= datetime.utcnow() or end <= start:
+            if start <= club_now() or end <= start:
                 raise DomainError("Thời gian sự kiện đã qua; hãy tạo đề xuất mới.")
             code = "AI" + secrets.token_hex(6).upper()
             event = Event(ten_su_kien=payload["name"], ma_su_kien=code,
@@ -203,7 +211,7 @@ def review_proposal(actor, proposal, decision):
         else:
             event = db.session.get(Event, payload["event_id"])
             deadline = parse_datetime(payload["deadline"], "Hạn task")
-            if not event or event.trang_thai in {"da_ket_thuc", "cancelled"} or deadline <= datetime.utcnow() or deadline > event.thoi_gian_ket_thuc:
+            if not event or event.trang_thai in {"da_ket_thuc", "cancelled"} or deadline <= club_now() or deadline > event.thoi_gian_ket_thuc:
                 raise DomainError("Sự kiện hoặc hạn task không còn hợp lệ.")
             for item in payload["tasks"]:
                 member = db.session.get(User, item["assignee_id"])

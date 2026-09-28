@@ -6,7 +6,70 @@
     {% if period %}
     <a class="btn-secondary" href="{{ url_for('funds.export_funds_excel') }}">Xuat Excel</a>
     {% endif %}
+    {% if is_thu_quy %}<a class="btn-secondary" href="{{ url_for('api.fund_report') }}">Xuất báo cáo khoản thu</a>{% endif %}
 </div>
+
+{% if is_thu_quy %}
+<details class="new-task-box">
+    <summary>+ Tạo khoản thu mới</summary>
+    <form method="post" action="{{ url_for('funds.collection_new') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Tên khoản thu</label><input name="name" required maxlength="180">
+        <label>Loại</label>
+        <select name="type"><option value="monthly">Hằng tháng</option><option value="semester">Học kỳ</option><option value="yearly">Hằng năm</option><option value="event">Sự kiện</option><option value="voluntary">Tự nguyện</option><option value="other">Khác</option></select>
+        <label>Số tiền</label><input type="number" name="amount" min="0" step="0.01" required>
+        <label>Ngày bắt đầu</label><input type="date" name="start_date" required>
+        <label>Hạn đóng</label><input type="date" name="due_date" required>
+        <label>Mô tả</label><textarea name="description"></textarea>
+        <button type="submit">Mở khoản thu</button>
+    </form>
+</details>
+{% endif %}
+
+<h2>Khoản thu</h2>
+<table class="data-table">
+    <thead><tr><th>Khoản thu</th><th>Hạn đóng</th><th>Trạng thái</th><th>Đã đóng / Còn thiếu</th><th>Thanh toán</th></tr></thead>
+    <tbody>
+    {% for row in collection_rows %}
+    <tr>
+        <td>{{ row.fund.ten_khoan_thu }}<br><span class="muted small">{{ row.fund.loai }} · {{ row.fund.so_tien }} đ</span></td>
+        <td>{{ row.fund.han_dong.strftime('%d/%m/%Y') }}</td>
+        <td>{{ row.fund.trang_thai }}{% if row.balance %} · {{ row.balance.status }}{% endif %}</td>
+        <td>{% if row.balance %}{{ row.balance.paid }} / {{ row.balance.remaining }} đ{% else %}Không áp dụng{% endif %}</td>
+        <td>{% if row.balance and row.fund.trang_thai == 'open' and (row.balance.remaining > 0 or row.fund.loai == 'voluntary') %}
+            <form method="post" action="{{ url_for('funds.collection_pay', fund_id=row.fund.id) }}">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="number" name="amount" min="0.01" step="0.01" max="{{ row.balance.remaining if row.fund.loai != 'voluntary' else '' }}" placeholder="Số tiền" required>
+                <select name="method"><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="other">Khác</option></select>
+                <input name="transaction_code" placeholder="Mã giao dịch (nếu có)">
+                <button type="submit">Gửi xác nhận</button>
+            </form>
+            {% endif %}</td>
+    </tr>
+    {% else %}
+    <tr><td colspan="5" class="muted">Chưa có khoản thu nào.</td></tr>
+    {% endfor %}
+    </tbody>
+</table>
+
+{% if is_thu_quy and pending_payments %}
+<h2>Giao dịch chờ xác nhận</h2>
+<table class="data-table">
+    <thead><tr><th>Thành viên</th><th>Khoản thu</th><th>Số tiền</th><th>Phương thức / Mã</th><th>Xử lý</th></tr></thead>
+    <tbody>{% for payment in pending_payments %}
+    <tr>
+        <td>{{ payment_members[payment.user_id].ho_ten }}</td><td>{{ collection_names[payment.fund_id] }}</td>
+        <td>{{ payment.so_tien }} đ</td><td>{{ payment.phuong_thuc }} · {{ payment.ma_giao_dich }}</td>
+        <td><form method="post" action="{{ url_for('funds.collection_payment_review', payment_id=payment.id) }}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button name="decision" value="confirmed" type="submit">Xác nhận</button>
+            <button name="decision" value="rejected" type="submit" class="btn-secondary">Từ chối</button>
+        </form></td>
+    </tr>{% endfor %}</tbody>
+</table>
+{% endif %}
+
+<h2>Quỹ theo kỳ</h2>
 
 {% if is_thu_quy %}
 <details class="new-task-box">

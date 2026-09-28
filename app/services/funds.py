@@ -1,4 +1,4 @@
-from datetime import date, datetime
+from datetime import datetime
 from decimal import Decimal
 
 from app import db
@@ -7,7 +7,7 @@ from app.models import (
     MemberRecord, User, UserBan,
 )
 from .access import approved, is_treasurer, require
-from .common import DomainError, audit, parse_date, parse_money
+from .common import DomainError, audit, club_now, parse_date, parse_money
 
 
 COLLECTION_TYPES = {"monthly", "semester", "yearly", "event", "voluntary", "other"}
@@ -85,7 +85,7 @@ def balance(fund, member, as_of=None):
     paid = sum((payment.so_tien for payment in confirmed), Decimal("0.00"))
     remaining = max(Decimal("0.00"), required - paid)
     pending = FundPayment.query.filter_by(fund_id=fund.id, user_id=member.id, trang_thai="pending").count() > 0
-    today = as_of or date.today()
+    today = as_of or club_now().date()
     if adjustment and adjustment.loai == "exempt":
         state = "exempt"
     elif remaining == 0:
@@ -139,6 +139,12 @@ def review_payment(actor, payment, decision, note=""):
         raise DomainError("Chỉ có thể duyệt giao dịch đang chờ xác nhận.")
     if decision not in {"confirmed", "rejected"}:
         raise DomainError("Quyết định xác nhận không hợp lệ.")
+    claimed = db.session.execute(
+        db.update(FundPayment).where(FundPayment.id == payment.id, FundPayment.trang_thai == "pending")
+        .values(trang_thai=decision, xac_nhan_boi_id=actor.id)
+    )
+    if claimed.rowcount != 1:
+        raise DomainError("Giao dịch đã được xử lý.")
     payment.trang_thai = decision
     payment.xac_nhan_boi_id = actor.id
     payment.xac_nhan_luc = datetime.utcnow()

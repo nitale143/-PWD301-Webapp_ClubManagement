@@ -13,12 +13,13 @@ rieng), luu y 2 diem khi trien khai that:
      Celery beat, thay vi chay chung trong web process.
 """
 import os
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from apscheduler.schedulers.background import BackgroundScheduler
 
 from app import db
 from app.mail import send_email
+from app.services.common import club_now
 
 _scheduler = None
 
@@ -32,7 +33,7 @@ def init_scheduler(app):
     if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
         return
 
-    _scheduler = BackgroundScheduler(daemon=True, timezone="Asia/Ho_Chi_Minh")
+    _scheduler = BackgroundScheduler(daemon=True, timezone=app.config["APP_TIMEZONE"])
     _scheduler.add_job(
         func=lambda: check_deadlines(app),
         trigger="cron",
@@ -59,7 +60,7 @@ def check_deadlines(app):
 
     with app.app_context():
         warn_days = app.config["DEADLINE_WARNING_DAYS"]
-        target_date = (datetime.utcnow() + timedelta(days=warn_days)).date()
+        target_date = (club_now() + timedelta(days=warn_days)).date()
 
         tasks = Task.query.filter(Task.trang_thai.in_(["dang_lam", "lam_lai"])).all()
         for task in tasks:
@@ -93,7 +94,7 @@ def check_period_reminder(app):
         if not period or not period.ngay_ket_thuc or period.da_nhac_ky_moi:
             return
 
-        so_ngay_con_lai = (period.ngay_ket_thuc - datetime.utcnow().date()).days
+        so_ngay_con_lai = (period.ngay_ket_thuc - club_now().date()).days
         if so_ngay_con_lai > app.config["PERIOD_REMINDER_DAYS"]:
             return
 

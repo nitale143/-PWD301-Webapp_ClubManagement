@@ -8,7 +8,7 @@ from io import StringIO
 import os
 import secrets
 
-from flask import Blueprint, current_app, jsonify, request, send_file
+from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 from flask_login import current_user
 from openpyxl import Workbook, load_workbook
 import qrcode
@@ -28,7 +28,7 @@ from app.services.access import (
 from app.services.activities import activity_stats, manual_point, DEFAULT_POINTS, DEFAULT_THRESHOLDS
 from app.services.assistant import get_provider
 from app.services.proposals import create_proposal, proposal_preview, review_proposal
-from app.services.common import DomainError, audit, member_record, parse_datetime
+from app.services.common import DomainError, audit, club_now, member_record, parse_datetime
 from app.services.common import parse_date
 from app.services.events import (
     cancel_registration, feedback, manual_attendance, qr_checkin, qr_token, register,
@@ -37,6 +37,7 @@ from app.services.funds import (
     adjust_fund, balance, create_collection, record_payment, review_payment,
     target_members,
 )
+from app.security import require_csrf
 from app.validators import EMAIL_RE, MSSV_RE, PHONE_RE
 
 
@@ -109,8 +110,8 @@ def _create_member(data):
     if len(password) < 8:
         raise DomainError("Mật khẩu ban đầu phải có ít nhất 8 ký tự.")
     birth = parse_date(data.get("birth_date"), "Ngày sinh")
-    joined = parse_date(data.get("joined_at"), "Ngày gia nhập") if data.get("joined_at") else datetime.utcnow().date()
-    if birth >= datetime.utcnow().date() or joined < birth:
+    joined = parse_date(data.get("joined_at"), "Ngày gia nhập") if data.get("joined_at") else club_now().date()
+    if birth >= club_now().date() or joined < birth:
         raise DomainError("Ngày sinh hoặc ngày gia nhập không hợp lệ.")
     raw_departments = data.get("department_ids", [])
     if isinstance(raw_departments, str):
@@ -632,7 +633,7 @@ def event_qr_png(event_id):
     event = db.get_or_404(Event, event_id)
     token = qr_token(current_user, event)
     stream = BytesIO()
-    qrcode.make(token).save(stream, format="PNG")
+    qrcode.make(url_for("event.event_qr_checkin", event_id=event.id, token=token, _external=True)).save(stream, format="PNG")
     stream.seek(0)
     return send_file(stream, mimetype="image/png", download_name=f"event-{event.id}-checkin.png")
 
@@ -692,12 +693,14 @@ def assistant_proposals():
 
 @api_bp.post("/assistant/proposals")
 def assistant_proposal_create():
+    require_csrf()
     proposal = create_proposal(current_user, body())
     return jsonify(proposal_json(proposal)), 201
 
 
 @api_bp.post("/assistant/proposals/<int:proposal_id>/review")
 def assistant_proposal_review(proposal_id):
+    require_csrf()
     proposal = db.get_or_404(AIProposal, proposal_id)
     data = body()
     review_proposal(current_user, proposal, data.get("decision"))
@@ -753,7 +756,7 @@ def dashboard():
     required = sum((item[2]["required"] for item in balances), Decimal("0.00"))
     paid = sum((item[2]["paid"] for item in balances), Decimal("0.00"))
     remaining = sum((item[2]["remaining"] for item in balances), Decimal("0.00"))
-    upcoming = Event.query.filter(Event.thoi_gian_bat_dau >= datetime.utcnow()).order_by(Event.thoi_gian_bat_dau).limit(5).all()
+    upcoming = Event.query.filter(Event.thoi_gian_bat_dau >= club_now()).order_by(Event.thoi_gian_bat_dau).limit(5).all()
     return jsonify(members=len(members), active_members=sum(member_record(m).tinh_trang == "active" for m in members),
                    low_activity=sum(s["classification"] in {"Ít hoạt động", "Không hoạt động"} for s in stats),
                    fund_required=str(required), fund_paid=str(paid), fund_remaining=str(remaining),

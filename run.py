@@ -7,9 +7,19 @@ from datetime import date
 from dotenv import load_dotenv
 from app import create_app, db
 from app.models import User, Ban
+from app.migrations import migrate_legacy_money
 
 load_dotenv()
 app = create_app()
+
+
+@app.cli.command("migrate-money")
+def migrate_money():
+    """Back up and upgrade legacy fund_transaction.so_tien FLOAT to NUMERIC."""
+    if db.engine.url.get_backend_name() != "sqlite" or not db.engine.url.database:
+        raise RuntimeError("Lệnh này chỉ hỗ trợ SQLite database trên đĩa.")
+    backup = migrate_legacy_money(db.engine.url.database)
+    print(f"Đã cập nhật cột tiền. Bản sao lưu: {backup}" if backup else "Cột tiền đã đúng kiểu; không cần cập nhật.")
 
 
 @app.cli.command("init-db")

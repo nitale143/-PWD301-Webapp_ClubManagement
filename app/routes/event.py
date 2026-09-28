@@ -3,10 +3,13 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 
 from app import db
-from app.models import Event, Task, User, Ban
+from app.models import Event, EventDetail, EventRegistration, EventFeedback, Task, User, Ban
 from app.permissions import approved_required, bdh_required
+from app.security import require_csrf
 from app.mail import send_email
 from app.activity import cap_nhat_hoat_dong_khi_event_ket_thuc
+from app.services.common import DomainError, club_now
+from app.services.events import cancel_registration, eligible, feedback, manual_attendance, qr_checkin, register, registration_open
 
 event_bp = Blueprint("event", __name__)
 
@@ -30,15 +33,20 @@ def event_list():
 @bdh_required
 def event_new():
     if request.method == "POST":
+        require_csrf()
         ma = request.form.get("ma_su_kien", "").strip()
         name = request.form.get("ten_su_kien", "").strip()
         try:
             starts = datetime.strptime(request.form.get("thoi_gian_bat_dau", ""), "%Y-%m-%dT%H:%M")
             ends = datetime.strptime(request.form.get("thoi_gian_ket_thuc", ""), "%Y-%m-%dT%H:%M")
+            deadline_raw = request.form.get("han_dang_ky", "").strip()
+            deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M") if deadline_raw else None
+            capacity_raw = request.form.get("so_nguoi_toi_da", "").strip()
+            capacity = int(capacity_raw) if capacity_raw else None
         except ValueError:
             flash("Thoi gian su kien khong hop le.", "error")
             return render_template("event_form.html", form=request.form)
-        if not name or not ma or ends <= starts:
+        if not name or not ma or starts <= club_now() or ends <= starts or (deadline and deadline > starts) or (capacity is not None and capacity <= 0):
             flash("Ten, ma va thoi gian su kien khong hop le.", "error")
             return render_template("event_form.html", form=request.form)
         if Event.query.filter_by(ma_su_kien=ma).first():
@@ -54,6 +62,12 @@ def event_new():
             tao_boi_id=current_user.id,
         )
         db.session.add(ev)
+        db.session.flush()
+        db.session.add(EventDetail(event_id=ev.id, loai="other",
+                                   noi_dung=request.form.get("noi_dung", "").strip(),
+                                   dia_diem=request.form.get("dia_diem", "").strip(),
+                                   han_dang_ky=deadline, so_nguoi_toi_da=capacity,
+                                   phu_trach_id=current_user.id, tat_ca_thanh_vien=True))
         db.session.commit()
         flash("Da tao su kien. Tiep tuc them task con.", "success")
         return redirect(url_for("event.event_detail", event_id=ev.id))
@@ -67,9 +81,95 @@ def event_new():
 def event_detail(event_id):
     ev = Event.query.get_or_404(event_id)
     bans = Ban.query.all()
+    registration = EventRegistration.query.filter_by(event_id=event_id, user_id=current_user.id).first()
+    registrations = EventRegistration.query.filter_by(event_id=event_id).order_by(EventRegistration.dang_ky_luc).all()
+    detail = db.session.get(EventDetail, event_id)
+    prior_feedback = EventFeedback.query.filter_by(event_id=event_id, user_id=current_user.id).first()
     return render_template(
-        "event_detail.html", event=ev, bans=bans, is_bdh=current_user.is_bdh()
+        "event_detail.html", event=ev, bans=bans,
+        is_bdh=current_user.chuc_vu in {"CN", "PCN", "TB"},
+        is_board=current_user.chuc_vu in {"CN", "PCN", "TB"},
+        registration=registration, registrations=registrations, detail=detail,
+        can_register=registration_open(ev, detail) and eligible(ev, current_user),
+        prior_feedback=prior_feedback,
     )
+
+
+@event_bp.post("/event/<int:event_id>/register")
+@login_required
+@approved_required
+def event_register(event_id):
+    require_csrf()
+    event = db.get_or_404(Event, event_id)
+    try:
+        registration, _created = register(current_user, event)
+        flash("Đã đăng ký sự kiện." if registration.trang_thai == "registered" else "Đã vào danh sách chờ.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("event.event_detail", event_id=event_id))
+
+
+@event_bp.post("/event/<int:event_id>/cancel-registration")
+@login_required
+@approved_required
+def event_cancel_registration(event_id):
+    require_csrf()
+    registration = EventRegistration.query.filter_by(event_id=event_id, user_id=current_user.id).first_or_404()
+    try:
+        cancel_registration(current_user, registration)
+        flash("Đã hủy đăng ký.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("event.event_detail", event_id=event_id))
+
+
+@event_bp.route("/event/<int:event_id>/checkin/<token>", methods=["GET", "POST"])
+@login_required
+@approved_required
+def event_qr_checkin(event_id, token):
+    event = db.get_or_404(Event, event_id)
+    if request.method == "POST":
+        require_csrf()
+        try:
+            qr_checkin(current_user, token, expected_event_id=event_id)
+            flash("Đã điểm danh thành công.", "success")
+        except DomainError as exc:
+            db.session.rollback()
+            flash(str(exc), "error")
+        return redirect(url_for("event.event_detail", event_id=event_id))
+    return render_template("checkin_confirm.html", event=event, token=token)
+
+
+@event_bp.post("/event/<int:event_id>/attendance/<int:registration_id>")
+@login_required
+@bdh_required
+def event_manual_attendance(event_id, registration_id):
+    require_csrf()
+    registration = EventRegistration.query.filter_by(id=registration_id, event_id=event_id).first_or_404()
+    try:
+        manual_attendance(current_user, registration, request.form.get("status"), request.form.get("note", ""))
+        flash("Đã cập nhật điểm danh.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("event.event_detail", event_id=event_id))
+
+
+@event_bp.post("/event/<int:event_id>/feedback")
+@login_required
+@approved_required
+def event_feedback(event_id):
+    require_csrf()
+    event = db.get_or_404(Event, event_id)
+    try:
+        feedback(current_user, event, request.form.get("rating"), request.form.get("comment", ""))
+        flash("Đã lưu đánh giá.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("event.event_detail", event_id=event_id))
 
 
 @event_bp.route("/event/<int:event_id>/task/new", methods=["POST"])

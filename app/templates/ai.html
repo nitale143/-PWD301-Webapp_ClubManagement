@@ -22,6 +22,7 @@
 <details class="new-task-box">
     <summary>Đề xuất sự kiện hoặc chia task (chỉ tạo bản xem trước)</summary>
     <form method="post" action="{{ url_for('ai.proposal_new') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <p class="small muted">Chưa ghi sự kiện/task cho đến khi BDH bấm Duyệt ở danh sách bên dưới.</p>
         <label>Loại đề xuất</label>
         <select name="kind" required>
@@ -54,9 +55,11 @@
         <span class="small muted">({{ item.provider }})</span></p>
     <pre style="white-space: pre-wrap">{{ proposal_preview(item) }}</pre>
     <form method="post" action="{{ url_for('ai.proposal_review', proposal_id=item.id, decision='approved') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit">Duyệt và áp dụng</button>
     </form>
     <form method="post" action="{{ url_for('ai.proposal_review', proposal_id=item.id, decision='rejected') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <button type="submit">Từ chối</button>
     </form>
 </div>

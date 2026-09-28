@@ -5,6 +5,8 @@ BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 class Config:
     SECRET_KEY = os.environ.get("SECRET_KEY", "doi-key-nay-truoc-khi-deploy")
+    APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Asia/Bangkok")
+    SESSION_COOKIE_SAMESITE = "Lax"
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "clb.db")
     )

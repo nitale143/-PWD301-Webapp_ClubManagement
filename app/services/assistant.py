@@ -12,7 +12,7 @@ from app import db
 from app.models import Attendance, Event, EventRegistration, FundCollection, FundPayment, User, UserBan
 from .access import can_view_all_members, is_board, is_treasurer, require, visible_members
 from .activities import activity_stats
-from .common import DomainError
+from .common import DomainError, club_now
 from .funds import balance, target_members
 
 
@@ -100,13 +100,13 @@ class RulesProvider(AssistantProvider):
 
         if "bao cao" in text:
             require(is_board(actor))
-            since = datetime.utcnow() - timedelta(days=30)
+            since = club_now() - timedelta(days=30)
             events = Event.query.filter(Event.thoi_gian_bat_dau >= since).count()
-            present = Attendance.query.filter(Attendance.checkin_luc >= since, Attendance.trang_thai.in_(["on_time", "late"])).count()
+            present = Attendance.query.filter(Attendance.checkin_luc >= datetime.utcnow() - timedelta(days=30), Attendance.trang_thai.in_(["on_time", "late"])).count()
             return {"intent": "monthly_report", "preview": True, "answer": f"Bản xem trước 30 ngày: {events} sự kiện, {present} lượt có mặt. Truy cập báo cáo để xuất dữ liệu."}
 
         if "su kien" in text and any(word in text for word in ["sap", "dien ra", "liet ke"]):
-            events = Event.query.filter(Event.thoi_gian_bat_dau >= datetime.utcnow(), Event.trang_thai.notin_(["cancelled", "draft"])).order_by(Event.thoi_gian_bat_dau).limit(20)
+            events = Event.query.filter(Event.thoi_gian_bat_dau >= club_now(), Event.trang_thai.notin_(["cancelled", "draft"])).order_by(Event.thoi_gian_bat_dau).limit(20)
             rows = [f"{e.ten_su_kien} - {e.thoi_gian_bat_dau:%d/%m/%Y %H:%M}" for e in events]
             return {"intent": "upcoming_events", "answer": "Sự kiện sắp diễn ra:\n" + ("\n".join(rows) or "Chưa có sự kiện.")}
 
@@ -164,7 +164,7 @@ class AnthropicProvider(AssistantProvider):
             "upcoming_events": [{"name": event.ten_su_kien,
                                   "start": event.thoi_gian_bat_dau.isoformat()}
                                  for event in Event.query.filter(
-                                     Event.thoi_gian_bat_dau >= datetime.utcnow(),
+                                     Event.thoi_gian_bat_dau >= club_now(),
                                      Event.trang_thai.notin_(["cancelled", "draft"])
                                  ).order_by(Event.thoi_gian_bat_dau).limit(20)],
             "open_funds": [

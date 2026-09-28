@@ -4,11 +4,13 @@ from flask import Blueprint, render_template, request, redirect, url_for, flash,
 from flask_login import login_required, current_user
 
 from app import db
-from app.models import FundPeriod, FundTransaction, FundDue, User
+from app.models import FundCollection, FundPayment, FundPeriod, FundTransaction, FundDue, User
 from app.permissions import approved_required
+from app.security import require_csrf
 from app.mail import send_email
 from app.services.access import approved, is_treasurer, visible_members
-from app.services.common import DomainError, audit, parse_money
+from app.services.common import DomainError, audit, club_now, parse_money
+from app.services.funds import balance, create_collection, record_payment, review_payment, target_members
 
 funds_bp = Blueprint("funds", __name__)
 
@@ -88,8 +90,25 @@ def funds_home():
             due_query = due_query.filter_by(user_id=current_user.id)
         dues = due_query.all()
 
+    collections = FundCollection.query.order_by(FundCollection.id.desc()).all()
+    if not _is_thu_quy():
+        collections = [fund for fund in collections if fund.trang_thai in {"open", "closed"}
+                       and target_members(fund).filter(User.id == current_user.id).first()]
+    collection_rows = [{"fund": fund, "balance": balance(fund, current_user)
+                        if target_members(fund).filter(User.id == current_user.id).first() else None}
+                       for fund in collections]
+    pending_payments = (FundPayment.query.filter_by(trang_thai="pending")
+                        .order_by(FundPayment.id.desc()).limit(50).all()) if _is_thu_quy() else []
+    payment_members = {user.id: user for user in User.query.filter(
+        User.id.in_([row.user_id for row in pending_payments])).all()} if pending_payments else {}
+    collection_names = {fund.id: fund.ten_khoan_thu for fund in collections}
+
     return render_template(
         "funds.html",
+        collection_rows=collection_rows,
+        pending_payments=pending_payments,
+        payment_members=payment_members,
+        collection_names=collection_names,
         period=period,
         transactions=transactions,
         dues=dues,
@@ -98,6 +117,55 @@ def funds_home():
         tong_chi=tong_chi,
         is_thu_quy=_is_thu_quy(),
     )
+
+
+@funds_bp.post("/funds/collections/new")
+@login_required
+@approved_required
+def collection_new():
+    require_csrf()
+    try:
+        create_collection(current_user, {
+            "name": request.form.get("name"), "type": request.form.get("type"),
+            "amount": request.form.get("amount"), "start_date": request.form.get("start_date"),
+            "due_date": request.form.get("due_date"), "status": "open",
+            "applies_to_all": True, "description": request.form.get("description", ""),
+        })
+        flash("Đã mở khoản thu.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("funds.funds_home"))
+
+
+@funds_bp.post("/funds/collections/<int:fund_id>/payments")
+@login_required
+@approved_required
+def collection_pay(fund_id):
+    require_csrf()
+    fund = db.get_or_404(FundCollection, fund_id)
+    try:
+        record_payment(current_user, fund, current_user, request.form)
+        flash("Đã gửi thông tin đóng quỹ, chờ thủ quỹ xác nhận.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("funds.funds_home"))
+
+
+@funds_bp.post("/funds/payments/<int:payment_id>/review")
+@login_required
+@approved_required
+def collection_payment_review(payment_id):
+    require_csrf()
+    payment = db.get_or_404(FundPayment, payment_id)
+    try:
+        review_payment(current_user, payment, request.form.get("decision"), request.form.get("note", ""))
+        flash("Đã xử lý giao dịch.", "success")
+    except DomainError as exc:
+        db.session.rollback()
+        flash(str(exc), "error")
+    return redirect(url_for("funds.funds_home"))
 
 
 @funds_bp.route("/funds/transaction/new", methods=["POST"])
@@ -160,7 +228,7 @@ def toggle_due(user_id):
         db.session.add(due)
 
     due.da_dong = not due.da_dong
-    due.ngay_dong = datetime.utcnow().date() if due.da_dong else None
+    due.ngay_dong = club_now().date() if due.da_dong else None
     db.session.flush()
     audit(current_user, "legacy_fund_due_toggle", due, {"paid": due.da_dong})
     db.session.commit()

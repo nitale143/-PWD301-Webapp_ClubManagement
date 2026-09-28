@@ -1,5 +1,8 @@
-from datetime import date, datetime, timezone
+from datetime import date, datetime
 from decimal import Decimal, InvalidOperation
+from zoneinfo import ZoneInfo
+
+from flask import current_app
 
 from app import db
 from app.models import AuditLog, MemberRecord
@@ -9,6 +12,11 @@ class DomainError(Exception):
     def __init__(self, message, status=400):
         super().__init__(message)
         self.status = status
+
+
+def club_now():
+    """Event/task wall-clock values in the database are club-local naive datetimes."""
+    return datetime.now(ZoneInfo(current_app.config["APP_TIMEZONE"])).replace(tzinfo=None)
 
 
 def parse_date(value, label):
@@ -25,7 +33,7 @@ def parse_date(value, label):
 def parse_datetime(value, label):
     try:
         parsed = datetime.fromisoformat(str(value))
-        return parsed.astimezone(timezone.utc).replace(tzinfo=None) if parsed.tzinfo else parsed
+        return parsed.astimezone(ZoneInfo(current_app.config["APP_TIMEZONE"])).replace(tzinfo=None) if parsed.tzinfo else parsed
     except (TypeError, ValueError):
         raise DomainError(f"{label} không hợp lệ (ISO 8601).") from None
 

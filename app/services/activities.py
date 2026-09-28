@@ -57,11 +57,13 @@ def manual_point(actor, member, points, reason, event=None, kind="manual"):
 
 
 def activity_stats(member, now=None):
-    now = now or datetime.utcnow()
+    from .common import club_now
+    event_now = now or club_now()
+    audit_now = datetime.utcnow()
     member_bans = {link.ban_id for link in member.ban_links}
     eligible_count = 0
     events = Event.query.filter(
-        Event.thoi_gian_bat_dau <= now,
+        Event.thoi_gian_bat_dau <= event_now,
         Event.trang_thai.notin_(["draft", "cancelled"]),
     ).all()
     for event in events:
@@ -86,7 +88,7 @@ def activity_stats(member, now=None):
     latest = max((row.checkin_luc for row in attendance_rows if row.checkin_luc), default=None)
     total_points = db.session.query(db.func.coalesce(db.func.sum(ActivityPoint.so_diem), 0)).filter(ActivityPoint.user_id == member.id).scalar()
     thresholds = setting("activity_thresholds", DEFAULT_THRESHOLDS)
-    if not latest or latest < now - timedelta(days=int(thresholds["inactive_days"])):
+    if not latest or latest < audit_now - timedelta(days=int(thresholds["inactive_days"])):
         classification = "Không hoạt động"
     elif rate >= int(thresholds["active"]):
         classification = "Tích cực"

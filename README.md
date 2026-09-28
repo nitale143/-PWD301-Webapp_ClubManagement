@@ -43,6 +43,8 @@ clb_webapp/
       api.py                # JSON API /api/v1
       admin.py               # duyet thanh vien + chi dinh chuc vu + nhuong quyen
     services/               # nghiep vu quy, su kien, hoat dong, tro ly, de xuat AI
+    migrations.py            # nang cap cot tien SQLite cu, co sao luu
+    security.py              # CSRF token cho form quan trong
     templates/              # HTML (Jinja2), dung chung base.html + navbar
     static/css/style.css     # giao dien don gian, sach se
 ```
@@ -117,6 +119,10 @@ clb_webapp/
   luong duyet. De AI sinh noi dung va phan chia task linh hoat, can key.
 - Nut "Nhuong quyen" gui `target_id` qua form POST toi
   `/admin/roles/nhuong-quyen`; khong con dung JavaScript ghep URL.
+- Form nhượng quyền, phân vai trò và duyệt đề xuất AI dùng CSRF token.
+  API tạo/duyệt đề xuất AI cũng yêu cầu header `X-CSRF-Token` lấy từ
+  phiên trang `/ai`. Hai người duyệt cùng một đề xuất chỉ có một lượt
+  được thực thi.
 
 ## Da fix / hoan thien them theo yeu cau
 
@@ -163,6 +169,18 @@ Theo lựa chọn của nhóm, dự án tiếp tục dùng Flask và giữ nguy�
 `create_app()` tự tạo các bảng mới khi khởi động; cơ sở dữ liệu SQLite hiện
 có không bị xóa. Nên sao lưu `instance/clb.db` trước khi cập nhật ứng dụng.
 
+Với database tạo từ phiên bản cũ, chạy một lần sau khi dừng webapp:
+
+```bash
+flask --app run.py migrate-money
+```
+
+Lệnh tự sao lưu `instance/clb.db` thành file `.bak-...`, rồi đổi
+`fund_transaction.so_tien` từ `FLOAT` sang `NUMERIC(14,2)` mà giữ các
+giao dịch. Nếu đã đúng kiểu thì lệnh không làm gì. Với PostgreSQL cần
+migration riêng; SQLite vẫn có giới hạn về lưu số thập phân nên việc tính
+tiền trong ứng dụng dùng `Decimal`.
+
 Các bảng mới lưu trạng thái thành viên, khoản thu và các lần thanh toán,
 miễn/giảm, minh chứng, sự kiện chi tiết, đăng ký/danh sách chờ, điểm danh,
 điểm hoạt động, cấu hình và audit log. Tiền của nghiệp vụ mới dùng `Numeric`
@@ -206,6 +224,19 @@ Tệp nhập thành viên CSV/XLSX cần các cột `code,name,birth_date,email,
 `department_ids` là danh sách mã ban cách nhau bằng dấu phẩy. Nhập thất bại
 ở bất kỳ dòng nào sẽ hoàn tác cả tệp. Mật khẩu chỉ được băm, không lưu nguyên văn.
 
-Đây là lớp BE đầu tiên: dữ liệu từ API chưa được gắn vào giao diện quỹ và
-sự kiện cũ. Bộ lọc/biểu đồ báo cáo nâng cao và bộ migration cho PostgreSQL
-sẽ thực hiện ở bước tiếp theo.
+Trang Quỹ hiển thị khoản thu mới, số đã đóng/còn thiếu và giao dịch chờ duyệt;
+thành viên có thể gửi thanh toán, thủ quỹ có thể xác nhận. Phần quỹ theo kỳ
+cũ vẫn hiện bên dưới. Trang Sự kiện dùng chung dữ liệu đăng ký/danh sách chờ,
+điểm danh QR/thủ công và đánh giá; form tạo sự kiện có sức chứa, hạn đăng ký.
+Mã QR dẫn tới trang xác nhận điểm danh, hết hạn sau 15 phút. Khi dùng điện
+thoại quét QR, mở ứng dụng qua địa chỉ mạng truy cập được từ điện thoại,
+không phải `127.0.0.1`.
+
+Giờ sự kiện/task lưu dạng giờ địa phương của CLB (`APP_TIMEZONE`, mặc định
+`Asia/Bangkok`). Giá trị ISO có múi giờ từ API được đổi về giờ CLB trước khi
+lưu; `datetime-local` không có múi giờ được hiểu là giờ CLB. Các mốc audit,
+đăng ký và thanh toán tiếp tục lưu UTC. Không tự đổi dữ liệu sự kiện cũ.
+
+Bộ lọc/biểu đồ báo cáo nâng cao và migration cho PostgreSQL chưa nằm trong
+bước này. Tích hợp Claude đã có kiểm thử giả lập phản hồi API; gọi dịch vụ
+thật cần `AI_API_KEY` của CLB và chưa thể kiểm thử khi chưa có key.

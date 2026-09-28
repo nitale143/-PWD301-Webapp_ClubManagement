@@ -11,7 +11,7 @@ from app.models import (
 )
 from .access import approved, is_board, require
 from .activities import sync_attendance_point
-from .common import DomainError, audit, parse_datetime
+from .common import DomainError, audit, club_now
 
 
 QR_TTL_SECONDS = 15 * 60
@@ -24,8 +24,8 @@ def _serializer():
 
 
 def registration_open(event, detail, now=None):
-    now = now or datetime.utcnow()
-    return event.trang_thai in {"sap_dien_ra", "open"} and (not detail or not detail.han_dang_ky or now <= detail.han_dang_ky)
+    now = now or club_now()
+    return event.trang_thai in {"sap_dien_ra", "open"} and now < event.thoi_gian_bat_dau and (not detail or not detail.han_dang_ky or now <= detail.han_dang_ky)
 
 
 def eligible(event, member):
@@ -90,7 +90,7 @@ def qr_token(actor, event):
     return _serializer().dumps({"event_id": event.id, "nonce": secrets.token_urlsafe(12)})
 
 
-def qr_checkin(actor, token, now=None):
+def qr_checkin(actor, token, now=None, expected_event_id=None):
     require(approved(actor))
     try:
         payload = _serializer().loads(str(token or ""), max_age=QR_TTL_SECONDS)
@@ -101,7 +101,9 @@ def qr_checkin(actor, token, now=None):
     event = db.session.get(Event, payload.get("event_id"))
     if not event:
         raise DomainError("Không tìm thấy sự kiện của mã QR.", 404)
-    now = now or datetime.utcnow()
+    if expected_event_id is not None and event.id != expected_event_id:
+        raise DomainError("Mã QR không thuộc sự kiện này.")
+    now = now or club_now()
     if event.trang_thai in {"cancelled", "da_ket_thuc"} or not (event.thoi_gian_bat_dau - timedelta(minutes=30) <= now <= event.thoi_gian_ket_thuc):
         raise DomainError("Chỉ được điểm danh trong thời gian diễn ra sự kiện.")
     registration = EventRegistration.query.filter_by(event_id=event.id, user_id=actor.id, trang_thai="registered").first()
@@ -114,9 +116,9 @@ def qr_checkin(actor, token, now=None):
         attendance = Attendance(registration_id=registration.id)
         db.session.add(attendance)
     attendance.trang_thai = "late" if now > event.thoi_gian_bat_dau else "on_time"
-    attendance.checkin_luc = now
+    attendance.checkin_luc = datetime.utcnow()
     attendance.checkin_boi_id = actor.id
-    db.session.add(QRCheckinLog(event_id=event.id, user_id=actor.id, account_id=actor.id, checkin_luc=now))
+    db.session.add(QRCheckinLog(event_id=event.id, user_id=actor.id, account_id=actor.id, checkin_luc=datetime.utcnow()))
     sync_attendance_point(attendance, actor)
     db.session.flush()
     audit(actor, "qr_checkin", attendance, {"event_id": event.id})

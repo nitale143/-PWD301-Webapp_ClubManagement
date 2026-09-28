@@ -3,7 +3,7 @@
 {% block content %}
 <div class="page-header">
     <h1>Su kien</h1>
-    {% if current_user.is_bdh() %}
+    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}
     <a class="btn-primary" href="{{ url_for('event.event_new') }}">+ Tao su kien</a>
     {% endif %}
 </div>
@@ -14,6 +14,7 @@
         <strong>{{ ev.ten_su_kien }}</strong> <span class="tag">{{ ev.ma_su_kien }}</span>
         <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ ev.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p>
         <span class="status-badge status-{{ ev.trang_thai }}">{{ ev.trang_thai }}</span>
+        <span class="muted small"> · {{ ev.registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length }} người đăng ký{% if ev.detail and ev.detail.so_nguoi_toi_da %} / {{ ev.detail.so_nguoi_toi_da }} chỗ{% endif %}</span>
     </a>
     {% else %}
     <p class="muted">Chua co su kien nao.</p>

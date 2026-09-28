@@ -4,6 +4,7 @@ from flask_login import login_required, current_user
 from app import db
 from app.models import AIProposal, Ban, ChatMessage, Event
 from app.permissions import approved_required, bdh_required
+from app.security import require_csrf
 from app.services.assistant import get_provider
 from app.services.access import is_board
 from app.services.common import audit, DomainError
@@ -60,6 +61,7 @@ def ai_chat():
 @login_required
 @bdh_required
 def proposal_new():
+    require_csrf()
     try:
         create_proposal(current_user, request.form)
         flash("Đã tạo bản xem trước. Cần BDH duyệt trước khi áp dụng.", "success")
@@ -73,6 +75,7 @@ def proposal_new():
 @login_required
 @bdh_required
 def proposal_review(proposal_id, decision):
+    require_csrf()
     proposal = AIProposal.query.get_or_404(proposal_id)
     try:
         review_proposal(current_user, proposal, decision)

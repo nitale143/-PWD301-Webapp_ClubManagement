@@ -5,6 +5,7 @@ from app import db
 from app.models import User, Ban, UserBan, FundPeriod, FundDue
 from app.permissions import bdh_required, can_assign_role, role_required
 from app.mail import send_email
+from app.security import require_csrf
 from app.services.common import member_record
 from app.services.access import can_manage_member, approved
 from app.services.common import audit
@@ -88,6 +89,7 @@ def role_list():
 @login_required
 @bdh_required
 def assign_role(user_id):
+    require_csrf()
     target = User.query.get_or_404(user_id)
     new_role = request.form.get("chuc_vu")
     ban_id = request.form.get("ban_id", type=int)  # bat buoc khi new_role == 'TB'
@@ -138,6 +140,7 @@ def nhuong_quyen():
     cua minh cho thanh vien khac (target), ban than current_user thanh
     THANH_VIEN.
     """
+    require_csrf()
     user_id = request.form.get("target_id", type=int)
     if user_id is None:
         abort(400)
