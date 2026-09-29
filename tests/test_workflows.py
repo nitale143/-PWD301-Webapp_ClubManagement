@@ -367,6 +367,36 @@ class WorkflowTests(unittest.TestCase):
             "csrf_token": token, "rating": "5", "comment": "Tốt"}).status_code, 302)
         self.assertIn("Tốt".encode(), self.client.get(f"/event/{event.id}").data)
 
+    def test_event_form_reports_specific_error_and_preserves_input(self):
+        self.login(1)
+        token = self.csrf()
+        start = (club_now() + timedelta(days=1)).replace(second=0, microsecond=0)
+        base = {
+            "csrf_token": token, "ten_su_kien": "Test1", "ma_su_kien": "T1",
+            "thoi_gian_bat_dau": start.strftime("%Y-%m-%dT%H:%M"),
+            "thoi_gian_ket_thuc": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
+            "dia_diem": "FPT University", "noi_dung": "Test1", "so_nguoi_toi_da": "20",
+        }
+        cases = [
+            ({"thoi_gian_bat_dau": (start - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")},
+             "Thời gian bắt đầu phải sau thời điểm hiện tại"),
+            ({"thoi_gian_ket_thuc": (start - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")},
+             "Thời gian kết thúc phải sau thời gian bắt đầu"),
+            ({"han_dang_ky": (start + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")},
+             "Hạn đăng ký không được sau thời gian bắt đầu"),
+            ({"so_nguoi_toi_da": "0"}, "Số người tối đa phải lớn hơn 0"),
+        ]
+        for change, message in cases:
+            with self.subTest(message=message):
+                form = {**base, **change}
+                response = self.client.post("/event/new", data=form)
+                self.assertEqual(response.status_code, 200)
+                self.assertIn(message.encode(), response.data)
+                for field in ("thoi_gian_bat_dau", "thoi_gian_ket_thuc", "so_nguoi_toi_da"):
+                    self.assertIn(f'value="{form[field]}"'.encode(), response.data)
+                self.assertIn(b"FPT University", response.data)
+        self.assertEqual(Event.query.count(), 0)
+
     def test_legacy_money_migration_keeps_rows_and_backup(self):
         path = Path(self.directory.name) / "legacy-money.db"
         with sqlite3.connect(path) as connection:

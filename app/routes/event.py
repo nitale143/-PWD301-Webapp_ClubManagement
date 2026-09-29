@@ -44,10 +44,22 @@ def event_new():
             capacity_raw = request.form.get("so_nguoi_toi_da", "").strip()
             capacity = int(capacity_raw) if capacity_raw else None
         except ValueError:
-            flash("Thoi gian su kien khong hop le.", "error")
+            flash("Thời gian hoặc số người tối đa không hợp lệ.", "error")
             return render_template("event_form.html", form=request.form)
-        if not name or not ma or starts <= club_now() or ends <= starts or (deadline and deadline > starts) or (capacity is not None and capacity <= 0):
-            flash("Ten, ma va thoi gian su kien khong hop le.", "error")
+        if not name or not ma:
+            flash("Vui lòng nhập tên và mã sự kiện.", "error")
+            return render_template("event_form.html", form=request.form)
+        if starts <= club_now():
+            flash("Thời gian bắt đầu phải sau thời điểm hiện tại (giờ CLB).", "error")
+            return render_template("event_form.html", form=request.form)
+        if ends <= starts:
+            flash("Thời gian kết thúc phải sau thời gian bắt đầu.", "error")
+            return render_template("event_form.html", form=request.form)
+        if deadline and deadline > starts:
+            flash("Hạn đăng ký không được sau thời gian bắt đầu.", "error")
+            return render_template("event_form.html", form=request.form)
+        if capacity is not None and capacity <= 0:
+            flash("Số người tối đa phải lớn hơn 0.", "error")
             return render_template("event_form.html", form=request.form)
         if Event.query.filter_by(ma_su_kien=ma).first():
             flash("Ma su kien da ton tai, vui long chon ma khac.", "error")
