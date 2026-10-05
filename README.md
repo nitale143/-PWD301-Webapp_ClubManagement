@@ -73,8 +73,6 @@ Số liệu quỹ, việc trong ngày và báo cáo được tính bằng truy v
 
 **Không thể cam kết mọi câu trả lời AI đúng 100% hoặc mọi lần hỏi đều giống từng chữ**: nguồn dữ liệu có thể sai/thay đổi, và câu trả lời sinh tự do của mô hình có thể khác nhau. Cam kết thực tế là các **kết quả nghiệp vụ đã định nghĩa** lặp lại khi cùng câu hỏi, cùng phạm vi quyền, cùng mốc ngày và cùng trạng thái database; với báo cáo đã lưu, bản xuất và nháp email lấy từ đúng bản chụp đó. Câu hỏi ngoài tập truy vấn đã kiểm chứng chỉ nên coi là hỗ trợ, không phải bằng chứng quyết định nghiệp vụ.
 
-Xem [giải thích để bảo vệ bài và kịch bản trình diễn](docs/AI_RELIABILITY.md) để phân biệt tính đúng, tính lặp lại và giới hạn của temperature/seed/JSON schema.
-
 Trang Quỹ/Sự kiện và API dùng chung dữ liệu nghiệp vụ mới. Riêng **quỹ theo kỳ kiểu cũ** (`FundPeriod`/`FundDue`/`FundTransaction`) là luồng độc lập, không tự đồng bộ với khoản thu và thanh toán mới (`FundCollection`/`FundPayment`).
 
 ## Phân quyền
