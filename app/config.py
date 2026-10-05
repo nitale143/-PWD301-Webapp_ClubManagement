@@ -61,11 +61,18 @@ class Config:
     # --- AI Agent ---
     # Dung 1 API key CHUNG do CLB quan ly (khong cho tung user tu nhap key
     # rieng, de tranh phai luu/ma hoa key ca nhan va de kiem soat chi phi).
-    AI_PROVIDER = os.environ.get("AI_PROVIDER", "anthropic")
+    AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")
     AI_API_KEY = os.environ.get("AI_API_KEY", "")
     AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
     AI_WORKSPACE_ID = os.environ.get("AI_WORKSPACE_ID", "")
+    GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+    GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-3.5-flash-lite")
     AI_TIMEOUT_SECONDS = 20
+    AI_MAX_CALLS_PER_MINUTE = int(os.environ.get("AI_MAX_CALLS_PER_MINUTE", 12))
+    AI_DAILY_TOKEN_LIMIT = int(os.environ.get("AI_DAILY_TOKEN_LIMIT", 100000))
+    AI_CHAT_MESSAGES_PER_MINUTE = int(os.environ.get("AI_CHAT_MESSAGES_PER_MINUTE", 20))
+    # Verified chat reads use deterministic queries; model text remains a draft.
+    AI_STRICT_FACTS = os.environ.get("AI_STRICT_FACTS", "true").lower() == "true"
 
     # --- Upload avatar (luu truc tiep tren server, phuc vu demo) ---
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "app", "static", "uploads", "avatars")

@@ -17,7 +17,7 @@ from sqlalchemy import or_
 
 from app import db
 from app.models import (
-    ActivityPoint, AIProposal, Attendance, AuditLog, Ban, ClubSetting, Event, EventDetail,
+    ActivityPoint, AIProposal, Attendance, AuditLog, Ban, ChatMessage, ClubSetting, Event, EventDetail,
     EventRegistration, EventTargetBan, FundCollection, FundPayment,
     FundTargetBan, MemberRecord, PaymentEvidence, User, UserBan,
 )
@@ -26,8 +26,13 @@ from app.services.access import (
     is_admin, is_board, is_treasurer, require, visible_members,
 )
 from app.services.activities import activity_stats, manual_point, DEFAULT_POINTS, DEFAULT_THRESHOLDS
-from app.services.assistant import get_provider
-from app.services.proposals import create_proposal, proposal_preview, review_proposal
+from app.services.agent import check_chat_rate, respond
+from app.services.email_proposals import is_email_write_command
+from app.services.proposals import (create_proposal, is_chat_proposal_command,
+                                    proposal_preview, review_proposal)
+from app.services.natural_proposals import is_natural_proposal_command
+from app.services.briefings import briefing_kind
+from app.services.verified_queries import member_query_kind
 from app.services.common import DomainError, audit, club_now, member_record, parse_datetime
 from app.services.common import parse_date
 from app.services.events import (
@@ -666,7 +671,14 @@ def assistant():
     question = str(body().get("question", "")).strip()
     if not question or len(question) > 2000:
         raise DomainError("Câu hỏi không hợp lệ.")
-    answer = get_provider().answer(current_user, question)
+    check_chat_rate(current_user)
+    if (is_email_write_command(question) or is_chat_proposal_command(question)
+            or (not briefing_kind(question) and not member_query_kind(question)
+                and is_natural_proposal_command(question, current_user))):
+        require_csrf()
+    answer = respond(current_user, question)
+    db.session.add(ChatMessage(user_id=current_user.id, role="user", content=question))
+    db.session.add(ChatMessage(user_id=current_user.id, role="ai", content=answer["answer"]))
     audit(current_user, "assistant_query", current_user, {"intent": answer["intent"]})
     db.session.commit()
     return jsonify(answer)

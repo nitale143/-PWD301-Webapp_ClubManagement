@@ -14,11 +14,74 @@
         {% endfor %}
     </div>
     <form method="post" class="chat-input-row">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <input type="text" name="message" placeholder="Hoi AI Agent ve thanh vien, su kien, task..." required autocomplete="off">
         <button type="submit">Gui</button>
     </form>
 </div>
 {% if current_user.chuc_vu in ('CN', 'PCN', 'TB') %}
+<p class="small muted">AI trong 24 giờ: {{ usage_summary.calls }} lượt model, {{ usage_summary.tokens }} token, thời gian phản hồi trung bình {{ usage_summary.average_ms }} ms. Đây không phải số tiền tính phí.</p>
+<details class="new-task-box">
+    <summary>Tóm tắt hôm nay và báo cáo có nguồn</summary>
+    <pre style="white-space: pre-wrap">{{ digest }}</pre>
+    {% for period, label in [('week', 'tuần'), ('month', 'tháng')] %}
+    <details class="new-task-box">
+        <summary>Xem trước báo cáo {{ label }}</summary>
+        <pre style="white-space: pre-wrap">{{ report_previews[period] }}</pre>
+        <form method="post" action="{{ url_for('ai.report_save', period=period) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Lưu bản xem trước {{ label }}</button>
+        </form>
+    </details>
+    {% endfor %}
+    <h3>Báo cáo đã lưu</h3>
+    {% for report in reports %}
+    <div class="new-task-box">
+        <p><strong>#{{ report.id }} — {{ 'Tuần' if report.period == 'week' else 'Tháng' }}</strong> · {{ report.created_at.strftime('%d/%m/%Y %H:%M') }}</p>
+        <pre style="white-space: pre-wrap">{{ report_text(report.payload) }}</pre>
+        <a href="{{ url_for('ai.report_export', report_id=report.id) }}">Tải Excel đúng bản này</a>
+        <form method="post" action="{{ url_for('ai.report_draft_email', report_id=report.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <button type="submit">Tạo nháp email báo cáo cho tôi</button>
+        </form>
+    </div>
+    {% else %}<p class="muted">Chưa lưu báo cáo nào.</p>{% endfor %}
+</details>
+<details class="new-task-box">
+    <summary>Mail mẫu dùng chung</summary>
+    <p class="small muted">Ví dụ, nói với AI: “Gửi mail mẫu nhắc đóng quỹ cho Nguyễn Văn A”. AI chỉ tạo bản nháp; BDH vẫn phải duyệt gửi. Có thể dùng {{ '{{ten}}' }}, {{ '{{mssv}}' }}, {{ '{{email}}' }} để điền thông tin người nhận.</p>
+    {% if current_user.chuc_vu in ('CN', 'PCN') %}
+    <form method="post" action="{{ url_for('ai.email_template_create') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Tên mẫu</label><input name="name" maxlength="100" required placeholder="Nhắc đóng quỹ">
+        <label>Tiêu đề</label><input name="subject" maxlength="180" required>
+        <label>Nội dung</label><textarea name="body" rows="6" maxlength="3000" required></textarea>
+        <button type="submit">Lưu mail mẫu</button>
+    </form>
+    {% endif %}
+    {% for template in email_templates %}
+    <details class="new-task-box">
+        <summary>{{ template.name }}{{ ' (đã tạm ngừng)' if not template.active else '' }}</summary>
+        <pre style="white-space: pre-wrap">Tiêu đề: {{ template.subject }}
+
+{{ template.body }}</pre>
+        {% if current_user.chuc_vu in ('CN', 'PCN') %}
+        <form method="post" action="{{ url_for('ai.email_template_update', template_id=template.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Tên mẫu</label><input name="name" value="{{ template.name }}" maxlength="100" required>
+            <label>Tiêu đề</label><input name="subject" value="{{ template.subject }}" maxlength="180" required>
+            <label>Nội dung</label><textarea name="body" rows="6" maxlength="3000" required>{{ template.body }}</textarea>
+            <button type="submit">Lưu thay đổi</button>
+        </form>
+        <form method="post" action="{{ url_for('ai.email_template_active', template_id=template.id) }}" class="inline-form">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <input type="hidden" name="active" value="{{ 'yes' if not template.active else 'no' }}">
+            <button type="submit">{{ 'Bật lại mẫu' if not template.active else 'Tạm ngừng mẫu' }}</button>
+        </form>
+        {% endif %}
+    </details>
+    {% else %}<p class="muted">Chưa lưu mail mẫu nào.</p>{% endfor %}
+</details>
 <details class="new-task-box">
     <summary>Đề xuất sự kiện hoặc chia task (chỉ tạo bản xem trước)</summary>
     <form method="post" action="{{ url_for('ai.proposal_new') }}">
@@ -44,6 +107,7 @@
         <label>Bắt đầu sự kiện mới</label><input type="datetime-local" name="start_at">
         <label>Kết thúc sự kiện mới</label><input type="datetime-local" name="end_at">
         <label>Hạn task (chỉ dùng khi chia task)</label><input type="datetime-local" name="deadline">
+        <label>Kỹ năng mong muốn khi chia task (ngăn bằng dấu phẩy)</label><input type="text" name="required_skills" maxlength="320">
         <button type="submit">Tạo bản xem trước</button>
     </form>
 </details>
@@ -65,6 +129,49 @@
 </div>
 {% else %}
 <p class="muted">Không có đề xuất nào đang chờ.</p>
+{% endfor %}
+
+<h2>Nháp email chờ BDH duyệt</h2>
+{% for draft in email_proposals %}
+<div class="new-task-box">
+    <p><strong>#{{ draft.id }} — {{ 'Cần đối soát gửi dở' if draft.status == 'sending' else ('Gửi lỗi, cần kiểm tra trước khi thử lại' if draft.status == 'failed' else 'Chưa gửi') }}</strong></p>
+    <pre style="white-space: pre-wrap">Người nhận: {{ draft.recipient_email }}{{ ' (email ngoài danh sách thành viên)' if draft.recipient_id is none else '' }}
+Tiêu đề: {{ draft.subject }}
+
+{{ draft.body }}</pre>
+    {% if draft.status == 'pending' %}
+    <details>
+        <summary>Sửa tiêu đề/nội dung trước khi duyệt</summary>
+        <form method="post" action="{{ url_for('ai.email_proposal_edit', draft_id=draft.id) }}">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label>Tiêu đề</label><input type="text" name="subject" value="{{ draft.subject }}" maxlength="180" required>
+            <label>Nội dung</label><textarea name="body" rows="6" maxlength="3000" required>{{ draft.body }}</textarea>
+            <button type="submit">Lưu bản nháp</button>
+        </form>
+    </details>
+    {% endif %}
+    {% if draft.status == 'sending' %}
+    <p class="small muted">Sau ít nhất 2 phút, kiểm tra hộp thư đã gửi của CLB. Không tự gửi lại khi chưa rõ kết quả.</p>
+    <form method="post" action="{{ url_for('ai.email_proposal_reconcile', draft_id=draft.id, outcome='sent') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Đã gửi (đã kiểm tra)</button>
+    </form>
+    <form method="post" action="{{ url_for('ai.email_proposal_reconcile', draft_id=draft.id, outcome='failed') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit">Chưa gửi (đã kiểm tra)</button>
+    </form>
+    {% else %}
+    <form method="post" action="{{ url_for('ai.email_proposal_review', draft_id=draft.id, decision='approved') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        {% if draft.status == 'failed' %}<label><input type="checkbox" name="confirm_retry" value="yes" required> Tôi đã kiểm tra hộp thư đã gửi; email chưa đến người nhận.</label>{% endif %}
+        <button type="submit">{{ 'Thử gửi lại' if draft.status == 'failed' else 'Duyệt và gửi' }}</button>
+    </form>
+    <form method="post" action="{{ url_for('ai.email_proposal_review', draft_id=draft.id, decision='rejected') }}" class="inline-form">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <button type="submit">Từ chối</button>
+    </form>
+    {% endif %}
+</div>
+{% else %}
+<p class="muted">Không có nháp email nào đang chờ.</p>
 {% endfor %}
 {% endif %}
 {% endblock %}

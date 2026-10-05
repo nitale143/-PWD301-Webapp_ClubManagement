@@ -50,7 +50,7 @@ Database SQLite mặc định nằm tại `instance/clb.db`. Nếu đã có dữ
 | Phân quyền | Vai trò Chủ nhiệm, Phó chủ nhiệm, Trưởng ban, Thư ký/Thủ quỹ và Thành viên; chỉ định vai trò, nhượng quyền, giới hạn dữ liệu theo quyền. |
 | Sự kiện, công việc | Tạo sự kiện, đặt sức chứa/hạn đăng ký, đăng ký hoặc vào danh sách chờ, hủy đăng ký, điểm danh QR hoặc thủ công, đánh giá; giao task và duyệt sản phẩm đã nộp. |
 | Quỹ | Tạo khoản thu, ghi nhận tiền thành viên gửi, Thủ quỹ xác nhận/từ chối, tính đã đóng/còn thiếu, miễn/giảm qua API và xuất báo cáo. Phần quỹ theo kỳ cũ vẫn hiển thị riêng. |
-| Trợ lý AI | Chat lưu lịch sử theo từng người; trả lời từ dữ liệu trong phạm vi được phép; đề xuất sự kiện/chia task để BDH xem trước và duyệt trước khi tạo thật. |
+| Trợ lý AI | Chat/API dùng chung luồng, lưu ngữ cảnh gần đây theo từng người; câu trả lời số liệu lấy trực tiếp từ database; đề xuất sự kiện/chia task và tạo nháp email để BDH duyệt trước khi thực hiện. Nhật ký token và giới hạn lượt gọi giúp kiểm soát tài khoản AI chung. |
 | Thông báo | Email khi duyệt thành viên, giao/duyệt task; nhắc deadline và kỳ quỹ qua lịch chạy nền. Mặc định chỉ in email ra terminal. |
 
 ### Luồng sử dụng cơ bản
@@ -59,7 +59,21 @@ Database SQLite mặc định nằm tại `instance/clb.db`. Nếu đã có dữ
 2. Ban điều hành (BDH) duyệt hoặc từ chối tại trang **BDH**. Người được duyệt mới sử dụng các trang nội bộ.
 3. BDH tạo sự kiện và phân công task. Thành viên đăng ký, điểm danh, nộp sản phẩm và đánh giá sự kiện theo trạng thái cho phép.
 4. Thủ quỹ tạo khoản thu; thành viên gửi thông tin đóng quỹ; Thủ quỹ xác nhận để cập nhật số dư.
-5. BDH có thể yêu cầu AI lập đề xuất. Đề xuất chỉ tạo dữ liệu thật sau khi người có quyền bấm **Duyệt và áp dụng**.
+5. BDH có thể yêu cầu AI lập đề xuất qua form hoặc chat. Ví dụ: `Đề xuất sự kiện: Workshop bảo mật | 2026-11-01 09:00 | 2026-11-01 11:00 | 1` (mã ban cuối là tùy chọn), hoặc `Chia task: 12 | 1 | 2026-11-01 08:00 | Chuẩn bị tài liệu; Kiểm tra thiết bị | python, mạng` (kỹ năng cuối là tùy chọn). Chat chỉ tạo **đề xuất**, không tạo sự kiện/task thật trước khi BDH bấm **Duyệt và áp dụng**. Thành viên có thể cập nhật kỹ năng, mức nhận task và ngày tạm ngừng nhận ở trang hồ sơ; người không có hồ sơ vẫn được tính mức mặc định 3 task đang làm.
+6. Chủ nhiệm/Phó chủ nhiệm có thể lưu và sửa **mail mẫu dùng chung** ngay tại trang AI. Mẫu gồm tên, tiêu đề, nội dung và có thể dùng `{{ten}}`, `{{mssv}}`, `{{email}}`; mẫu chứa `{{mssv}}` chỉ dùng cho thành viên CLB. BDH có thể nói tự nhiên, ví dụ `Gửi mail mẫu nhắc đóng quỹ cho Nguyễn Văn A` hoặc `Dùng mẫu nhắc đóng quỹ gửi cho SV123`; hệ thống tìm tên mẫu/người nhận, điền biến và tạo bản nháp. Nếu thiếu hoặc trùng người nhận/mẫu, AI hỏi lại; không đoán rồi gửi. Có thể tạm ngừng mẫu mà không xóa bản nháp cũ.
+7. Cách nhập cũ vẫn dùng được: `Gửi mail cho <MSSV hoặc họ tên>: <mục đích/nội dung>`. Với địa chỉ ngoài danh sách thành viên, Chủ nhiệm hoặc Phó chủ nhiệm có thể nhập `Gửi mail <địa chỉ email>: <mục đích/nội dung>`. Chatbot chỉ tạo bản nháp, **chưa gửi**. Người có quyền kiểm tra địa chỉ nhận, sửa tiêu đề/nội dung nếu cần, rồi bấm **Duyệt và gửi** hoặc **Từ chối**. Nếu gửi dở do tiến trình bị ngắt, BDH phải kiểm tra hộp thư đã gửi rồi đối soát thủ công; hệ thống không tự gửi lại. Người nhận trong CLB có tên trùng cần chọn bằng MSSV; nháp gửi tới email ngoài CLB chỉ Chủ nhiệm/Phó chủ nhiệm được duyệt.
+8. BDH có thể nói tự nhiên, ví dụ `Tạo sự kiện Workshop bảo mật ngày 15/11/2026 09:00 đến 15/11/2026 11:00` hoặc `Giao task thiết kế poster cho SV123 trong sự kiện Workshop bảo mật ban Truyền thông hạn 14/11/2026 18:00`. Nếu thiếu sự kiện, ban, giờ hoặc tên việc, Agent hỏi lại; câu trả lời bổ sung được giữ tối đa 30 phút (`hủy` để bỏ). Mỗi task gắn **một ban**; yêu cầu mơ hồ như `cho 3 ban` không được tự chia hoặc thực thi. Sau khi đủ dữ kiện, Agent chỉ tạo đề xuất cho BDH duyệt; câu tự nhiên không đưa trực tiếp dữ liệu vào bảng sự kiện/task.
+9. Trang Home và AI hiển thị **việc cần xử lý hôm nay** theo quyền của BDH khi mở trang. Chat nhận `Hôm nay cần xử lý gì?`, `Báo cáo tuần này`, `Báo cáo tháng này`. Báo cáo nêu khoảng ngày, phạm vi quyền và ID bản ghi nguồn. BDH có thể lưu một bản xem trước cố định rồi tải đúng bản đó ra Excel hoặc tạo nháp email gửi tới email hồ sơ của mình; email vẫn cần duyệt. Nếu chức vụ hoặc ban quản lý thay đổi, bản lưu có phạm vi quyền cũ sẽ không còn tải/gửi được. Số thu trong báo cáo chỉ tính `FundPayment` mới đã xác nhận, không cộng luồng quỹ kỳ cũ; task được đếm theo **hạn trong kỳ**, không ngụ ý hoàn thành trong kỳ vì chưa có thời điểm hoàn thành riêng.
+
+### Độ tin cậy của AI Agent
+
+Mặc định `AI_STRICT_FACTS=true`: câu hỏi tra cứu chưa được hỗ trợ không được chuyển cho model đoán dữ liệu. Có thể hỏi `Xem thông tin SV123`, `Task của SV123 đang làm là gì?` hoặc `Tóm tắt dữ liệu của tôi`; hệ thống tra cứu hồ sơ/task hiện tại theo quyền và trả ID nguồn. Câu hỏi lịch sử/ngày chưa hỗ trợ được báo rõ. Nếu đặt `AI_STRICT_FACTS=false`, phần chat sinh tự do được đánh dấu `unverified_draft` và không có cam kết đúng/lặp lại; bản nháp email/sự kiện vẫn cần duyệt trong cả hai chế độ.
+
+Số liệu quỹ, việc trong ngày và báo cáo được tính bằng truy vấn database cố định, sắp xếp có thứ tự và lọc theo quyền; Gemini không được tự tạo con số. Báo cáo lưu bản chụp cùng các dòng nguồn để đối chiếu và giữ nguyên khi dữ liệu thay đổi sau đó. Lệnh tạo/sửa nghiệp vụ cần tham số hợp lệ và BDH duyệt trước khi ghi thật. Nếu dữ liệu thiếu hoặc tên người/ban/sự kiện mơ hồ, Agent hỏi lại thay vì đoán. Kiểm thử tự động so sánh kết quả lặp lại trên cùng dữ liệu và kiểm tra phân quyền.
+
+**Không thể cam kết mọi câu trả lời AI đúng 100% hoặc mọi lần hỏi đều giống từng chữ**: nguồn dữ liệu có thể sai/thay đổi, và câu trả lời sinh tự do của mô hình có thể khác nhau. Cam kết thực tế là các **kết quả nghiệp vụ đã định nghĩa** lặp lại khi cùng câu hỏi, cùng phạm vi quyền, cùng mốc ngày và cùng trạng thái database; với báo cáo đã lưu, bản xuất và nháp email lấy từ đúng bản chụp đó. Câu hỏi ngoài tập truy vấn đã kiểm chứng chỉ nên coi là hỗ trợ, không phải bằng chứng quyết định nghiệp vụ.
+
+Xem [giải thích để bảo vệ bài và kịch bản trình diễn](docs/AI_RELIABILITY.md) để phân biệt tính đúng, tính lặp lại và giới hạn của temperature/seed/JSON schema.
 
 Trang Quỹ/Sự kiện và API dùng chung dữ liệu nghiệp vụ mới. Riêng **quỹ theo kỳ kiểu cũ** (`FundPeriod`/`FundDue`/`FundTransaction`) là luồng độc lập, không tự đồng bộ với khoản thu và thanh toán mới (`FundCollection`/`FundPayment`).
 
@@ -84,12 +98,35 @@ Sao chép `.env.example` thành `.env` và chỉnh các giá trị cần thiết
 | `SECRET_KEY` | Khóa phiên Flask; bắt buộc thay giá trị mẫu trước khi dùng. |
 | `DATABASE_URL` | Đường dẫn kết nối database; bỏ trống để dùng `instance/clb.db`. |
 | `APP_TIMEZONE` | Múi giờ sự kiện và task; mặc định `Asia/Bangkok` (UTC+7). |
-| `AI_PROVIDER` | `anthropic` hoặc `rules`. Nếu chọn Anthropic nhưng không có key, ứng dụng dùng quy tắc. |
-| `AI_API_KEY`, `AI_MODEL` | API key chung do CLB quản lý và tên model cho Claude Messages API. |
+| `AI_PROVIDER` | `gemini` (mặc định), `anthropic` hoặc `rules`. Thiếu key tương ứng thì dùng chế độ quy tắc. |
+| `GEMINI_API_KEY`, `GEMINI_MODEL` | API key Gemini chung do CLB quản lý và tên model (mặc định `gemini-3.5-flash-lite`). |
+| `AI_API_KEY`, `AI_MODEL` | API key chung và tên model cho Claude Messages API khi chọn `anthropic`. |
+| `AI_MAX_CALLS_PER_MINUTE`, `AI_DAILY_TOKEN_LIMIT`, `AI_CHAT_MESSAGES_PER_MINUTE` | Giới hạn mặc định lần lượt 12 lượt model/phút, 100.000 token/24 giờ và 20 tin chat/phút cho mỗi người. |
+| `AI_STRICT_FACTS` | Mặc định `true`: câu hỏi tra cứu không được hỗ trợ nhận thông báo cố định thay vì câu trả lời model chưa kiểm chứng. |
 | `MAIL_ENABLED` | Mặc định `false`: email chỉ in ra terminal. Đặt `true` khi đã cấu hình SMTP. |
 | `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER` | Thông tin máy chủ gửi email. |
 
-Không có ô nhập API key riêng cho từng thành viên. Với `AI_PROVIDER=rules`, trợ lý trả lời bằng truy vấn/quy tắc đã viết sẵn. Với `AI_PROVIDER=anthropic` và key hợp lệ, ứng dụng gọi Claude; model chỉ nhận dữ kiện đã lọc theo quyền và không được cấp công cụ tự ghi database. Tạo sự kiện/task từ đề xuất vẫn cần BDH duyệt. Luồng gọi API đã được kiểm thử bằng phản hồi giả lập; cần key thật để kiểm tra kết nối dịch vụ thực tế.
+Để dùng Gemini, lấy key trong Google AI Studio rồi đặt riêng trong `.env` (không dán key vào mã nguồn hoặc Git):
+
+```dotenv
+AI_PROVIDER=gemini
+GEMINI_API_KEY=your-private-key
+GEMINI_MODEL=gemini-3.5-flash-lite
+```
+
+Khởi động lại webapp sau khi đổi `.env`. Không có ô nhập API key riêng cho từng thành viên. Các truy vấn đã hỗ trợ trả dữ liệu trực tiếp bằng code, dù chọn provider nào. Với `gemini` hoặc `anthropic` và key hợp lệ, model soạn bản nháp có duyệt; nếu tắt `AI_STRICT_FACTS`, model cũng có thể viết chat sinh tự do được đánh dấu chưa kiểm chứng. Model nhận dữ kiện theo quyền, không được cấp công cụ tự ghi database; ngữ cảnh hội thoại chỉ gồm các tin người dùng, không lấy câu trả lời AI cũ làm bằng chứng. Danh sách sự kiện sắp tới là dữ liệu công khai trong CLB theo trang Event hiện tại; task của thành viên khác vẫn lọc theo ban của TB. Gemini dùng JSON có schema cho nháp email/đề xuất; backend kiểm tra giá trị trước khi lưu. Nếu Gemini tạm thời quá tải, ứng dụng thử lại một lần; chat mở nhận thông báo và hướng dẫn truy vấn, còn thao tác tạo đề xuất báo lỗi. Truy vấn database không phụ thuộc kết nối Gemini. Trang AI hiển thị tổng lượt gọi, token và độ trễ 24 giờ, **không tự quy đổi thành chi phí tiền**.
+
+Email duyệt/từ chối thành viên chỉ được gửi thật khi `MAIL_ENABLED=true` và cấu hình SMTP hợp lệ. Nếu SMTP chưa bật hoặc gửi lỗi, trạng thái duyệt vẫn được lưu và BDH sẽ thấy cảnh báo để thông báo thủ công; hãy xác nhận với thành viên trước khi coi thông báo là đã đến nơi. Ví dụ cấu hình:
+
+```dotenv
+MAIL_ENABLED=true
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=true
+MAIL_USERNAME=your-club@example.com
+MAIL_PASSWORD=your-smtp-app-password
+MAIL_DEFAULT_SENDER=your-club@example.com
+```
 
 Lịch chạy nền dùng múi giờ `APP_TIMEZONE`: kiểm tra task sắp tới hạn lúc 07:00 và nhắc BDH về kỳ quỹ sắp kết thúc lúc 07:05. Khi chạy nhiều web worker, mỗi worker có thể khởi động một lịch riêng và gửi email trùng; cần tách scheduler ra khỏi web process trước khi triển khai kiểu đó.
 
@@ -118,7 +155,7 @@ Ví dụ body tạo khoản thu (gửi bằng tài khoản Chủ nhiệm hoặc 
 }
 ```
 
-API tạo/duyệt đề xuất AI yêu cầu thêm header `X-CSRF-Token` gắn với phiên đăng nhập; token có trong trường ẩn `csrf_token` của trang `/ai` dành cho BDH. Form nhượng quyền, phân vai trò, tạo/duyệt đề xuất AI và các form nghiệp vụ mới trên trang Quỹ/Sự kiện cũng có CSRF token. Hai lượt duyệt đồng thời cùng một đề xuất hoặc giao dịch chờ được chặn ở bước cập nhật trạng thái.
+API tạo/duyệt đề xuất AI yêu cầu thêm header `X-CSRF-Token` gắn với phiên đăng nhập; token có trong trường ẩn `csrf_token` của trang `/ai` dành cho BDH. API chatbot `POST /api/v1/assistant` dùng chung nghiệp vụ với chat trên trang AI: lệnh tạo nháp email/đề xuất cũng yêu cầu header CSRF; câu hỏi tra cứu không tạo dữ liệu. Form chat, duyệt/sửa/đối soát nháp email, nhượng quyền, phân vai trò, tạo/duyệt đề xuất AI và các form nghiệp vụ mới trên trang Quỹ/Sự kiện cũng có CSRF token. Hai lượt duyệt đồng thời cùng một đề xuất hoặc giao dịch chờ được chặn ở bước cập nhật trạng thái.
 
 Tệp nhập thành viên CSV/XLSX cần các cột `code,name,birth_date,email,phone,department_ids,password`. Việc nhập được hoàn tác toàn bộ nếu có dòng không hợp lệ.
 
@@ -132,6 +169,16 @@ flask --app run.py migrate-money
 
 Lệnh tạo file sao lưu `.bak-...` bên cạnh database (mặc định là `instance/clb.db.bak-...`), sau đó đổi cột sang `NUMERIC(14,2)` và giữ các giao dịch cũ. Nếu cột đã đúng kiểu, lệnh không thay đổi gì. Lệnh này **chỉ áp dụng cho SQLite**; chưa có migration tương ứng cho PostgreSQL. SQLite vẫn có giới hạn về lưu số thập phân; phép tính tiền trong Python dùng `Decimal`.
 
+Nếu đã dùng bản có nháp email trước khi thêm người nhận ngoài CLB, cũng dừng webapp rồi chạy:
+
+```bash
+flask --app run.py migrate-email-recipients
+```
+
+Lệnh sao lưu database thành `instance/clb.db.bak-email-...`, cho phép nháp không gắn tài khoản thành viên và giữ lại các nháp cũ. Chạy lại lệnh khi cột đã được nâng cấp sẽ không thay đổi dữ liệu.
+
+Bản nâng cấp AI này thêm sáu bảng: `email_proposal` (nháp và trạng thái gửi), `email_template` (mail mẫu), `assistant_pending` (yêu cầu đang hỏi bổ sung), `ai_report_snapshot` (báo cáo đã lưu), `member_planning_profile` (kỹ năng, mức nhận task, ngày tạm ngừng) và `ai_usage_log` (lượt model, token, độ trễ; không lưu prompt/API key). Trước khi cập nhật code/khởi động app, dừng webapp và sao lưu `instance/clb.db` ra một tệp `.bak` riêng; `db.create_all()` sẽ tạo các bảng còn thiếu khi app chạy lại, nhưng **không đổi cấu trúc bảng cũ**. Nếu đã có bảng `email_proposal` phiên bản cũ, chạy lệnh `migrate-email-recipients` ở trên. PostgreSQL cần quy trình migration riêng cho môi trường triển khai thật.
+
 Giờ sự kiện và hạn task trong database là giờ địa phương của CLB (không gắn timezone). API nhận ISO datetime có offset sẽ đổi về `APP_TIMEZONE`; giá trị từ `datetime-local` được hiểu là giờ CLB. Thời điểm audit, đăng ký và thanh toán lưu theo UTC. Dữ liệu sự kiện cũ không bị tự động đổi giờ.
 
 Để điện thoại quét mã QR điểm danh, mở web bằng địa chỉ mạng mà điện thoại truy cập được; QR sinh từ `127.0.0.1` sẽ chỉ hoạt động trên chính máy chạy web. Mã QR hết hạn sau 15 phút và có trang xác nhận trước khi điểm danh.
@@ -144,20 +191,20 @@ Sau khi kích hoạt môi trường ảo:
 python -m unittest discover -s tests -v
 ```
 
-Các bài test dùng database tạm, không sửa `instance/clb.db`. Hiện có kiểm thử cho phân quyền, quỹ, đăng ký/danh sách chờ/điểm danh, đề xuất AI, CSRF, múi giờ và migration SQLite.
+Các bài test dùng database tạm, không sửa `instance/clb.db`. Hiện có kiểm thử cho phân quyền, quỹ, đăng ký/danh sách chờ/điểm danh, đề xuất AI qua form/chat, gợi ý task theo tải/kỹ năng, mail mẫu và nháp email/đối soát gửi dở, giới hạn AI, số liệu theo phạm vi quyền, CSRF, múi giờ và migration SQLite. Test tự động mô phỏng Gemini/SMTP, không gửi email thật.
 
 ## Cấu trúc dự án
 
 ```text
 .
-├── run.py                 # Chạy ứng dụng; CLI init-db, create-cn, migrate-money
+├── run.py                 # Chạy ứng dụng; CLI init-db, create-cn, migrate-money, migrate-email-recipients
 ├── app/
 │   ├── __init__.py        # App factory, blueprint và database
 │   ├── config.py          # Cấu hình từ biến môi trường
 │   ├── models.py          # Các bảng dữ liệu
 │   ├── permissions.py     # Decorator phân quyền trang web
 │   ├── security.py        # CSRF cho các form được bảo vệ
-│   ├── migrations.py      # Nâng cấp cột tiền của SQLite cũ
+│   ├── migrations.py      # Nâng cấp cột tiền và nháp email của SQLite cũ
 │   ├── routes/            # Trang HTML và API JSON
 │   ├── services/          # Nghiệp vụ quỹ, sự kiện, AI
 │   ├── templates/         # Giao diện Jinja2
@@ -171,5 +218,7 @@ Các bài test dùng database tạm, không sửa `instance/clb.db`. Hiện có 
 - Thay `SECRET_KEY`, bảo vệ `.env`, cấu hình HTTPS và sao lưu database định kỳ.
 - Đăng nhập chưa có giới hạn số lần thử; CSRF hiện tập trung ở các form nhạy cảm và form nghiệp vụ mới, chưa phủ toàn bộ form cũ.
 - Scheduler chạy ngay trong tiến trình web; cần tách riêng nếu triển khai nhiều worker.
+- Giới hạn lượt gọi model đang kết hợp nhật ký database với bộ đếm lỗi trong tiến trình; khi chạy nhiều worker cần một bộ giới hạn dùng chung (ví dụ Redis) và quy trình theo dõi chi phí của nhà cung cấp.
 - Avatar và minh chứng thanh toán lưu trên máy chạy web; cần chính sách lưu trữ/kiểm tra tệp phù hợp khi dùng thật.
-- Chưa có migration PostgreSQL và chưa kiểm thử gọi Claude thật nếu chưa có `AI_API_KEY`.
+- Chưa có migration PostgreSQL; test tự động dùng dịch vụ AI/SMTP giả lập, nên cần kiểm tra tích hợp có kiểm soát trước khi triển khai công khai.
+- Vì API key Gemini và mật khẩu ứng dụng email từng được chia sẻ trong chat, hãy đổi cả hai trước khi cho người khác truy cập webapp.

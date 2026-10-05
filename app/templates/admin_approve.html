@@ -19,6 +19,7 @@
             <td><a href="{{ u.facebook_link }}" target="_blank">Link</a></td>
             <td>
                 <form method="post" action="{{ url_for('admin.approve_user', user_id=u.id) }}" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <button type="submit" name="action" value="accept">Duyet</button>
                     <button type="submit" name="action" value="reject" class="btn-danger">Tu choi</button>
                 </form>

@@ -1,15 +1,22 @@
 import unicodedata
 import json
+import re
+from collections import deque
+from random import uniform
+from threading import Lock
+from time import sleep, monotonic
 from abc import ABC, abstractmethod
-from datetime import date, datetime, timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
+from urllib.parse import quote
 from urllib.request import Request, urlopen
 
-from flask import current_app
+from flask import current_app, has_request_context
+from flask_login import current_user
 
 from app import db
-from app.models import Attendance, Event, EventRegistration, FundCollection, FundPayment, User, UserBan
+from app.models import AIUsageLog, Attendance, ChatMessage, Event, EventRegistration, EventTargetBan, FundCollection, FundDue, FundPayment, FundPeriod, Task, User, UserBan
 from .access import can_view_all_members, is_board, is_treasurer, require, visible_members
 from .activities import activity_stats
 from .common import DomainError, club_now
@@ -25,19 +32,136 @@ def _money(value):
     return f"{value:,.0f} đ"
 
 
+def _matching_periods(text):
+    return [period for period in FundPeriod.query.order_by(FundPeriod.id.desc())
+            if _normalize(period.ten_ky) in text]
+
+
+def _has_specific_timeframe(text):
+    return bool(re.search(
+        r"\b20\d{2}\b|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|"
+        r"\bthang\s+\d{1,2}\b|\bquy\s+[1-4]\b|\btu\s+ngay\b|\bden\s+ngay\b",
+        text,
+    ))
+
+
+_attempt_lock = Lock()
+_model_attempts = {}
+
+
+def _model_quota():
+    """Bound shared-key use per member; the final approval gates remain separate."""
+    if not has_request_context() or not current_user.is_authenticated:
+        return
+    now = datetime.utcnow()
+    recent = AIUsageLog.query.filter(
+        AIUsageLog.actor_id == current_user.id,
+        AIUsageLog.created_at >= now - timedelta(minutes=1),
+    ).count()
+    if recent >= current_app.config["AI_MAX_CALLS_PER_MINUTE"]:
+        raise DomainError("Bạn gọi AI quá nhanh. Vui lòng đợi một phút.", 429)
+    used = db.session.query(db.func.coalesce(db.func.sum(
+        AIUsageLog.total_tokens), 0)).filter(
+            AIUsageLog.actor_id == current_user.id,
+            AIUsageLog.created_at >= now - timedelta(days=1),
+        ).scalar()
+    if used >= current_app.config["AI_DAILY_TOKEN_LIMIT"]:
+        raise DomainError("Đã đạt giới hạn dùng AI trong 24 giờ. Vui lòng thử lại sau.", 429)
+    # Also count failed attempts in the single-process demo; production with
+    # multiple workers needs a shared limiter (for example Redis).
+    key = (id(current_app._get_current_object()), current_user.id)
+    with _attempt_lock:
+        attempts = _model_attempts.setdefault(key, deque())
+        cutoff = monotonic() - 60
+        while attempts and attempts[0] < cutoff:
+            attempts.popleft()
+        if len(attempts) >= current_app.config["AI_MAX_CALLS_PER_MINUTE"]:
+            raise DomainError("Bạn gọi AI quá nhanh. Vui lòng đợi một phút.", 429)
+        attempts.append(monotonic())
+
+
+def _record_model_use(provider, model, purpose, data, elapsed_ms):
+    usage = (data.get("usageMetadata") or data.get("usage") or {}) if isinstance(data, dict) else {}
+    input_tokens = usage.get("promptTokenCount", usage.get("input_tokens", 0))
+    output_tokens = usage.get("candidatesTokenCount", usage.get("output_tokens", 0))
+    total_tokens = usage.get("totalTokenCount")
+    if total_tokens is None:
+        total_tokens = int(input_tokens or 0) + int(output_tokens or 0)
+    actor_id = current_user.id if has_request_context() and current_user.is_authenticated else None
+    db.session.add(AIUsageLog(actor_id=actor_id, provider=provider, model=model,
+                              purpose=purpose,
+                              input_tokens=max(0, int(input_tokens or 0)),
+                              output_tokens=max(0, int(output_tokens or 0)),
+                              total_tokens=max(0, int(total_tokens or 0)),
+                              elapsed_ms=max(0, int(elapsed_ms))))
+    # Every caller invokes the model before writing its proposal/chat/draft.
+    # Persist model usage even if later payload validation rejects the draft.
+    db.session.commit()
+
+
 class AssistantProvider(ABC):
     @abstractmethod
     def answer(self, actor, question):
         raise NotImplementedError
 
 
+class TemporaryAIError(DomainError):
+    """A transient provider failure; safe to answer from verified local rules."""
+
+
 class RulesProvider(AssistantProvider):
     """Câu hỏi chỉ ánh xạ tới các truy vấn ORM được định nghĩa trước."""
 
     def answer(self, actor, question):
+        result = self._answer(actor, question)
+        intent = result.get("intent")
+        verification = {
+            "help": "unsupported",
+            "unsupported_timeframe": "unsupported",
+            "fund_period_not_found": "unsupported",
+            "period_ambiguous": "clarification",
+            "draft_reminder": "draft",
+            "email_not_sent": "draft",
+        }.get(intent, "database")
+        if intent == "help" and current_app.config.get("AI_STRICT_FACTS", True):
+            result["answer"] = (
+                "Tôi chưa có truy vấn đã xác minh cho câu hỏi này. "
+                "Hãy hỏi về dữ liệu thành viên, task, quỹ hoặc sự kiện mà hệ thống đang lưu."
+            )
+        return {
+            **result,
+            "provider": "database",
+            "verification": verification,
+        }
+
+    def _answer(self, actor, question):
         text = _normalize(question)
         full_scope = can_view_all_members(actor)
         visible_ids = {member.id for member in visible_members(actor)}
+
+        greeting = text.strip(" .,!?:;")
+        if greeting in {"hello", "hi", "hey", "alo", "chao", "chao ban", "xin chao"}:
+            return {"intent": "greeting", "answer": "Chào bạn, tôi có thể hỗ trợ gì cho CLB?"}
+
+        matching_periods = _matching_periods(text)
+        named_period = matching_periods[0] if len(matching_periods) == 1 else None
+        is_fund_question = any(word in text for word in
+                               ("quy", "dong", "da thu", "khoan thu", "qua han"))
+        if is_fund_question and len(matching_periods) > 1:
+            return {"intent": "period_ambiguous", "answer":
+                    "Có nhiều kỳ quỹ khớp với tên này. Vui lòng ghi rõ kỳ cần tra cứu."}
+        season_year = re.search(r"\b(fall|spring|summer)\s+(20\d{2})\b", text)
+        if is_fund_question and season_year and not matching_periods:
+            return {"intent": "fund_period_not_found", "answer":
+                    f"Không tìm thấy kỳ quỹ {season_year.group(1).title()} {season_year.group(2)} trong dữ liệu."}
+        named_period_is_used = bool(named_period and (
+            "chua dong" in text or "qua han" in text or
+            ("quy" in text and ("kiem tra" in text or "tinh trang" in text))
+        ))
+        if _has_specific_timeframe(text) and not named_period_is_used:
+            return {"intent": "unsupported_timeframe", "answer":
+                    "Mốc thời gian này chưa được hỗ trợ cho truy vấn. Vui lòng chọn kỳ quỹ có trong hệ thống hoặc một khoảng thời gian được hỗ trợ."}
+
         if "soan" in text and ("nhac" in text or "thong bao" in text):
             require(is_treasurer(actor))
             return {"intent": "draft_reminder", "preview": True, "answer":
@@ -45,10 +169,15 @@ class RulesProvider(AssistantProvider):
                 "Nội dung: Chào bạn, vui lòng kiểm tra các khoản quỹ còn thiếu và hoàn thành trước hạn. "
                 "Nếu đã thanh toán, hãy gửi minh chứng cho thủ quỹ xác nhận."}
 
+        if any(phrase in text for phrase in ("gui mail", "gui email", "gui thu")):
+            return {"intent": "email_not_sent", "preview": True, "answer":
+                "Tôi chưa gửi email. Chatbot hiện không tự gửi thư cho thành viên; "
+                "cần xác nhận đúng người nhận và nội dung trước khi gửi."}
+
         if "dong thieu" in text or "thieu tien" in text:
             rows = []
-            for fund in FundCollection.query.filter_by(trang_thai="open"):
-                for member in target_members(fund):
+            for fund in FundCollection.query.filter_by(trang_thai="open").order_by(FundCollection.id.asc()):
+                for member in target_members(fund).order_by(User.id.asc()):
                     if member.id not in visible_ids:
                         continue
                     item = balance(fund, member)
@@ -57,19 +186,82 @@ class RulesProvider(AssistantProvider):
             return {"intent": "partial_payments", "answer": "Đóng thiếu:\n" + ("\n".join(rows[:100]) or "Không có.")}
 
         if "chua dong" in text or "qua han" in text:
-            funds = FundCollection.query.filter_by(trang_thai="open")
-            if "thang nay" in text:
-                today = date.today()
-                funds = funds.filter(db.extract("year", FundCollection.han_dong) == today.year, db.extract("month", FundCollection.han_dong) == today.month)
+            overdue_only = "qua han" in text and "chua dong" not in text
+            current_periods = (FundPeriod.query.filter_by(is_current=True)
+                               .order_by(FundPeriod.id.desc()).all()) if not named_period and "thang nay" not in text else []
+            if len(current_periods) > 1:
+                return {"intent": "period_ambiguous", "answer":
+                        "Có nhiều kỳ quỹ đang được đánh dấu hiện tại. Vui lòng nhờ BDH kiểm tra cấu hình kỳ quỹ trước."}
+            period = named_period or (current_periods[0] if current_periods else None)
             rows = []
+            if period:
+                dues = (FundDue.query.filter_by(period_id=period.id)
+                        .filter(FundDue.user_id.in_(visible_ids))
+                        .order_by(FundDue.user_id.asc(), FundDue.id.asc()).all())
+                unpaid = [due for due in dues if not due.da_dong]
+                if not dues:
+                    rows.append(f"Kỳ {period.ten_ky}: chưa có bản ghi đóng quỹ trong phạm vi bạn được xem.")
+                elif overdue_only:
+                    rows.append(f"Kỳ {period.ten_ky}: dữ liệu kỳ này không lưu hạn đóng riêng, nên không thể xác minh khoản nào đã quá hạn.")
+                elif unpaid:
+                    rows.append(f"Kỳ {period.ten_ky}: {len(unpaid)}/{len(dues)} bản ghi chưa đóng.")
+                    rows.extend(f"{due.user.mssv} - {due.user.ho_ten}" for due in unpaid[:100])
+                else:
+                    rows.append(f"Kỳ {period.ten_ky}: {len(dues)}/{len(dues)} bản ghi đã đóng; "
+                                "không có ai chưa đóng trong phạm vi bạn được xem.")
+            funds = (FundCollection.query.filter_by(trang_thai="open")
+                     .order_by(FundCollection.id.asc()) if not named_period else [])
+            if "thang nay" in text and not named_period:
+                today = club_now().date()
+                funds = funds.filter(db.extract("year", FundCollection.han_dong) == today.year, db.extract("month", FundCollection.han_dong) == today.month)
+            applicable_members = 0
+            debt_rows = []
             for fund in funds:
-                for member in target_members(fund):
-                    if member.id not in visible_ids:
-                        continue
+                members = target_members(fund).filter(User.id.in_(visible_ids)).order_by(User.id.asc()).all()
+                applicable_members += len(members)
+                for member in members:
                     item = balance(fund, member)
-                    if item["status"] in {"unpaid", "overdue"}:
-                        rows.append(f"{member.mssv} - {member.ho_ten}: {fund.ten_khoan_thu}, còn {_money(item['remaining'])}")
-            return {"intent": "unpaid_members", "answer": "Chưa đóng hoặc quá hạn:\n" + ("\n".join(rows[:100]) or "Không có.")}
+                    if item["remaining"] <= 0:
+                        continue
+                    if overdue_only and item["status"] != "overdue":
+                        continue
+                    debt_rows.append(f"{member.mssv} - {member.ho_ten}: {fund.ten_khoan_thu}, còn {_money(item['remaining'])} ({item['status']})")
+            rows.extend(debt_rows)
+            if not rows:
+                if not period and applicable_members == 0:
+                    answer = "Không có dữ liệu quỹ áp dụng trong phạm vi bạn được xem."
+                elif overdue_only:
+                    answer = "Không có khoản thu nào được xác nhận là quá hạn trong phạm vi bạn được xem."
+                else:
+                    answer = "Có dữ liệu quỹ nhưng không còn khoản nào cần đóng trong phạm vi bạn được xem."
+                return {"intent": "unpaid_members", "answer": answer}
+            heading = "Khoản quá hạn" if overdue_only else "Chưa đóng hoặc quá hạn"
+            return {"intent": "unpaid_members", "answer": heading + ":\n" +
+                    "\n".join(rows[:100])}
+
+        if "quy" in text and ("kiem tra" in text or "tinh trang" in text):
+            current_periods = (FundPeriod.query.filter_by(is_current=True)
+                               .order_by(FundPeriod.id.desc()).all()) if not named_period else []
+            if len(current_periods) > 1:
+                return {"intent": "period_ambiguous", "answer":
+                        "Có nhiều kỳ quỹ đang được đánh dấu hiện tại. Vui lòng nhờ BDH kiểm tra cấu hình kỳ quỹ trước."}
+            period = named_period or (current_periods[0] if current_periods else None)
+            open_collections = sum(
+                bool(target_members(fund).filter(User.id.in_(visible_ids)).first())
+                for fund in FundCollection.query.filter_by(trang_thai="open").order_by(FundCollection.id.asc())
+            )
+            if not period and not open_collections:
+                return {"intent": "fund_overview", "answer": "Chưa có kỳ quỹ hoặc khoản thu đang mở."}
+            rows = []
+            if period:
+                dues = (FundDue.query.filter_by(period_id=period.id)
+                        .filter(FundDue.user_id.in_(visible_ids))
+                        .order_by(FundDue.user_id.asc(), FundDue.id.asc()).all())
+                paid = sum(bool(due.da_dong) for due in dues)
+                rows.append(f"Kỳ {period.ten_ky}: đã đóng {paid}/{len(dues)} bản ghi "
+                            "trong phạm vi bạn được xem.")
+            rows.append(f"Khoản thu mới đang mở: {open_collections}.")
+            return {"intent": "fund_overview", "answer": "\n".join(rows)}
 
         if "tong" in text and "da thu" in text:
             query = FundPayment.query.filter_by(trang_thai="confirmed")
@@ -79,15 +271,31 @@ class RulesProvider(AssistantProvider):
             label = "trong phạm vi bạn được xem" if not full_scope else "của câu lạc bộ"
             return {"intent": "collected_total", "answer": f"Tổng tiền đã thu và xác nhận {label}: {_money(total)}."}
 
-        if "khong tham gia" in text or "60 ngay" in text:
+        if "khong tham gia" in text or "khong hoat dong" in text or "60 ngay" in text:
             require(is_board(actor))
-            rows = [m.ho_ten for m in visible_members(actor) if activity_stats(m)["classification"] == "Không hoạt động"]
-            return {"intent": "inactive_members", "answer": "Thành viên không hoạt động trong 60 ngày:\n" + ("\n".join(rows[:100]) or "Không có.")}
+            day_window = re.search(r"\b(\d{1,3})\s+ngay\b", text)
+            if day_window and int(day_window.group(1)) != 60:
+                return {"intent": "unsupported_timeframe", "answer":
+                        "Khoảng thời gian này chưa được hỗ trợ cho danh sách thành viên không hoạt động. Hãy dùng 60 ngày hoặc quy tắc hiện tại của CLB."}
+            members = visible_members(actor).order_by(User.id.asc()).all()
+            if "60 ngay" in text:
+                cutoff = datetime.utcnow() - timedelta(days=60)
+                rows = [member.ho_ten for member in members
+                        if (not (stats := activity_stats(member))["latest"]
+                            or stats["latest"] < cutoff)]
+                label = "Thành viên không có hoạt động trong 60 ngày gần nhất"
+            else:
+                rows = [member.ho_ten for member in members
+                        if activity_stats(member)["classification"] == "Không hoạt động"]
+                label = "Thành viên được xếp loại không hoạt động theo quy tắc hiện tại của CLB"
+            return {"intent": "inactive_members", "answer": label + ":\n" +
+                    ("\n".join(rows[:100]) or "Không có.")}
 
         if "vang" in text and "cao nhat" in text:
             require(is_board(actor))
             query = (
-                db.session.query(Event.ten_su_kien, db.func.count(Attendance.id).label("absent"))
+                db.session.query(Event.ten_su_kien,
+                                 db.func.count(db.distinct(Attendance.id)).label("absent"))
                 .join(EventRegistration, EventRegistration.event_id == Event.id)
                 .join(Attendance, Attendance.registration_id == EventRegistration.id)
                 .filter(Attendance.trang_thai == "absent")
@@ -95,18 +303,36 @@ class RulesProvider(AssistantProvider):
             if actor.chuc_vu == "TB":
                 query = query.join(UserBan, UserBan.user_id == EventRegistration.user_id).filter(
                     UserBan.ban_id.in_(actor.quan_ly_ban_ids()))
-            rows = query.group_by(Event.id).order_by(db.desc("absent")).first()
+            rows = query.group_by(Event.id).order_by(db.desc("absent"), Event.id.asc()).first()
             return {"intent": "highest_absence", "answer": f"Sự kiện vắng không phép nhiều nhất: {rows.ten_su_kien} ({rows.absent} lượt)." if rows else "Chưa có dữ liệu điểm danh."}
 
         if "bao cao" in text:
             require(is_board(actor))
             since = club_now() - timedelta(days=30)
-            events = Event.query.filter(Event.thoi_gian_bat_dau >= since).count()
-            present = Attendance.query.filter(Attendance.checkin_luc >= datetime.utcnow() - timedelta(days=30), Attendance.trang_thai.in_(["on_time", "late"])).count()
+            event_query = Event.query.filter(Event.thoi_gian_bat_dau >= since,
+                                             Event.thoi_gian_bat_dau <= club_now(),
+                                             Event.trang_thai.notin_(["cancelled", "draft"]))
+            if actor.chuc_vu == "TB":
+                event_query = event_query.filter(db.or_(
+                    Event.id.in_(db.session.query(EventTargetBan.event_id).filter(
+                        EventTargetBan.ban_id.in_(actor.quan_ly_ban_ids()))),
+                    Event.id.in_(db.session.query(EventRegistration.event_id).filter(
+                        EventRegistration.user_id.in_(visible_ids))),
+                ))
+            events = event_query.count()
+            attendance_query = (Attendance.query.join(EventRegistration)
+                                .filter(Attendance.checkin_luc >= datetime.utcnow() - timedelta(days=30),
+                                        Attendance.checkin_luc <= datetime.utcnow(),
+                                        Attendance.trang_thai.in_(["on_time", "late"])))
+            if not full_scope:
+                attendance_query = attendance_query.filter(EventRegistration.user_id.in_(visible_ids))
+            present = attendance_query.count()
             return {"intent": "monthly_report", "preview": True, "answer": f"Bản xem trước 30 ngày: {events} sự kiện, {present} lượt có mặt. Truy cập báo cáo để xuất dữ liệu."}
 
         if "su kien" in text and any(word in text for word in ["sap", "dien ra", "liet ke"]):
-            events = Event.query.filter(Event.thoi_gian_bat_dau >= club_now(), Event.trang_thai.notin_(["cancelled", "draft"])).order_by(Event.thoi_gian_bat_dau).limit(20)
+            events = (Event.query.filter(Event.thoi_gian_bat_dau >= club_now(),
+                                         Event.trang_thai.notin_(["cancelled", "draft"]))
+                      .order_by(Event.thoi_gian_bat_dau.asc(), Event.id.asc()).limit(20))
             rows = [f"{e.ten_su_kien} - {e.thoi_gian_bat_dau:%d/%m/%Y %H:%M}" for e in events]
             return {"intent": "upcoming_events", "answer": "Sự kiện sắp diễn ra:\n" + ("\n".join(rows) or "Chưa có sự kiện.")}
 
@@ -116,8 +342,12 @@ class RulesProvider(AssistantProvider):
 class AnthropicProvider(AssistantProvider):
     """Read-only Claude Messages API adapter; never gives the model write tools."""
 
-    def complete(self, system, prompt, max_tokens=800):
+    provider_name = "anthropic"
+
+    def complete(self, system, prompt, max_tokens=800, response_schema=None, purpose="chat"):
         config = current_app.config
+        _model_quota()
+        started = monotonic()
         body = json.dumps({
             "model": config["AI_MODEL"],
             "max_tokens": max_tokens,
@@ -149,18 +379,49 @@ class AnthropicProvider(AssistantProvider):
                            if isinstance(block, dict) and block.get("type") == "text").strip()
         if not result:
             raise DomainError("Dịch vụ AI trả về nội dung rỗng.", 503)
+        _record_model_use(self.provider_name, config["AI_MODEL"], purpose, data,
+                          (monotonic() - started) * 1000)
         return result[:10000]
 
-    def answer(self, actor, question):
-        # First apply the existing intent permissions. This also supplies a
-        # verified answer for common club questions; the model only rephrases.
+    def answer(self, actor, question, history=None):
+        # Supported facts are rendered by code; free-text generation is opt-in.
         facts = RulesProvider().answer(actor, question)
-        visible = visible_members(actor).order_by(User.id).limit(50).all()
-        member_ids = {member.id for member in visible}
+        if facts["intent"] != "help":
+            return facts
+        if current_app.config.get("AI_STRICT_FACTS", True):
+            return facts
+        if history is None:
+            history = (ChatMessage.query.filter_by(user_id=actor.id)
+                       .order_by(ChatMessage.id.desc()).limit(6).all())
+            history = list(reversed(history))
+        user_history = [row for row in history if row.role == "user"]
+        normalized_question = _normalize(question)
+        reference_text = normalized_question
+        if any(phrase in normalized_question for phrase in
+               ("nguoi do", "ban ay", "thanh vien do", "con ho", "con ban do")):
+            reference_text += " " + " ".join(_normalize(row.content) for row in user_history[-4:])
+        visible = visible_members(actor).order_by(User.id).all()
+        matched = [member for member in visible if member.id == actor.id or
+                   member.mssv.casefold() in reference_text or
+                   (_normalize(member.ho_ten) in reference_text and len(member.ho_ten) >= 4)][:5]
+        member_ids = {member.id for member in matched}
+        task_query = Task.query.filter(Task.assignee_id.in_(member_ids),
+                                       Task.trang_thai != "huy")
+        if actor.chuc_vu == "TB":
+            task_query = task_query.filter(db.or_(
+                Task.ban_id.in_(actor.quan_ly_ban_ids()),
+                Task.assignee_id == actor.id,
+            ))
         context = {
             "verified_answer": facts["answer"],
-            "members_visible_to_user": [{"code": member.mssv, "name": member.ho_ten}
-                                        for member in visible],
+            "club_time": club_now().isoformat(),
+            "matched_members": [{"code": member.mssv, "name": member.ho_ten}
+                                for member in matched],
+            "matched_member_tasks": [{"member": task.assignee.mssv, "name": task.ten_task,
+                                      "status": task.trang_thai,
+                                      "deadline": task.deadline.isoformat()}
+                                     for task in task_query.order_by(Task.deadline.desc(),
+                                                                     Task.id.asc()).limit(20)],
             "upcoming_events": [{"name": event.ten_su_kien,
                                   "start": event.thoi_gian_bat_dau.isoformat()}
                                  for event in Event.query.filter(
@@ -172,10 +433,12 @@ class AnthropicProvider(AssistantProvider):
                  "member": member.mssv, "remaining": str(item["remaining"]),
                  "status": item["status"]}
                 for fund in FundCollection.query.filter_by(trang_thai="open").limit(20)
-                for member in target_members(fund).limit(50)
+                for member in target_members(fund).filter(User.id.in_(member_ids))
                 if member.id in member_ids
                 for item in [balance(fund, member)]
             ][:100],
+            "recent_conversation": [{"role": "user", "content": row.content[:500]}
+                                    for row in user_history[-6:]],
         }
         answer = self.complete(
             "Bạn là trợ lý CLB. Chỉ dùng dữ kiện JSON do hệ thống cung cấp. "
@@ -184,8 +447,80 @@ class AnthropicProvider(AssistantProvider):
             "Nếu dữ kiện không đủ, nói rõ chưa có dữ liệu. Trả lời ngắn bằng tiếng Việt.",
             json.dumps({"question": question, "context": context}, ensure_ascii=False),
         )
-        return {"intent": facts["intent"], "answer": answer,
-                "preview": facts.get("preview", False), "provider": "anthropic"}
+        return {"intent": facts["intent"],
+                "answer": "Bản nháp AI chưa kiểm chứng:\n" + answer,
+                "preview": facts.get("preview", False), "provider": self.provider_name,
+                "verification": "unverified_draft"}
+
+
+class GeminiProvider(AnthropicProvider):
+    """Gemini transport with the same scoped, read-only context as Claude."""
+
+    provider_name = "gemini"
+
+    def complete(self, system, prompt, max_tokens=800, response_schema=None, purpose="chat"):
+        config = current_app.config
+        _model_quota()
+        started = monotonic()
+        model = quote(str(config["GEMINI_MODEL"]), safe="")
+        generation_config = {"maxOutputTokens": max_tokens}
+        if response_schema:
+            generation_config["responseFormat"] = {
+                "text": {"mimeType": "APPLICATION_JSON", "schema": response_schema}}
+        body = json.dumps({
+            "system_instruction": {"parts": [{"text": system}]},
+            "contents": [{"parts": [{"text": prompt}]}],
+            "generationConfig": generation_config,
+        }, ensure_ascii=False).encode("utf-8")
+        req = Request(
+            f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent",
+            data=body,
+            headers={"x-goog-api-key": config["GEMINI_API_KEY"],
+                     "content-type": "application/json"},
+            method="POST",
+        )
+        for attempt in range(2):
+            try:
+                with urlopen(req, timeout=config.get("AI_TIMEOUT_SECONDS", 20)) as response:
+                    data = json.load(response)
+                break
+            except HTTPError as exc:
+                if exc.code in {401, 403}:
+                    raise DomainError("GEMINI_API_KEY không hợp lệ hoặc không có quyền gọi mô hình.", 503) from None
+                if exc.code in {400, 404}:
+                    raise DomainError("Yêu cầu Gemini không hợp lệ. Kiểm tra tên model và cấu hình.", 503) from None
+                if exc.code not in {408, 429, 500, 502, 503, 504}:
+                    raise DomainError("Gemini từ chối yêu cầu. Kiểm tra cấu hình tài khoản.", 503) from None
+            except (URLError, TimeoutError, OSError):
+                pass
+            except ValueError:
+                raise TemporaryAIError("Gemini trả về dữ liệu không hợp lệ.", 503) from None
+            if attempt == 0:
+                sleep(0.5 + uniform(0, 0.25))
+            else:
+                raise TemporaryAIError("Gemini tạm thời không phản hồi.", 503) from None
+        candidates = data.get("candidates", []) if isinstance(data, dict) else []
+        first = candidates[0] if isinstance(candidates, list) and candidates else {}
+        content = first.get("content", {}) if isinstance(first, dict) else {}
+        parts = content.get("parts", []) if isinstance(content, dict) else []
+        if not isinstance(parts, list):
+            parts = []
+        result = "\n".join(part.get("text", "") for part in parts
+                           if isinstance(part, dict) and isinstance(part.get("text"), str)).strip()
+        if not result:
+            raise TemporaryAIError("Gemini trả về nội dung rỗng.", 503)
+        _record_model_use(self.provider_name, config["GEMINI_MODEL"], purpose, data,
+                          (monotonic() - started) * 1000)
+        return result[:10000]
+
+    def answer(self, actor, question, history=None):
+        try:
+            return super().answer(actor, question, history=history)
+        except TemporaryAIError:
+            facts = RulesProvider().answer(actor, question)
+            return {**facts, "provider": "rules_fallback",
+                    "answer": facts["answer"] +
+                    "\n\n(Gemini đang bận; tôi chưa tạo được câu trả lời AI cho câu hỏi này.)"}
 
 
 def get_provider():
@@ -193,6 +528,8 @@ def get_provider():
     provider = str(config.get("AI_PROVIDER", "rules")).lower()
     if provider == "anthropic" and config.get("AI_API_KEY"):
         return AnthropicProvider()
-    if provider in {"rules", "anthropic"}:
+    if provider == "gemini" and config.get("GEMINI_API_KEY"):
+        return GeminiProvider()
+    if provider in {"rules", "anthropic", "gemini"}:
         return RulesProvider()
-    raise DomainError("AI_PROVIDER không được hỗ trợ; dùng 'rules' hoặc 'anthropic'.", 503)
+    raise DomainError("AI_PROVIDER không được hỗ trợ; dùng 'rules', 'gemini' hoặc 'anthropic'.", 503)

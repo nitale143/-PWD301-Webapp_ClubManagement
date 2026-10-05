@@ -4,6 +4,8 @@ from flask_login import login_required, current_user
 from app.models import Notification, Event, Task
 from app.permissions import approved_required
 from app.services.common import club_now
+from app.services.access import is_board
+from app.services.briefings import daily_digest
 
 main_bp = Blueprint("main", __name__)
 
@@ -38,4 +40,5 @@ def home():
         notifications=notifications,
         upcoming_events=upcoming_events,
         event_participants=event_participants,
+        daily_digest=daily_digest(current_user) if is_board(current_user) else None,
     )
