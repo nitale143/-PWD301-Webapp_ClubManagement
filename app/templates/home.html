@@ -1,6 +1,13 @@
 {% extends "base.html" %}
 {% block title %}Home{% endblock %}
 {% block content %}
+{% if daily_digest %}
+<section class="panel">
+    <h2>Việc cần xử lý hôm nay</h2>
+    <pre style="white-space: pre-wrap">{{ daily_digest }}</pre>
+    <p class="small muted">Số liệu lấy trực tiếp từ database theo quyền của bạn; mở trang AI để xem báo cáo tuần/tháng.</p>
+</section>
+{% endif %}
 <div class="home-grid">
     <section class="panel">
         <h2>Thong bao</h2>

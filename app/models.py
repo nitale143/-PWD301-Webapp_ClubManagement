@@ -449,3 +449,95 @@ class AIProposal(db.Model):
         db.CheckConstraint("status IN ('pending','approved','rejected')", name="ck_ai_proposal_status"),
         db.Index("ix_ai_proposal_creator_status", "created_by_id", "status"),
     )
+
+
+class EmailProposal(db.Model):
+    """Email draft: chat creation never sends; a separate BDH action does."""
+
+    __tablename__ = "email_proposal"
+    id = db.Column(db.Integer, primary_key=True)
+    recipient_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=True)
+    recipient_email = db.Column(db.String(120), nullable=False)
+    request_text = db.Column(db.Text, nullable=False)
+    subject = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    status = db.Column(db.String(12), nullable=False, default="pending", index=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    reviewed_by_id = db.Column(db.Integer, db.ForeignKey("user.id"))
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    reviewed_at = db.Column(db.DateTime)
+    sent_at = db.Column(db.DateTime)
+    __table_args__ = (
+        db.CheckConstraint("status IN ('pending','sending','sent','failed','rejected')",
+                           name="ck_email_proposal_status"),
+        db.Index("ix_email_proposal_creator_status", "created_by_id", "status"),
+    )
+
+
+class EmailTemplate(db.Model):
+    """Shared, reviewable mail content managed by the club leadership."""
+
+    __tablename__ = "email_template"
+    id = db.Column(db.Integer, primary_key=True)
+    name = db.Column(db.String(100), nullable=False)
+    name_key = db.Column(db.String(100), unique=True, nullable=False)
+    subject = db.Column(db.String(180), nullable=False)
+    body = db.Column(db.Text, nullable=False)
+    active = db.Column(db.Boolean, nullable=False, default=True)
+    created_by_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+
+class AssistantPending(db.Model):
+    """The incomplete natural-language proposal currently being clarified."""
+
+    __tablename__ = "assistant_pending"
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), primary_key=True)
+    kind = db.Column(db.String(10), nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+
+class AIReportSnapshot(db.Model):
+    """Immutable reviewed numbers and source rows for export/email."""
+
+    __tablename__ = "ai_report_snapshot"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False, index=True)
+    period = db.Column(db.String(10), nullable=False)
+    payload = db.Column(db.JSON, nullable=False)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+
+
+class MemberPlanningProfile(db.Model):
+    """Member-provided task preferences; absent rows use conservative defaults."""
+
+    __tablename__ = "member_planning_profile"
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), primary_key=True)
+    skills = db.Column(db.JSON, nullable=False, default=list)
+    max_active_tasks = db.Column(db.Integer, nullable=False, default=3)
+    unavailable_until = db.Column(db.Date)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+    __table_args__ = (
+        db.CheckConstraint("max_active_tasks BETWEEN 1 AND 10",
+                           name="ck_member_planning_capacity"),
+    )
+
+
+class AIUsageLog(db.Model):
+    """Successful model calls, without prompts, replies, secrets or price guesses."""
+
+    __tablename__ = "ai_usage_log"
+    id = db.Column(db.Integer, primary_key=True)
+    actor_id = db.Column(db.Integer, db.ForeignKey("user.id"), index=True)
+    provider = db.Column(db.String(20), nullable=False)
+    model = db.Column(db.String(100), nullable=False)
+    purpose = db.Column(db.String(20), nullable=False)
+    input_tokens = db.Column(db.Integer, nullable=False, default=0)
+    output_tokens = db.Column(db.Integer, nullable=False, default=0)
+    total_tokens = db.Column(db.Integer, nullable=False, default=0)
+    elapsed_ms = db.Column(db.Integer, nullable=False, default=0)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow, index=True)

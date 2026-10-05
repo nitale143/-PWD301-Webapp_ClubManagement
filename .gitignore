@@ -5,3 +5,4 @@ instance/
 venv/
 .env
 app/static/uploads/
+docs/AI_RELIABILITY.md

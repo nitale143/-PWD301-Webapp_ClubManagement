@@ -12,6 +12,19 @@
 
 {% if is_self %}
 <details class="new-task-box">
+    <summary>Khả năng nhận task cho đề xuất AI</summary>
+    <form method="post" action="{{ url_for('profile.task_preferences') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+        <label>Kỹ năng (ngăn bằng dấu phẩy)</label>
+        <input type="text" name="skills" value="{{ planning_profile.skills|join(', ') if planning_profile else '' }}" maxlength="320">
+        <label>Số task đang làm tối đa</label>
+        <input type="number" name="max_active_tasks" min="1" max="10" value="{{ planning_profile.max_active_tasks if planning_profile else 3 }}">
+        <label>Tạm không nhận task đến ngày</label>
+        <input type="date" name="unavailable_until" value="{{ planning_profile.unavailable_until.isoformat() if planning_profile and planning_profile.unavailable_until else '' }}">
+        <button type="submit">Lưu</button>
+    </form>
+</details>
+<details class="new-task-box">
     <summary>Doi anh dai dien</summary>
     <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data">
         <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp" required>

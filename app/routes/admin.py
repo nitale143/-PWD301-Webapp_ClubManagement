@@ -28,6 +28,7 @@ def approve_list():
 @login_required
 @bdh_required
 def approve_user(user_id):
+    require_csrf()
     user = User.query.get_or_404(user_id)
     if user.status != "pending":
         abort(400)
@@ -43,18 +44,20 @@ def approve_user(user_id):
             db.session.add(FundDue(period_id=ky_hien_tai.id, user_id=user.id, da_dong=False))
         audit(current_user, "member_approve", user)
         db.session.commit()
-        send_email(
+        mailed = send_email(
             user.email,
             "[CLB] Ban da tro thanh thanh vien chinh thuc",
             f"Chao {user.ho_ten},\n\nBDH da duyet ho so cua ban (MSSV: {user.mssv}). "
             "Ban co the dang nhap va xem noi dung cua CLB.\n\n-- AI Agent CLB",
         )
         flash(f"Da duyet {user.ho_ten} thanh thanh vien CLB.", "success")
+        if not mailed:
+            flash("Email thong bao chua gui duoc. Kiem tra cau hinh SMTP va thong bao truc tiep cho thanh vien.", "error")
     elif action == "reject":
         user.status = "rejected"
         audit(current_user, "member_reject", user)
         db.session.commit()
-        send_email(
+        mailed = send_email(
             user.email,
             "[CLB] Ho so dang ky chua duoc chap nhan",
             f"Chao {user.ho_ten},\n\nRat tiec, BDH chua the xac nhan thong tin dang ky "
@@ -62,6 +65,8 @@ def approve_user(user_id):
             "-- AI Agent CLB",
         )
         flash(f"Da tu choi {user.ho_ten}.", "success")
+        if not mailed:
+            flash("Email thong bao chua gui duoc. Kiem tra cau hinh SMTP va thong bao truc tiep cho thanh vien.", "error")
     else:
         abort(400)
     return redirect(url_for("admin.approve_list"))
