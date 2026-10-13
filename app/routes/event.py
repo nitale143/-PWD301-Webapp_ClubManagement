@@ -1,6 +1,8 @@
 from datetime import datetime
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
+import re
+from flask import Blueprint, current_app, jsonify, render_template, request, redirect, url_for, flash, abort
 from flask_login import login_required, current_user
+from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.models import Event, EventDetail, EventRegistration, EventFeedback, Task, User, Ban
@@ -8,8 +10,9 @@ from app.permissions import approved_required, bdh_required
 from app.security import require_csrf
 from app.mail import send_email
 from app.activity import cap_nhat_hoat_dong_khi_event_ket_thuc
-from app.services.common import DomainError, club_now
+from app.services.common import DomainError, club_now, parse_datetime
 from app.services.events import cancel_registration, eligible, feedback, manual_attendance, qr_checkin, register, registration_open
+from app.services.ctftime import CalendarUnavailable, SOURCE_URL, calendar_data, event_by_id
 
 event_bp = Blueprint("event", __name__)
 
@@ -26,6 +29,100 @@ def _can_manage_task(task):
 def event_list():
     events = Event.query.order_by(Event.thoi_gian_bat_dau.desc()).all()
     return render_template("event.html", events=events)
+
+
+@event_bp.get("/api/ctftime/events")
+@login_required
+@approved_required
+def ctftime_events():
+    """Fetch the public feed only when an approved member opens its tab."""
+    try:
+        payload = calendar_data()
+    except CalendarUnavailable as exc:
+        response = jsonify(error=str(exc), source_url=SOURCE_URL)
+        response.status_code = 503
+    else:
+        response = jsonify(payload)
+    response.headers["Cache-Control"] = "private, no-store"
+    return response
+
+
+@event_bp.post("/event/import/ctftime")
+@login_required
+@approved_required
+@bdh_required
+def ctftime_import():
+    """Create an FIA event from a server-verified public CTFtime calendar row."""
+    require_csrf()
+    source_id = request.form.get("event_id", "").strip()
+    if not re.fullmatch(r"[1-9]\d{0,11}", source_id):
+        flash("Mã sự kiện CTFtime không hợp lệ.", "error")
+        return redirect(url_for("event.event_list"))
+
+    code = f"CTF-{source_id}"
+    existing = Event.query.filter_by(ma_su_kien=code).first()
+    if existing:
+        flash("Sự kiện FIA này đã được tạo trước đó.", "success")
+        return redirect(url_for("event.event_list"))
+
+    try:
+        source_event, feed = event_by_id(source_id)
+    except CalendarUnavailable:
+        flash("Chưa thể xác minh sự kiện với lịch CTFtime. Hãy thử lại sau.", "error")
+        return redirect(url_for("event.event_list"))
+    if not source_event or not feed:
+        flash("Không tìm thấy sự kiện này trong lịch công khai CTFtime.", "error")
+        return redirect(url_for("event.event_list"))
+
+    try:
+        starts = parse_datetime(source_event["start"], "Thời gian bắt đầu")
+        ends = parse_datetime(source_event["finish"], "Thời gian kết thúc")
+    except DomainError:
+        flash("Thời gian từ lịch CTFtime không hợp lệ.", "error")
+        return redirect(url_for("event.event_list"))
+
+    now = club_now()
+    if ends <= starts or ends <= now:
+        flash("Sự kiện CTFtime đã kết thúc hoặc có thời gian không hợp lệ.", "error")
+        return redirect(url_for("event.event_list"))
+
+    event = Event(
+        ten_su_kien=("FIA tham gia " + str(source_event["title"]).strip())[:150],
+        ma_su_kien=code,
+        thoi_gian_bat_dau=starts,
+        thoi_gian_ket_thuc=ends,
+        trang_thai="dang_dien_ra" if starts <= now else "sap_dien_ra",
+        tao_boi_id=current_user.id,
+    )
+    source_url = f"https://ctftime.org/event/{source_id}/"
+    detail = EventDetail(
+        loai="ctftime",
+        noi_dung=f"FIA tham gia cuộc thi này, không phải đơn vị tổ chức.\nNguồn: {source_url}",
+        dia_diem=(source_event.get("location") or "")[:300],
+        phu_trach_id=current_user.id,
+        tat_ca_thanh_vien=True,
+    )
+    try:
+        db.session.add(event)
+        db.session.flush()
+        detail.event_id = event.id
+        db.session.add(detail)
+        db.session.commit()
+    except IntegrityError:
+        db.session.rollback()
+        duplicate = Event.query.filter_by(ma_su_kien=code).first()
+        if duplicate:
+            flash("Sự kiện FIA này đã được tạo trước đó.", "success")
+            return redirect(url_for("event.event_list"))
+        current_app.logger.exception("CTFtime event import failed while saving")
+        flash("Chưa thể tạo sự kiện FIA. Hãy thử lại sau.", "error")
+        return redirect(url_for("event.event_list"))
+
+    if feed.get("stale"):
+        flash("Đã tạo sự kiện FIA từ dữ liệu CTFtime đã lưu; lịch có thể chưa mới nhất.", "success")
+    else:
+        flash("Đã tạo sự kiện FIA từ CTFtime.", "success")
+    return redirect(url_for("event.event_list"))
 
 
 @event_bp.route("/event/new", methods=["GET", "POST"])

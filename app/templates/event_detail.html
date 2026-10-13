@@ -14,6 +14,10 @@
     {% endif %}
 </div>
 
+{% if detail and detail.noi_dung %}
+<p class="muted small">{{ detail.noi_dung }}</p>
+{% endif %}
+
 <div class="new-task-box">
     <h2>Tham gia sự kiện</h2>
     {% if detail %}<p class="muted small">{{ detail.dia_diem }}{% if detail.so_nguoi_toi_da %} · Tối đa {{ detail.so_nguoi_toi_da }} người{% endif %}{% if detail.han_dang_ky %} · Hạn đăng ký {{ detail.han_dang_ky.strftime('%d/%m/%Y %H:%M') }}{% endif %}</p>{% endif %}

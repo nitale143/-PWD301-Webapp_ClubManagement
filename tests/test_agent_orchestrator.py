@@ -127,7 +127,7 @@ class AgentOrchestratorTests(unittest.TestCase):
         db.session.add(UserBan(user_id=user_id, ban_id=ban_id, is_truong_ban=lead))
 
     def _add_event(self, name="Workshop AI", event_id=10):
-        starts = datetime.utcnow() + timedelta(days=30)
+        starts = club_now() + timedelta(days=30)
         event = Event(
             id=event_id, ten_su_kien=name, ma_su_kien=f"EV{event_id:03d}",
             thoi_gian_bat_dau=starts, thoi_gian_ket_thuc=starts + timedelta(hours=2),
@@ -136,6 +136,12 @@ class AgentOrchestratorTests(unittest.TestCase):
         db.session.add(event)
         db.session.commit()
         return event
+
+    def _future_deadline(self):
+        """A stable future task date that stays before the fixture event ends."""
+        return (club_now() + timedelta(days=15)).replace(
+            hour=23, minute=0, second=0, microsecond=0,
+        )
 
     def _add_confirmed_payment(self, user_id=4, amount=1234):
         fund = FundCollection(
@@ -349,8 +355,9 @@ class AgentOrchestratorTests(unittest.TestCase):
         self.assertEqual(timeframe["agent_mode"], "rules_fallback")
 
     def test_unsupported_task_dates_and_payment_status_match_in_model_and_rules_modes(self):
+        task_date = self._future_deadline().strftime("%d/%m/%Y")
         questions = (
-            "Task của SV003 ngày 10/10/2026",
+            f"Task của SV003 ngày {task_date}",
             "Task chưa thanh toán của SV003",
         )
         for question in questions:
@@ -431,7 +438,7 @@ class AgentOrchestratorTests(unittest.TestCase):
                     event = Event.query.filter_by(ten_su_kien="Gala").one()
                     db.session.add(Task(
                         event_id=event.id, ten_task="Task nhạy cảm không được mở rộng",
-                        deadline=datetime(2026, 12, 1), trang_thai="dang_lam",
+                        deadline=self._future_deadline(), trang_thai="dang_lam",
                         ban_id=1, assignee_id=3,
                     ))
                     db.session.commit()
@@ -464,15 +471,17 @@ class AgentOrchestratorTests(unittest.TestCase):
 
     def test_valid_natural_task_uses_original_request_and_creates_pending_proposal_only(self):
         event = self._add_event()
+        deadline = self._future_deadline()
+        deadline_text = deadline.strftime("%d/%m/%Y")
         question = (
             "Tạo task Gọi nhà cung cấp cho sự kiện Workshop AI thuộc ban Engineering "
-            "hạn 23:00 ngày 10/10/2026"
+            f"hạn 23:00 ngày {deadline_text}"
         )
         planner = FakePlanner([
             tool_action(
                 "prepare_request",
                 "Tạo task DELETE ALL cho sự kiện Workshop AI thuộc ban Engineering "
-                "hạn 23:00 ngày 10/10/2026",
+                f"hạn 23:00 ngày {deadline_text}",
             ),
             finish_action(),
         ])
@@ -494,9 +503,10 @@ class AgentOrchestratorTests(unittest.TestCase):
 
     def test_provider_failure_uses_rules_to_create_valid_draft_without_nested_model_call(self):
         event = self._add_event()
+        deadline_text = self._future_deadline().strftime("%d/%m/%Y")
         question = (
             "Tạo task Gọi nhà cung cấp cho sự kiện Workshop AI thuộc ban Engineering "
-            "hạn 23:00 ngày 10/10/2026"
+            f"hạn 23:00 ngày {deadline_text}"
         )
         planner = FakePlanner([])
         with patch("app.services.agent_orchestrator.get_provider", return_value=planner), \
@@ -594,7 +604,7 @@ class AgentOrchestratorTests(unittest.TestCase):
 
     def test_pure_date_continuation_still_completes_a_pending_task(self):
         event = self._add_event()
-        question = "10/10/2026 lúc 23:00"
+        question = self._future_deadline().strftime("%d/%m/%Y lúc %H:%M")
         pending_text = (
             "Tạo task Gọi nhà cung cấp cho sự kiện Workshop AI thuộc ban Engineering"
         )
@@ -630,11 +640,13 @@ class AgentOrchestratorTests(unittest.TestCase):
         pending_text = (
             "Tạo task Gọi nhà cung cấp cho sự kiện Workshop AI thuộc ban Engineering"
         )
+        deadline = self._future_deadline()
+        deadline_text = deadline.strftime("%d/%m/%Y")
         deadline_replies = (
-            "hạn task là tối 23:00 10/10",
-            "hạn công việc là tối 23:00 10/10",
+            f"hạn task là tối 23:00 {deadline_text}",
+            f"hạn công việc là tối 23:00 {deadline_text}",
         )
-        expected_deadline = datetime(club_now().year, 10, 10, 23).isoformat()
+        expected_deadline = deadline.isoformat()
 
         for reply in deadline_replies:
             for mode in ("model", "rules"):
@@ -673,7 +685,7 @@ class AgentOrchestratorTests(unittest.TestCase):
         event = self._add_event()
         task = Task(
             event_id=event.id, ten_task="Prepare recruitment room",
-            deadline=datetime(club_now().year, 10, 10, 23),
+            deadline=self._future_deadline(),
             trang_thai="dang_lam", ban_id=1, assignee_id=3,
         )
         db.session.add(task)

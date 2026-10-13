@@ -55,7 +55,7 @@ def create_app(config_override=None):
                 app.logger.info("AI chat migration backup created: %s", backup)
         db.create_all()
 
-    if not app.config.get("TESTING"):
+    if not app.config.get("TESTING") and app.config.get("SCHEDULER_ENABLED", True):
         from app.scheduler import init_scheduler
         init_scheduler(app)
 

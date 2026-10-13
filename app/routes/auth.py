@@ -11,10 +11,10 @@ auth_bp = Blueprint("auth", __name__)
 
 @auth_bp.route("/", methods=["GET"])
 def index():
-    """Link goc dua thang vao trang dang nhap (webapp noi bo, khong co landing page)."""
+    """Public FIA landing page; signed-in users continue to the member workspace."""
     if current_user.is_authenticated:
         return redirect(url_for("main.home"))
-    return redirect(url_for("auth.login"))
+    return render_template("landing.html")
 
 
 @auth_bp.route("/login", methods=["GET", "POST"])

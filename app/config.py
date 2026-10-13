@@ -54,6 +54,7 @@ class Config:
     MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
 
     # --- Scheduler ---
+    SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").lower() == "true"
     DEADLINE_WARNING_DAYS = 7
     # So ngay truoc khi ky hien tai ket thuc thi bat dau nhac BDH nhap ky moi
     PERIOD_REMINDER_DAYS = 30

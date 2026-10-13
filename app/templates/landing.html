@@ -1,0 +1,74 @@
+{% extends "base.html" %}
+{% block title %}FIA Club{% endblock %}
+{% block content %}
+<div class="fia-landing">
+    <header class="fia-landing__header">
+        <a class="fia-landing__brand" href="{{ url_for('auth.index') }}" aria-label="FIA Club — Trang chủ">
+            <img class="fia-landing__logo" src="{{ url_for('static', filename='assets/fia-club-logo.png') }}" alt="FIA Club">
+            <span class="fia-landing__brand-name">FIA <span>CLUB</span></span>
+        </a>
+        <nav class="fia-landing__nav" aria-label="Điều hướng chính">
+            <a class="fia-landing__member-link" href="{{ url_for('main.home') }}">Không gian thành viên</a>
+            <a class="fia-landing__login" href="{{ url_for('auth.login') }}">Đăng nhập</a>
+            <a class="fia-landing__nav-cta" href="{{ url_for('auth.register') }}">Tham gia FIA</a>
+        </nav>
+    </header>
+
+    <section class="fia-landing__hero" aria-labelledby="fia-landing-title">
+        <div class="fia-landing__hero-copy">
+            <p class="fia-landing__eyebrow"><span aria-hidden="true"></span> KẾT NỐI · KHÁM PHÁ · KIẾN TẠO</p>
+            <h1 id="fia-landing-title">Cùng công nghệ<br><span>mở lối tương lai.</span></h1>
+            <p class="fia-landing__lead">
+                FIA là nơi những người yêu công nghệ gặp gỡ, chia sẻ điều mình biết
+                và cùng biến ý tưởng thành trải nghiệm.
+            </p>
+            <div class="fia-landing__actions">
+                <a class="fia-landing__action fia-landing__action--primary" href="{{ url_for('auth.register') }}">
+                    Khám phá FIA <span aria-hidden="true">↗</span>
+                </a>
+                <a class="fia-landing__action fia-landing__action--secondary" href="{{ url_for('auth.login') }}">Đã là thành viên?</a>
+            </div>
+        </div>
+
+        <div class="fia-landing__hero-art" aria-hidden="true">
+            <div class="fia-landing__art-orbit fia-landing__art-orbit--outer"></div>
+            <div class="fia-landing__art-orbit fia-landing__art-orbit--inner"></div>
+            <div class="fia-landing__art-core">F<span>I</span>A</div>
+            <span class="fia-landing__art-dot fia-landing__art-dot--one"></span>
+            <span class="fia-landing__art-dot fia-landing__art-dot--two"></span>
+            <span class="fia-landing__art-dot fia-landing__art-dot--three"></span>
+            <span class="fia-landing__art-caption">BUILD WHAT'S NEXT</span>
+        </div>
+    </section>
+
+    <section class="fia-landing__values" aria-labelledby="fia-landing-values-title">
+        <div class="fia-landing__values-heading">
+            <p class="fia-landing__section-kicker">MỘT CỘNG ĐỒNG · NHIỀU GÓC NHÌN</p>
+            <h2 id="fia-landing-values-title">Học cùng nhau.<br><span>Làm được nhiều hơn.</span></h2>
+        </div>
+        <div class="fia-landing__value-grid">
+            <article class="fia-landing__value-card">
+                <span class="fia-landing__value-number">01</span>
+                <h3>Chia sẻ kiến thức</h3>
+                <p>Cùng trao đổi những điều mới và học hỏi từ trải nghiệm của nhau.</p>
+            </article>
+            <article class="fia-landing__value-card">
+                <span class="fia-landing__value-number">02</span>
+                <h3>Thử sức thực tế</h3>
+                <p>Đưa ý tưởng ra khỏi trang giấy qua hoạt động và dự án chung.</p>
+            </article>
+            <article class="fia-landing__value-card">
+                <span class="fia-landing__value-number">03</span>
+                <h3>Kết nối con người</h3>
+                <p>Gặp những người cùng tò mò, cùng làm và cùng tiến về phía trước.</p>
+            </article>
+        </div>
+    </section>
+
+    <footer class="fia-landing__footer">
+        <span>FIA CLUB</span>
+        <span>Cùng nhau mở lối.</span>
+        <a href="{{ url_for('main.home') }}">Dành cho thành viên <span aria-hidden="true">↗</span></a>
+    </footer>
+</div>
+{% endblock %}

@@ -6,10 +6,30 @@
 
 ## Bản thiết kế mới và backup web cũ
 
-- [UI/UX FIA mới và các bản thiết kế trước](previews/README.md): bản xem trước độc lập, gồm tab FIA/CTFtime và nút BDH tạo sự kiện tham gia CTF. Chưa tích hợp các màn hình này vào Flask; dữ liệu CLB và thao tác tạo sự kiện trong preview chỉ là demo.
+- Ứng dụng Flask ở thư mục gốc đã dùng giao diện FIA xanh lá/đen/trắng: landing công khai, sidebar theo vai trò, màn hình nghiệp vụ và AI Agent dùng dữ liệu, đăng nhập, lịch sử chat, tiến trình xử lý và các bước duyệt thật. Không dùng phiên đăng nhập demo hoặc câu trả lời mô phỏng của preview.
+- Trang sự kiện thật có tab FIA và CTFtime. BDH bấm **Tạo sự kiện FIA** để lưu sự kiện tham gia CTF vào database; hệ thống xác minh thông tin từ nguồn trên server, giữ link nguồn, chuyển giờ theo múi giờ CLB và dùng mã duy nhất để chống trùng. Thao tác cần đăng nhập, quyền BDH và CSRF. Đây không phải đăng ký đội thi trên CTFtime.
+- [Các bản UI/UX preview cũ](previews/README.md) được giữ để đối chiếu thiết kế. Dữ liệu CLB và các thao tác trong các thư mục này vẫn chỉ là demo, khác với ứng dụng Flask thật.
 - [Backup mã nguồn web cũ](backups/club-management-before-ui-20261012-105648/README.md): snapshot trước khi thiết kế lại UI. Bản trên Git đã loại cấu hình bí mật, database, ảnh tải lên, Git nội bộ và tài liệu giải thích riêng. Backup đầy đủ vẫn lưu riêng ở máy chủ dự án, không đưa lên Git.
 
 Các bản preview chạy riêng bằng `python3 preview_server.py --port 5082`; ứng dụng Flask thật tiếp tục dùng hướng dẫn dưới đây. Không triển khai preview thay cho ứng dụng thật.
+
+### Mở giao diện mới chạy thật
+
+```bash
+cd /home/phanquang/my-project
+source /home/phanquang/.virtualenvs/club-manager-group/bin/activate
+SCHEDULER_ENABLED=false flask --app run.py run --host 0.0.0.0 --port 5000 --no-reload
+```
+
+Mở `http://127.0.0.1:5000` và đăng nhập bằng tài khoản CLB thật. Đường dẫn trên là môi trường Ubuntu của máy phát triển; trên máy khác dùng thư mục clone và virtualenv của mình. Với WSL, nếu Windows không truy cập localhost được, dùng IP Ubuntu từ `hostname -I`. Chỉ dùng development server trong môi trường tin cậy, không mở ra Internet.
+
+`SCHEDULER_ENABLED=false` tắt lịch gửi mail nền khi thử giao diện; mặc định vẫn bật như trước. AI và SMTP đọc cấu hình bí mật của server, không đưa API key hoặc mật khẩu mail ra trình duyệt/Git. Truy vấn xác minh có thể trả lời bằng quy tắc; tác vụ dùng model phụ thuộc cấu hình provider, key, hạn mức và kết nối. Nháp mail/đề xuất vẫn phải qua quyền duyệt hiện có.
+
+CTFtime sử dụng lịch Google công khai được nhúng trên trang calendar, không dùng JSON API bị giới hạn mục đích. Cache/lỗi nguồn được thông báo rõ. Xác nhận điều khoản tái sử dụng trước khi phát hành website công khai.
+
+Kiểm tra backend bằng `python -m unittest discover -s tests -q` (database tạm). Để kiểm tra giao diện bằng trình duyệt, chạy `PYTHONPATH=. python tests/ui_fixture_server.py`, rồi chạy `node tests/test_live_ui.cjs` trong môi trường có Playwright và Edge; server test ở cổng 5090, tài khoản và database hoàn toàn tạm, không dùng dữ liệu CLB.
+
+Kiểm tra kết nối model thật tùy chọn: `PYTHONPATH=. python tests/provider_smoke.py`. Lệnh này dùng key riêng ở `.env` và có thể tính phí một yêu cầu ngắn; không gửi dữ liệu thành viên và không ghi database CLB. Không dùng các tài khoản test cho hệ thống thật.
 
 ## Chạy nhanh trên Ubuntu
 

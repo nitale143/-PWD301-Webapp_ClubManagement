@@ -1,44 +1,84 @@
 {% extends "base.html" %}
-{% block title %}Home{% endblock %}
+{% block title %}Tong quan{% endblock %}
 {% block content %}
+<section class="fia-page-heading" aria-labelledby="fia-home-title">
+    <div>
+        <p class="fia-page-heading__eyebrow">FIA CLUB · KHÔNG GIAN CỦA BẠN</p>
+        <h1 id="fia-home-title">Xin chào, {{ current_user.ho_ten }}</h1>
+        <p>Đây là nơi tập trung những cập nhật mới nhất dành cho bạn.</p>
+    </div>
+</section>
+
 {% if daily_digest %}
-<section class="panel">
-    <h2>Việc cần xử lý hôm nay</h2>
-    <pre style="white-space: pre-wrap">{{ daily_digest }}</pre>
+<section class="panel fia-briefing" aria-labelledby="fia-briefing-title">
+    <div class="fia-home-card__heading">
+        <div>
+            <p class="fia-section-kicker">TÓM TẮT DÀNH CHO BAN CHỦ NHIỆM</p>
+            <h2 id="fia-briefing-title">Việc cần xử lý hôm nay</h2>
+        </div>
+    </div>
+    <pre class="fia-briefing__text">{{ daily_digest }}</pre>
     <p class="small muted">Số liệu lấy trực tiếp từ database theo quyền của bạn; mở trang AI để xem báo cáo tuần/tháng.</p>
 </section>
 {% endif %}
-<div class="home-grid">
-    <section class="panel">
-        <h2>Thong bao</h2>
+
+<div class="fia-card-grid">
+    <section class="panel fia-home-card" aria-labelledby="fia-notifications-title">
+        <div class="fia-home-card__heading">
+            <div>
+                <p class="fia-section-kicker">CẬP NHẬT CHO BẠN</p>
+                <h2 id="fia-notifications-title">Thông báo</h2>
+            </div>
+        </div>
         {% if notifications %}
-        <ul class="notif-list">
+        <ul class="fia-notification-list">
             {% for n in notifications %}
-            <li class="{{ 'unread' if not n.da_doc }}">{{ n.noi_dung }}
-                <span class="muted small">{{ n.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</span>
+            <li class="fia-notification {{ 'is-unread' if not n.da_doc else '' }}">
+                <span class="fia-notification__mark" aria-hidden="true"></span>
+                <div class="fia-notification__body">
+                    <p>{{ n.noi_dung }}</p>
+                    <time class="muted small" datetime="{{ n.thoi_gian.isoformat() }}">{{ n.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</time>
+                </div>
+                {% if not n.da_doc %}<span class="fia-notification__state">Mới</span>{% endif %}
             </li>
             {% endfor %}
         </ul>
         {% else %}
-        <p class="muted">Chua co thong bao nao.</p>
+        <p class="fia-empty-state">Chưa có thông báo mới.</p>
         {% endif %}
     </section>
 
-    <section class="panel">
-        <h2>Su kien sap dien ra</h2>
-        {% if upcoming_events %}
-        {% for ev in upcoming_events %}
-        <div class="event-card">
-            <a href="{{ url_for('event.event_detail', event_id=ev.id) }}"><strong>{{ ev.ten_su_kien }}</strong> ({{ ev.ma_su_kien }})</a>
-            <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} - Trang thai: {{ ev.trang_thai }}</p>
-            {% set participants = event_participants.get(ev.id, []) %}
-            {% if participants %}
-            <p class="small">Nguoi tham gia: {{ participants|map(attribute='ho_ten')|join(', ') }}</p>
-            {% endif %}
+    <section class="panel fia-home-card" aria-labelledby="fia-events-title">
+        <div class="fia-home-card__heading">
+            <div>
+                <p class="fia-section-kicker">CÙNG NHÌN VỀ PHÍA TRƯỚC</p>
+                <h2 id="fia-events-title">Sự kiện sắp diễn ra</h2>
+            </div>
         </div>
-        {% endfor %}
+        {% if upcoming_events %}
+        <div class="fia-event-list">
+            {% for ev in upcoming_events %}
+            <article class="fia-event-row">
+                <time class="fia-event-row__date" datetime="{{ ev.thoi_gian_bat_dau.isoformat() }}">
+                    <span>{{ ev.thoi_gian_bat_dau.strftime('%d') }}</span>
+                    <span>{{ ev.thoi_gian_bat_dau.strftime('%m/%Y') }}</span>
+                </time>
+                <div class="fia-event-row__body">
+                    <div class="fia-event-row__title">
+                        <a href="{{ url_for('event.event_detail', event_id=ev.id) }}">{{ ev.ten_su_kien }}</a>
+                        <span class="fia-event-code">{{ ev.ma_su_kien }}</span>
+                    </div>
+                    <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%H:%M') }}{% if ev.thoi_gian_ket_thuc %}–{{ ev.thoi_gian_ket_thuc.strftime('%H:%M') }}{% endif %} · {{ ev.trang_thai }}</p>
+                    {% set participants = event_participants.get(ev.id, []) %}
+                    {% if participants %}
+                    <p class="fia-event-row__participants small">Người tham gia: {{ participants|map(attribute='ho_ten')|join(', ') }}</p>
+                    {% endif %}
+                </div>
+            </article>
+            {% endfor %}
+        </div>
         {% else %}
-        <p class="muted">Khong co su kien sap toi.</p>
+        <p class="fia-empty-state">Chưa có sự kiện sắp diễn ra.</p>
         {% endif %}
     </section>
 </div>
