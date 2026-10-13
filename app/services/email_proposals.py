@@ -9,7 +9,7 @@ from flask import current_app
 from app import db
 from app.mail import send_email
 from app.models import EmailProposal, EmailTemplate, User
-from .access import approved, can_manage_member, is_board, require, visible_members
+from .access import approved, is_board, require, visible_members
 from .assistant import AnthropicProvider, _normalize, get_provider
 from .common import DomainError, audit
 from .email_templates import render_template
@@ -97,8 +97,8 @@ def _mentioned_recipient(actor, message):
                             text)
                for member in visible_members(actor)):
             raise DomainError("Yêu cầu có cả email và tên thành viên. Hãy chọn một người nhận.")
-        require(actor.chuc_vu in {"CN", "PCN"},
-                "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được tạo nháp gửi tới email ngoài CLB.")
+        require(is_board(actor),
+                "Chỉ BDH được tạo nháp gửi tới email ngoài CLB.")
         return None, _validate_address(addresses[0]), "bạn", addresses[0]
 
     members = visible_members(actor).all()
@@ -132,8 +132,6 @@ def _mentioned_recipient(actor, message):
         member = matches[0] if matches else None
     if member is None:
         return None
-    if actor.chuc_vu == "TB":
-        require(can_manage_member(actor, member))
     address = _validate_address(member.email)
     return member, address, member.ho_ten, f"{member.ho_ten} ({member.mssv})"
 
@@ -185,8 +183,6 @@ def _recipient(actor, name):
         choices = ", ".join(f"{member.ho_ten} ({member.mssv})" for member in matches[:5])
         raise DomainError(f"Có nhiều thành viên trùng tên: {choices}. Hãy dùng MSSV để chọn đúng người.")
     member = matches[0]
-    if actor.chuc_vu == "TB":
-        require(can_manage_member(actor, member))
     return member
 
 
@@ -250,8 +246,8 @@ def maybe_create_email_draft(actor, message, provider=None):
         raise DomainError("Hãy nhập tên hoặc MSSV của người nhận.")
     external = "@" in target
     if external:
-        require(actor.chuc_vu in {"CN", "PCN"},
-                "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được tạo nháp gửi tới email ngoài CLB.")
+        require(is_board(actor),
+                "Chỉ BDH được tạo nháp gửi tới email ngoài CLB.")
         address = _validate_address(target)
         member = None
         display_name = "bạn"
@@ -281,15 +277,7 @@ def maybe_create_email_draft(actor, message, provider=None):
 
 
 def can_review_email(actor, draft):
-    if not is_board(actor):
-        return False
-    if actor.chuc_vu in {"CN", "PCN"}:
-        return True
-    if draft.recipient_id is None:
-        return False
-    recipient = db.session.get(User, draft.recipient_id)
-    return actor.id == draft.created_by_id and (
-        actor.id == draft.recipient_id or can_manage_member(actor, recipient))
+    return is_board(actor)
 
 
 def edit_email_draft(actor, draft, subject, body):

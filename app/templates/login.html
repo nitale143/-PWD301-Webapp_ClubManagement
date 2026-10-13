@@ -20,8 +20,10 @@
             <p class="muted">Dùng tài khoản thành viên FIA để tiếp tục.</p>
             {{ badge('Đăng nhập bằng tài khoản FIA', 'neutral') }}
             <form method="post" action="{{ url_for('auth.login') }}" class="page-stack" autocomplete="on">
-                <label class="field"><span class="field-label">MSSV</span><input class="input" type="text" name="mssv" value="{{ request.form.get('mssv', '') }}" required autofocus autocomplete="username" placeholder="Nhập MSSV của bạn"></label>
-                <label class="field"><span class="field-label">Mật khẩu</span><input class="input" type="password" name="password" required autocomplete="current-password" placeholder="Nhập mật khẩu"></label>
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                {% if next_target %}<input type="hidden" name="next" value="{{ next_target }}">{% endif %}
+                <label class="field"><span class="field-label">MSSV</span><input class="input" type="text" name="mssv" value="{{ request.form.get('mssv', '') }}" required maxlength="15" autofocus autocomplete="username" placeholder="Nhập MSSV của bạn"></label>
+                <label class="field"><span class="field-label">Mật khẩu</span><input class="input" type="password" name="password" required maxlength="128" autocomplete="current-password" placeholder="Nhập mật khẩu"></label>
                 <button class="btn btn-primary" type="submit">Đăng nhập {{ icon('arrow') }}</button>
             </form>
             <p class="auth-switch muted">Chưa có tài khoản? <a href="{{ url_for('auth.register') }}">Đăng ký thành viên mới</a></p>

@@ -8,15 +8,16 @@ from app.models import FundCollection, FundPayment, FundPeriod, FundTransaction,
 from app.permissions import approved_required
 from app.security import require_csrf
 from app.mail import send_email
-from app.services.access import approved, is_treasurer, visible_members
+from app.services.access import approved, is_admin, visible_members
 from app.services.common import DomainError, audit, club_now, parse_money
+from app.services.export_security import safe_excel_row
 from app.services.funds import balance, create_collection, record_payment, review_payment, target_members
 
 funds_bp = Blueprint("funds", __name__)
 
 
 def _is_thu_quy():
-    return is_treasurer(current_user)
+    return is_admin(current_user)
 
 
 @funds_bp.route("/funds/period/new", methods=["POST"])
@@ -270,19 +271,19 @@ def export_funds_excel():
     wb = Workbook()
     ws = wb.active
     ws.title = "Thu chi"
-    ws.append(["Ngay", "Danh muc", "Noi dung", "So tien"])
+    ws.append(safe_excel_row(["Ngay", "Danh muc", "Noi dung", "So tien"]))
     if period and _is_thu_quy():
         for tx in FundTransaction.query.filter_by(period_id=period.id):
-            ws.append([tx.ngay.isoformat(), tx.danh_muc, tx.noi_dung, tx.so_tien])
+            ws.append(safe_excel_row([tx.ngay.isoformat(), tx.danh_muc, tx.noi_dung, tx.so_tien]))
 
     ws2 = wb.create_sheet("Dong quy")
-    ws2.append(["Ho ten", "MSSV", "Da dong"])
+    ws2.append(safe_excel_row(["Ho ten", "MSSV", "Da dong"]))
     if period:
         due_query = FundDue.query.filter_by(period_id=period.id)
         if not _is_thu_quy():
             due_query = due_query.filter_by(user_id=current_user.id)
         for due in due_query:
-            ws2.append([due.user.ho_ten, due.user.mssv, "Co" if due.da_dong else "Chua"])
+            ws2.append(safe_excel_row([due.user.ho_ten, due.user.mssv, "Co" if due.da_dong else "Chua"]))
 
     buf = io.BytesIO()
     wb.save(buf)

@@ -11,32 +11,21 @@ from flask import current_app
 
 from app import db
 from app.models import (AIProposal, AIReportSnapshot, Attendance, EmailProposal,
-                        Event, EventRegistration, EventTargetBan, FundCollection,
-                        FundPayment, Task, User)
+                        Event, EventRegistration, FundCollection,
+                        FundPayment, Task)
 from .access import is_board, require, visible_members
 from .assistant import _normalize
 from .common import DomainError, audit, club_now
 from .email_proposals import _validate_address, can_review_email
-from .funds import target_members
+from .export_security import safe_excel_row
 from .proposals import can_review
 
 
 def _event_scope(actor, query):
-    if actor.chuc_vu == "TB":
-        managed = actor.quan_ly_ban_ids()
-        query = query.filter(db.or_(
-            Event.tao_boi_id == actor.id,
-            Event.id.in_(db.session.query(EventTargetBan.event_id).filter(
-                EventTargetBan.ban_id.in_(managed))),
-            Event.id.in_(db.session.query(Task.event_id).filter(Task.ban_id.in_(managed))),
-        ))
     return query
 
 
 def _task_scope(actor, query):
-    if actor.chuc_vu == "TB":
-        query = query.filter(db.or_(Task.ban_id.in_(actor.quan_ly_ban_ids()),
-                                    Task.assignee_id == actor.id))
     return query
 
 
@@ -57,11 +46,9 @@ def daily_digest(actor, today=None):
         Event.thoi_gian_bat_dau < datetime.combine(week_end, time.min))
         ).order_by(Event.thoi_gian_bat_dau, Event.id).all()
     visible_ids = {member.id for member in visible_members(actor)}
-    funds = [fund for fund in FundCollection.query.filter(
+    funds = FundCollection.query.filter(
         FundCollection.trang_thai == "open", FundCollection.han_dong < today
-    ).order_by(FundCollection.han_dong, FundCollection.id)
-             if actor.chuc_vu in {"CN", "PCN"}
-             or target_members(fund).filter(User.id.in_(visible_ids)).first()]
+    ).order_by(FundCollection.han_dong, FundCollection.id).all()
     proposals = [row for row in AIProposal.query.filter_by(status="pending").order_by(AIProposal.id)
                  if can_review(actor, row)]
     emails = [row for row in EmailProposal.query.filter(
@@ -115,7 +102,7 @@ def report_data(actor, period, today=None):
         FundPayment.trang_thai == "confirmed", FundPayment.xac_nhan_luc >= payment_first,
         FundPayment.xac_nhan_luc < payment_last, FundPayment.user_id.in_(visible_ids))
         .order_by(FundPayment.id).all())
-    full_scope = actor.chuc_vu in {"CN", "PCN"}
+    full_scope = is_board(actor)
     return {"period": period, "from": start.isoformat(), "through": today.isoformat(),
             "scope": "toàn CLB" if full_scope else "ban bạn quản lý",
             "scope_level": "club" if full_scope else "ban",
@@ -173,11 +160,7 @@ def can_access_report(actor, snapshot):
     if not is_board(actor) or snapshot.user_id != actor.id:
         return False
     payload = snapshot.payload or {}
-    if payload.get("scope_level") == "club":
-        return actor.chuc_vu in {"CN", "PCN"}
-    if payload.get("scope_level") == "ban":
-        return actor.chuc_vu == "TB" and payload.get("scope_ban_ids") == sorted(actor.quan_ly_ban_ids())
-    return False
+    return payload.get("scope_level") in {"club", "ban"}
 
 
 def report_workbook(snapshot):
@@ -185,9 +168,9 @@ def report_workbook(snapshot):
     wb = Workbook()
     overview = wb.active
     overview.title = "Tổng quan"
-    overview.append(["Bản xem trước", snapshot.id])
+    overview.append(safe_excel_row(["Bản xem trước", snapshot.id]))
     for line in report_text(payload).splitlines():
-        overview.append([line])
+        overview.append(safe_excel_row([line]))
     for name, rows, columns in (
         ("Sự kiện", payload["events"], ("id", "name", "ended_at")),
         ("Task", payload["tasks"], ("id", "name", "event_id", "ban_id", "deadline", "status")),
@@ -195,10 +178,9 @@ def report_workbook(snapshot):
         ("Thu quỹ mới", payload["payments"], ("id", "fund_id", "member_id", "amount", "confirmed_at_utc")),
     ):
         sheet = wb.create_sheet(name)
-        sheet.append(columns)
+        sheet.append(safe_excel_row(columns))
         for row in rows:
-            sheet.append(["'" + value if isinstance(value := row[key], str) and value.startswith(("=", "+", "-", "@"))
-                          else value for key in columns])
+            sheet.append(safe_excel_row([row[key] for key in columns]))
     buffer = BytesIO()
     wb.save(buffer)
     buffer.seek(0)

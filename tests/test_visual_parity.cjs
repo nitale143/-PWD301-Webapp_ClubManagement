@@ -30,7 +30,7 @@ const output=process.env.FIA_SCREENSHOTS||'D:/PWD301/parity-screenshots';
   await page.locator('#fund-collection-dialog [data-dialog-close]').first().click();
   await page.goto(base+'/event');
   await page.locator('[data-open-dialog="workspace-links"]').click();assert.ok(await page.locator('#workspace-links').isVisible());await page.keyboard.press('Escape');
-  await page.goto(base+'/logout');await login('QA002');await page.goto(base+'/funds');
+  await Promise.all([page.waitForURL('**/login'),page.locator('form.live-logout-form button[type=submit]').click()]);await login('QA002');await page.goto(base+'/funds');
   assert.equal(await page.locator('#fund-collection-dialog').count(),0);
   const pay=page.locator('[data-dialog-open^="fund-payment"]').first();const id=await pay.getAttribute('data-dialog-open');await pay.click();
   assert.ok(await page.locator('#'+id).isVisible());assert.match(await page.locator('#'+id+' form').getAttribute('action'),/\/funds\/collections\/\d+\/payments$/);

@@ -4,6 +4,7 @@ Chay: python run.py
 Mac dinh chay o http://127.0.0.1:5000
 """
 from datetime import date
+import click
 from dotenv import load_dotenv
 from app import create_app, db
 from app.models import User, Ban
@@ -70,7 +71,10 @@ def create_cn():
         print("MSSV nay da ton tai.")
         return
     ho_ten = input("Ho ten: ").strip()
-    password = input("Mat khau: ").strip()
+    password = click.prompt("Mật khẩu", hide_input=True, confirmation_prompt=True)
+    if not 8 <= len(password) <= 128:
+        click.echo("Mật khẩu phải từ 8 đến 128 ký tự.")
+        return
 
     user = User(
         mssv=mssv,

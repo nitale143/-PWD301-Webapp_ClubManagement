@@ -9,7 +9,7 @@
      data-feed-url="{{ url_for('event.ctftime_events') }}"
      data-import-url="{{ url_for('event.ctftime_import') }}"
      data-csrf-token="{{ csrf_token() }}"
-     data-board="{{ 'true' if current_user.chuc_vu in ['CN', 'PCN', 'TB'] else 'false' }}">
+     data-board="{{ 'true' if current_user.is_bdh() else 'false' }}">
     <div class="events-source-tabs" role="tablist" aria-label="Nguồn sự kiện">
         <button type="button" class="events-source-tab active" id="events-source-tab-fia"
                 role="tab" aria-controls="events-source-panel-fia" aria-selected="true"
@@ -29,7 +29,7 @@
                 </div>
                 <div class="toolbar-right">
                     <div class="segmented" role="group" aria-label="Kiểu hiển thị"><button type="button" data-event-view="grid" class="active" aria-pressed="true">{{ icon('grid') }} Thẻ</button><button type="button" data-event-view="list" aria-pressed="false">{{ icon('file') }} Danh sách</button></div>
-                    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}<a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>{% endif %}
+                    {% if current_user.is_bdh() %}<a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>{% endif %}
                 </div>
             </div>
         </div>
@@ -91,7 +91,7 @@
 </div>
 </div>
 
-<script>
+<script nonce="{{ csp_nonce }}">
 (() => {
     const root = document.querySelector('[data-event-sources]');
     if (!root) return;

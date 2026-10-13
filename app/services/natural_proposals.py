@@ -218,8 +218,6 @@ def maybe_create_natural_proposal(actor, message, conversation=None):
             missing.append("giờ bắt đầu")
         if len(dates) < 2:
             missing.append("giờ kết thúc")
-        if actor.chuc_vu == "TB" and not ban:
-            missing.append("ban bạn quản lý")
     else:
         if not event:
             missing.append("sự kiện hiện có (tên hoặc mã)")

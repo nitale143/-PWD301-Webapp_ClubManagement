@@ -11,16 +11,18 @@ from app.security import require_csrf
 from app.mail import send_email
 from app.activity import cap_nhat_hoat_dong_khi_event_ket_thuc
 from app.services.common import DomainError, club_now, parse_datetime
-from app.services.events import cancel_registration, eligible, feedback, manual_attendance, qr_checkin, register, registration_open
+from app.services.access import is_admin, is_board
+from app.services.events import (
+    cancel_registration, eligible, event_is_terminal, feedback, manual_attendance,
+    qr_checkin, register, registration_open,
+)
 from app.services.ctftime import CalendarUnavailable, SOURCE_URL, calendar_data, event_by_id
 
 event_bp = Blueprint("event", __name__)
 
 
 def _can_manage_task(task):
-    return current_user.chuc_vu in {"CN", "PCN"} or (
-        current_user.chuc_vu == "TB" and task.ban_id in current_user.quan_ly_ban_ids()
-    )
+    return is_admin(current_user)
 
 
 @event_bp.route("/event")
@@ -196,8 +198,8 @@ def event_detail(event_id):
     prior_feedback = EventFeedback.query.filter_by(event_id=event_id, user_id=current_user.id).first()
     return render_template(
         "event_detail.html", event=ev, bans=bans,
-        is_bdh=current_user.chuc_vu in {"CN", "PCN", "TB"},
-        is_board=current_user.chuc_vu in {"CN", "PCN", "TB"},
+        is_bdh=is_board(current_user),
+        is_board=is_board(current_user),
         registration=registration, registrations=registrations, detail=detail,
         can_register=registration_open(ev, detail) and eligible(ev, current_user),
         prior_feedback=prior_feedback,
@@ -290,7 +292,7 @@ def task_new(event_id):
     (khong con co che mo cho thanh vien xung phong).
     """
     ev = Event.query.get_or_404(event_id)
-    if ev.trang_thai == "da_ket_thuc":
+    if event_is_terminal(ev):
         abort(400)
 
     assignee_mssv = request.form.get("assignee_mssv", "").strip()
@@ -303,8 +305,6 @@ def task_new(event_id):
     if not ban_id or not Ban.query.get(ban_id):
         flash("Ban hoat dong khong hop le.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
-    if current_user.chuc_vu == "TB" and ban_id not in current_user.quan_ly_ban_ids():
-        abort(403)
     if not any(link.ban_id == ban_id for link in assignee.ban_links):
         flash("Nguoi phu trach khong thuoc ban cua task.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
@@ -349,7 +349,7 @@ def task_reassign(task_id):
     task = Task.query.get_or_404(task_id)
     if not _can_manage_task(task):
         abort(403)
-    if task.event.trang_thai == "da_ket_thuc" or task.trang_thai in {"hoan_thanh", "huy"}:
+    if event_is_terminal(task.event) or task.trang_thai in {"hoan_thanh", "huy"}:
         abort(400)
     mssv = request.form.get("assignee_mssv", "").strip()
     assignee = User.query.filter_by(mssv=mssv, status="approved").first()
@@ -383,7 +383,7 @@ def task_submit(task_id):
     task = Task.query.get_or_404(task_id)
     if task.assignee_id != current_user.id:
         abort(403)
-    if task.trang_thai not in {"dang_lam", "lam_lai"} or task.event.trang_thai == "da_ket_thuc":
+    if task.trang_thai not in {"dang_lam", "lam_lai"} or event_is_terminal(task.event):
         abort(400)
 
     noi_dung_moi = request.form.get("noi_dung_nop", "").strip()
@@ -418,7 +418,7 @@ def task_update_status(task_id):
     task = Task.query.get_or_404(task_id)
     if not _can_manage_task(task):
         abort(403)
-    if task.event.trang_thai == "da_ket_thuc" or task.trang_thai in {"hoan_thanh", "huy"}:
+    if event_is_terminal(task.event) or task.trang_thai in {"hoan_thanh", "huy"}:
         abort(400)
     new_status = request.form.get("trang_thai")
     nhan_xet = request.form.get("nhan_xet_bdh", "").strip()
@@ -459,10 +459,8 @@ def event_end(event_id):
     trang hoat dong cua cac thanh vien lien quan (theo ban) duoc cap nhat lai.
     """
     ev = Event.query.get_or_404(event_id)
-    if ev.trang_thai == "da_ket_thuc":
+    if event_is_terminal(ev):
         abort(400)
-    if current_user.chuc_vu == "TB" and any(task.ban_id not in current_user.quan_ly_ban_ids() for task in ev.tasks):
-        abort(403)
     ev.trang_thai = "da_ket_thuc"
     db.session.commit()
 

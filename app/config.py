@@ -1,10 +1,24 @@
 import os
+from datetime import timedelta
 
 BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 
 class Config:
-    SECRET_KEY = os.environ.get("SECRET_KEY", "doi-key-nay-truoc-khi-deploy")
+    SECRET_KEY = os.environ.get("SECRET_KEY")
+    APP_ENV = os.environ.get("APP_ENV", "development").lower()
+    SECURITY_TRUSTED_HOSTS = [host.strip().lower() for host in os.environ.get(
+        "TRUSTED_HOSTS", "localhost,127.0.0.1,::1").split(",") if host.strip()]
+    SESSION_COOKIE_HTTPONLY = True
+    PERMANENT_SESSION_LIFETIME = timedelta(hours=8)
+    SESSION_COOKIE_SECURE = APP_ENV == "production"
+    SESSION_COOKIE_NAME = "__Host-fia" if APP_ENV == "production" else "fia_session"
+    LOGIN_LIMIT_ENABLED = True
+    LOGIN_MAX_ATTEMPTS = 5
+    LOGIN_WINDOW_SECONDS = 300
+    LOGIN_LOCKOUT_SECONDS = 300
+    MAX_FORM_PARTS = 200
+    MAX_FORM_MEMORY_SIZE = 128 * 1024
     APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Asia/Bangkok")
     SESSION_COOKIE_SAMESITE = "Lax"
     SQLALCHEMY_DATABASE_URI = os.environ.get(
@@ -40,7 +54,7 @@ class Config:
         (0, "khong_hoat_dong"),
     ]
     TASK_STATUS = ["dang_lam", "cho_duyet", "lam_lai", "hoan_thanh", "huy"]
-    EVENT_STATUS = ["sap_dien_ra", "dang_dien_ra", "da_ket_thuc"]
+    EVENT_STATUS = ["sap_dien_ra", "dang_dien_ra", "da_ket_thuc", "cancelled"]
 
     # --- Cau hinh gui mail (SMTP) ---
     # Mac dinh MAIL_ENABLED=False: webapp van chay binh thuong, email se
@@ -49,6 +63,7 @@ class Config:
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
     MAIL_USE_TLS = os.environ.get("MAIL_USE_TLS", "true").lower() == "true"
+    MAIL_USE_SSL = os.environ.get("MAIL_USE_SSL", "false").lower() == "true"
     MAIL_USERNAME = os.environ.get("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", MAIL_USERNAME)

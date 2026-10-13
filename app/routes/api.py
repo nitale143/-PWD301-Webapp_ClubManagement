@@ -25,6 +25,7 @@ from app.models import (
 from app.services.access import (
     approved, can_manage_member, can_view_member, can_view_all_members,
     is_admin, is_board, is_treasurer, require, visible_members, actor_scope_stamp,
+    set_member_left_safely,
 )
 from app.services.activities import activity_stats, manual_point, DEFAULT_POINTS, DEFAULT_THRESHOLDS
 from app.services.agent import check_chat_rate, respond, respond_events
@@ -39,8 +40,10 @@ from app.services.briefings import briefing_kind
 from app.services.verified_queries import member_query_kind
 from app.services.common import DomainError, audit, club_now, member_record, parse_datetime
 from app.services.common import parse_date
+from app.services.export_security import safe_excel_row
 from app.services.events import (
-    cancel_registration, feedback, manual_attendance, qr_checkin, qr_token, register,
+    cancel_registration, event_is_terminal, feedback, manual_attendance,
+    qr_checkin, qr_token, register,
 )
 from app.services.funds import (
     adjust_fund, balance, create_collection, record_payment, review_payment,
@@ -131,8 +134,6 @@ def _create_member(data):
         raise DomainError("Danh sách ban không hợp lệ.") from None
     if not department_ids or Ban.query.filter(Ban.id.in_(department_ids)).count() != len(department_ids):
         raise DomainError("Danh sách ban không hợp lệ.")
-    if current_user.chuc_vu == "TB" and not set(department_ids).issubset(current_user.quan_ly_ban_ids()):
-        raise DomainError("Trưởng ban chỉ được thêm thành viên vào ban mình quản lý.", 403)
     user = User(mssv=code, ho_ten=name, ngay_sinh=birth, sdt=phone, email=email,
                 status="approved", chuc_vu="THANH_VIEN")
     user.set_password(password)
@@ -187,9 +188,7 @@ def event_json(event):
 
 
 def can_manage_event(event):
-    return is_board(current_user) and (
-        current_user.chuc_vu in {"CN", "PCN"} or event.tao_boi_id == current_user.id
-    )
+    return is_admin(current_user)
 
 
 @api_bp.get("/members")
@@ -291,7 +290,11 @@ def member_update(user_id):
     if "status" in data:
         if data["status"] not in {"active", "paused", "left"}:
             raise DomainError("Trạng thái thành viên không hợp lệ.")
-        record.tinh_trang = data["status"]
+        if data["status"] == "left":
+            if not set_member_left_safely(user, record):
+                raise DomainError("Không thể đưa quản trị viên cuối cùng sang trạng thái đã rời CLB.", 409)
+        else:
+            record.tinh_trang = data["status"]
     if "note" in data:
         record.ghi_chu = str(data["note"] or "").strip()
     audit(current_user, "member_update", record, {"member_id": user.id})
@@ -306,8 +309,8 @@ def member_archive(user_id):
     record = member_record(user)
     if record.luu_tru_luc:
         raise DomainError("Thành viên đã được lưu trữ.")
-    record.tinh_trang = "left"
-    record.luu_tru_luc = datetime.utcnow()
+    if not set_member_left_safely(user, record, datetime.utcnow()):
+        raise DomainError("Không thể lưu trữ quản trị viên cuối cùng.", 409)
     audit(current_user, "member_archive", record, {"member_id": user.id})
     db.session.commit()
     return jsonify(message="Đã lưu trữ thành viên.")
@@ -490,8 +493,6 @@ def event_create():
     manager_id = data.get("manager_id", current_user.id)
     manager = db.get_or_404(User, manager_id)
     require(is_board(manager), "Người phụ trách phải thuộc ban chủ nhiệm.")
-    if current_user.chuc_vu == "TB" and (manager.id != current_user.id or applies_all or not set(ban_ids).issubset(current_user.quan_ly_ban_ids())):
-        raise DomainError("Trưởng ban chỉ được tạo sự kiện trong ban mình quản lý.", 403)
     fund_id = data.get("fund_id")
     if fund_id:
         db.get_or_404(FundCollection, fund_id)
@@ -521,7 +522,7 @@ def event_detail(event_id):
 def event_update(event_id):
     event = db.get_or_404(Event, event_id)
     require(can_manage_event(event))
-    if event.trang_thai in {"da_ket_thuc", "cancelled"}:
+    if event_is_terminal(event):
         raise DomainError("Không thể sửa sự kiện đã kết thúc hoặc đã hủy.")
     data = body()
     detail = db.session.get(EventDetail, event.id)
@@ -595,7 +596,7 @@ def event_copy(event_id):
 def event_cancel(event_id):
     event = db.get_or_404(Event, event_id)
     require(can_manage_event(event))
-    if event.trang_thai in {"da_ket_thuc", "cancelled"}:
+    if event_is_terminal(event):
         raise DomainError("Sự kiện đã kết thúc hoặc đã hủy.")
     if Attendance.query.join(EventRegistration).filter(EventRegistration.event_id == event.id,
                                                          Attendance.trang_thai != "pending").first():
@@ -777,8 +778,6 @@ def proposal_json(proposal):
 def assistant_proposals():
     require(is_board(current_user))
     query = AIProposal.query.order_by(AIProposal.id.desc())
-    if current_user.chuc_vu == "TB":
-        query = query.filter_by(created_by_id=current_user.id)
     if request.args.get("status"):
         query = query.filter_by(status=request.args["status"])
     return listing(paginate(query), proposal_json)
@@ -866,12 +865,12 @@ def fund_report():
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Tinh trang dong quy"
-    sheet.append(["Mã thành viên", "Họ tên", "Khoản thu", "Phải đóng", "Đã đóng", "Còn thiếu", "Trạng thái"])
+    sheet.append(safe_excel_row(["Mã thành viên", "Họ tên", "Khoản thu", "Phải đóng", "Đã đóng", "Còn thiếu", "Trạng thái"]))
     for fund in FundCollection.query.order_by(FundCollection.id):
         for member in target_members(fund):
             item = balance(fund, member)
-            sheet.append([member.mssv, member.ho_ten, fund.ten_khoan_thu,
-                          item["required"], item["paid"], item["remaining"], item["status"]])
+            sheet.append(safe_excel_row([member.mssv, member.ho_ten, fund.ten_khoan_thu,
+                                         item["required"], item["paid"], item["remaining"], item["status"]]))
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)
@@ -885,10 +884,11 @@ def member_report():
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Thanh vien"
-    sheet.append(["Mã", "Họ tên", "Email", "Số điện thoại", "Chức vụ", "Trạng thái", "Ngày gia nhập"])
+    sheet.append(safe_excel_row(["Mã", "Họ tên", "Email", "Số điện thoại", "Chức vụ", "Trạng thái", "Ngày gia nhập"]))
     for member in visible_members(current_user).order_by(User.id):
         info = member_json(member)
-        sheet.append([info["code"], info["name"], info["email"], info["phone"], info["role"], info["status"], info["joined_at"]])
+        sheet.append(safe_excel_row([info["code"], info["name"], info["email"], info["phone"],
+                                     info["role"], info["status"], info["joined_at"]]))
     stream = BytesIO()
     wb.save(stream)
     stream.seek(0)

@@ -170,19 +170,13 @@ def ai_chat():
         report_previews = {period: report_text(report_data(current_user, period))
                            for period in ("week", "month")}
         query = AIProposal.query.filter_by(status="pending").order_by(AIProposal.created_at.desc())
-        if current_user.chuc_vu == "TB":
-            query = query.filter_by(created_by_id=current_user.id)
         proposals = [proposal for proposal in query.limit(30) if can_review(current_user, proposal)]
         email_query = EmailProposal.query.filter(
             EmailProposal.status.in_(["pending", "failed", "sending"])
         ).order_by(EmailProposal.created_at.desc())
-        if current_user.chuc_vu == "TB":
-            email_query = email_query.filter_by(created_by_id=current_user.id)
         email_proposals = [draft for draft in email_query.limit(30) if can_review_email(current_user, draft)]
         usage_query = AIUsageLog.query.filter(
             AIUsageLog.created_at >= datetime.utcnow() - timedelta(days=1))
-        if current_user.chuc_vu == "TB":
-            usage_query = usage_query.filter_by(actor_id=current_user.id)
         usage = usage_query.all()
         usage_summary = {"calls": len(usage),
                          "tokens": sum(row.total_tokens for row in usage),
@@ -196,7 +190,7 @@ def ai_chat():
                            viewing_older=newer_after is not None,
                            email_proposals=email_proposals, usage_summary=usage_summary,
                            email_templates=(EmailTemplate.query.order_by(EmailTemplate.name).all()
-                                            if current_user.chuc_vu in {"CN", "PCN"} else
+                                            if is_board(current_user) else
                                             EmailTemplate.query.filter_by(active=True)
                                             .order_by(EmailTemplate.name).all()
                                             if is_board(current_user) else []),

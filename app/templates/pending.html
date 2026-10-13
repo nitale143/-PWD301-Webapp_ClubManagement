@@ -22,7 +22,7 @@
                     <div class="list-item">{{ badge('Tiếp theo', 'neutral') }}<span>Thông báo kết quả xét duyệt</span></div>
                 </div>
             </div>
-            <div class="pending-actions"><a class="btn btn-secondary" href="{{ url_for('auth.logout') }}">{{ icon('logout') }} Đăng xuất</a></div>
+            <div class="pending-actions"><form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary" type="submit">{{ icon('logout') }} Đăng xuất</button></form></div>
         </div>
     </section>
 </div>

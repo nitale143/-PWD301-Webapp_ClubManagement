@@ -322,19 +322,19 @@ class AgentOrchestratorTests(unittest.TestCase):
                 self.assertEqual(AIProposal.query.count(), 0)
                 self.assertEqual(EmailProposal.query.count(), 0)
 
-    def test_tool_scope_and_original_timeframe_cannot_be_broadened(self):
+    def test_board_tool_scope_is_global_and_original_timeframe_cannot_be_broadened(self):
         scoped_planner = FakePlanner([tool_action("member_info", "SV004"), finish_action()])
         scoped, _events = self._run(
             "Cho tôi hồ sơ của SV004", scoped_planner, actor=self._user(2))
-        self.assertNotIn("Riley Outside", scoped["answer"])
+        self.assertIn("Riley Outside", scoped["answer"])
         self.assertNotIn("member #4", scoped["answer"].lower())
 
         fallback_events = list(respond_events(
             self._user(2), "Cho tôi hồ sơ của SV004"))
         fallback = next(event["result"] for event in fallback_events
                         if event.get("type") == "result")
-        self.assertIn(fallback["verification"], {"clarification", "unsupported"})
-        self.assertNotIn("Riley Outside", fallback["answer"])
+        self.assertEqual(fallback["verification"], "database")
+        self.assertIn("Riley Outside", fallback["answer"])
         self.assertNotIn("Taylor Lead", fallback["answer"])
 
         period = FundPeriod(
@@ -788,7 +788,7 @@ class AgentOrchestratorTests(unittest.TestCase):
                 if change != "role":
                     self.assertEqual(len(planner.prompts), 1)
 
-    def test_completed_privileged_tool_data_is_discarded_if_role_or_managed_ban_changes(self):
+    def test_completed_privileged_tool_data_is_discarded_only_if_role_changes(self):
         cases = (
             (1, "Cho tôi hồ sơ của SV004", "role"),
             (2, "Cho tôi hồ sơ của SV003", "managed_ban"),
@@ -817,11 +817,16 @@ class AgentOrchestratorTests(unittest.TestCase):
                 result, _events = self._run(question, planner, actor=actor)
 
                 self.assertEqual(len(planner.prompts), 2)
-                self.assertEqual(result["intent"], "permission_denied")
-                self.assertEqual(result["verification"], "unsupported")
-                self.assertNotIn("Riley Outside", result["answer"])
-                self.assertNotIn("Morgan Own", result["answer"])
-                self.assertIn("quyền", result["answer"].lower())
+                if change == "role":
+                    self.assertEqual(result["intent"], "permission_denied")
+                    self.assertEqual(result["verification"], "unsupported")
+                    self.assertNotIn("Riley Outside", result["answer"])
+                    self.assertNotIn("Morgan Own", result["answer"])
+                    self.assertIn("quyền", result["answer"].lower())
+                else:
+                    self.assertEqual(result["intent"], "member_info")
+                    self.assertEqual(result["verification"], "database")
+                    self.assertIn("Morgan Own", result["answer"])
 
     def test_prompt_injection_cannot_turn_read_tools_into_writes(self):
         planner = FakePlanner([

@@ -92,7 +92,7 @@ class RealLandingAndWorkspaceTests(unittest.TestCase):
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/home"))
 
-    def test_task_board_respects_member_and_managed_ban_scope(self):
+    def test_task_board_keeps_member_scope_and_grants_board_global_scope(self):
         db.session.add_all([Ban(id=1, ten_ban="Kỹ thuật"), Ban(id=2, ten_ban="Nhân sự")])
         for user_id, role in ((3, "TB"), (4, "THANH_VIEN")):
             db.session.add(User(id=user_id, mssv=f"QA{user_id}", ho_ten=f"Actor {user_id}",
@@ -114,7 +114,7 @@ class RealLandingAndWorkspaceTests(unittest.TestCase):
         html=self.client.get('/tasks').get_data(as_text=True)
         self.assertIn('VISIBLE_MANAGED_TASK', html)
         self.assertIn('VISIBLE_SELF_TASK', html)
-        self.assertNotIn('PRIVATE_OTHER_TASK', html)
+        self.assertIn('PRIVATE_OTHER_TASK', html)
         self._login(2)
         self.assertIn('PRIVATE_OTHER_TASK', self.client.get('/tasks').get_data(as_text=True))
 

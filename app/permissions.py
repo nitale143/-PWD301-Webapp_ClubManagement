@@ -1,16 +1,13 @@
 """
 Cac decorator kiem tra quyen han, dung chung cho moi blueprint.
 
-Quy tac quyen han (theo yeu cau):
-  CN > PCN > TB, ThuKy/ThuQuy > Thanh vien
-  - TB chi duoc quan ly/quyen han voi thanh vien trong ban minh quan ly.
-  - Nguoi quyen cao hon moi duoc chi dinh chuc vu cho nguoi thap hon
-    (khong duoc chi nguoc lai).
+Quyền quản trị dùng chung cho các chức vụ CN, PCN, TB và THUKY_THUQUY.
+THANH_VIEN chỉ có quyền trong phạm vi dữ liệu của chính mình.
 """
 from functools import wraps
 from flask import abort
 from flask_login import current_user
-from app.services.access import approved, is_board, can_manage_member
+from app.services.access import ADMIN_ROLES, approved, is_admin, is_board, can_manage_member
 
 
 def approved_required(view_func):
@@ -28,7 +25,7 @@ def approved_required(view_func):
 
 
 def bdh_required(view_func):
-    """Chỉ Ban chủ nhiệm (CN, PCN, TB) được truy cập."""
+    """Chỉ tài khoản quản trị đã được duyệt mới được truy cập."""
 
     @wraps(view_func)
     def wrapped(*args, **kwargs):
@@ -41,11 +38,14 @@ def bdh_required(view_func):
 
 def role_required(*roles):
     """Chi cac chuc vu duoc liet ke moi duoc truy cap. Vi du: @role_required('CN', 'PCN')"""
+    admin_only = bool(roles) and set(roles).issubset(ADMIN_ROLES)
 
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(*args, **kwargs):
-            if not current_user.is_authenticated or not approved(current_user) or current_user.chuc_vu not in roles:
+            if not current_user.is_authenticated or not (
+                    is_admin(current_user) if admin_only else
+                    approved(current_user) and current_user.chuc_vu in roles):
                 abort(403)
             return view_func(*args, **kwargs)
 
@@ -66,14 +66,10 @@ def can_assign_role(assigner, target, new_role, current_counts):
         return False, "Chuc vu khong hop le."
     if not approved(assigner) or not approved(target) or assigner.id == target.id:
         return False, "Chi duoc chi dinh cho thanh vien khac da duoc duyet."
-    if assigner.chuc_vu not in {"CN", "PCN"} or not can_manage_member(assigner, target):
+    if not is_admin(assigner) or not can_manage_member(assigner, target):
         return False, "Ban khong co quyen phan vai tro nay."
-    if not assigner.outranks(target):
-        return False, "Ban chi duoc thay doi chuc vu cua nguoi co quyen thap hon."
-
-    # Nguoi chi dinh phai co quyen cao hon chuc vu moi (khong duoc ngang hoac thap hon)
-    if order.index(assigner.chuc_vu) >= order.index(new_role):
-        return False, "Ban khong co quyen chi dinh chuc vu nay (chi nguoi quyen cao hon moi duoc chi dinh xuong)."
+    if new_role == "CN":
+        return False, "Vui lòng dùng quy trình nhường quyền để chỉ định Chủ nhiệm."
 
     limit = Config.ROLE_LIMITS.get(new_role)
     if limit is not None and current_counts.get(new_role, 0) >= limit:

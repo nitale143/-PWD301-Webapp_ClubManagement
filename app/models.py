@@ -69,16 +69,15 @@ class User(UserMixin, db.Model):
         return check_password_hash(self.password_hash, raw_password)
 
     # ---- quyen han helpers ----
-    ROLE_RANK = {"CN": 0, "PCN": 1, "TB": 2, "THUKY_THUQUY": 2, "THANH_VIEN": 3}
+    ADMIN_ROLES = frozenset({"CN", "PCN", "TB", "THUKY_THUQUY"})
 
     def outranks(self, other_user):
-        """True neu self co quyen cao hon other_user (duoc phep chi dinh/quan ly)."""
-        return self.ROLE_RANK.get(self.chuc_vu, 99) < self.ROLE_RANK.get(
-            other_user.chuc_vu, 99
-        )
+        """True when an admin is handing a designation to a regular member."""
+        return (self.chuc_vu in self.ADMIN_ROLES
+                and other_user.chuc_vu == "THANH_VIEN")
 
     def is_bdh(self):
-        return self.chuc_vu != "THANH_VIEN"
+        return self.chuc_vu in self.ADMIN_ROLES
 
     def quan_ly_ban_ids(self):
         """Cac ban_id ma Truong ban nay quan ly (rong neu khong phai TB)."""

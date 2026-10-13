@@ -3,7 +3,7 @@ from decimal import Decimal
 
 from flask import Blueprint, render_template, request
 from flask_login import login_required, current_user
-from sqlalchemy import func, or_
+from sqlalchemy import func
 
 from app import db
 from app.models import (
@@ -21,14 +21,9 @@ TASK_STATUSES = ("dang_lam", "cho_duyet", "lam_lai", "hoan_thanh", "huy")
 
 
 def _task_scope(actor, query):
-    """Keep the task board within the same role scope as board briefings."""
-    if actor.chuc_vu in {"CN", "PCN"}:
+    """Admins see the club-wide task board; members see only their own tasks."""
+    if is_board(actor):
         return query
-    if actor.chuc_vu == "TB":
-        return query.filter(or_(
-            Task.ban_id.in_(actor.quan_ly_ban_ids()),
-            Task.assignee_id == actor.id,
-        ))
     return query.filter(Task.assignee_id == actor.id)
 
 

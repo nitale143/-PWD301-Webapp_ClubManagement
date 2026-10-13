@@ -1,5 +1,13 @@
 # CLB Manager
 
+## Bảo mật và hai nhóm quyền
+
+Web dùng hai nhóm quyền: **Admin/BOD** (CN, PCN, TB, thư ký/thủ quỹ) quản lý toàn CLB; **Thành viên** chỉ truy cập dữ liệu riêng và các chức năng dành cho mình. Các chức vụ vẫn dùng cho phân công/handoff, không chia phạm vi admin theo ban. Mọi thao tác ghi yêu cầu CSRF; đăng xuất dùng POST. Các trang chat riêng vẫn thuộc người tạo, không tự mở lịch sử riêng cho admin khác.
+
+Bản hiện tại được gia cố theo [OWASP Top 10:2025](https://top10.owasp.org/2025/). Xem [SECURITY.md](SECURITY.md) để biết kiểm soát, cấu hình triển khai và những giới hạn còn cần xử lý ở hạ tầng. Không coi việc chạy qua test là chứng nhận hết lỗ hổng.
+
+Cài dependency đã khóa bằng `python -m pip install --require-hashes -r requirements-lock.txt`. Khi đưa ra Internet cần `APP_ENV=production`, khóa session ngẫu nhiên đủ mạnh, `TRUSTED_HOSTS` thực tế, HTTPS và tắt debug. Môi trường HTTP localhost chỉ dành cho phát triển. Đổi session/key có thể yêu cầu đăng nhập lại. Secret, database, log bảo mật và backup đầy đủ vẫn giữ ngoài Git.
+
 Ứng dụng web nội bộ để quản lý thành viên, sự kiện, công việc và quỹ câu lạc bộ. Dự án dùng **Python/Flask**, giao diện Jinja2 và SQLite mặc định. Trợ lý AI hỗ trợ tra cứu, lập đề xuất; khi chưa có API key, ứng dụng dùng chế độ quy tắc để nhóm vẫn chạy thử được luồng nghiệp vụ.
 
 > Dự án hiện phù hợp để học tập và demo. Xem [Lưu ý trước khi triển khai thật](#lưu-ý-trước-khi-triển-khai-thật) nếu muốn dùng với dữ liệu thật.

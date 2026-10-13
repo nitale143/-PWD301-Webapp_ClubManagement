@@ -1,55 +1,97 @@
-"""
-Ham gui email dung chung cho toan bo app, dua tren smtplib (SMTP) thuan,
-khong can Flask-Mail.
+"""Small SMTP wrapper that keeps disabled mail and transport failures private."""
 
-Vi du cau hinh voi Gmail (dat trong bien moi truong hoac file .env):
-    MAIL_ENABLED=true
-    MAIL_SERVER=smtp.gmail.com
-    MAIL_PORT=587
-    MAIL_USE_TLS=true
-    MAIL_USERNAME=clb.example@gmail.com
-    MAIL_PASSWORD=xxxx-xxxx-xxxx-xxxx   # App Password, KHONG dung mat khau Gmail thuong
-    MAIL_DEFAULT_SENDER=clb.example@gmail.com
-
-Neu dung mail server cua truong/to chuc, doi MAIL_SERVER/MAIL_PORT tuong ung.
-"""
+import re
 import smtplib
+import ssl
 from email.message import EmailMessage
+
 from flask import current_app
 
 
-def send_email(to_email: str, subject: str, body: str) -> bool:
-    """
-    Gui mot email don gian (plain text). Tra ve True neu gui thanh cong.
+_EMAIL_RE = re.compile(
+    r"^[A-Za-z0-9.!#$%&'*+/=?^_{|}~-]+@"
+    r"[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?$"
+)
 
-    Khi MAIL_ENABLED=False (mac dinh), ham chi in noi dung ra console -
-    tien loi de phat trien/test ma khong can tai khoan SMTP that, va
-    webapp khong bao gio bi crash chi vi thieu cau hinh mail.
-    """
+
+def _safe_header(value, max_length):
+    return (
+        isinstance(value, str)
+        and 0 < len(value) <= max_length
+        and not any(ord(char) < 32 or ord(char) == 127 for char in value)
+    )
+
+
+def _valid_email(value):
+    return _safe_header(value, 254) and _EMAIL_RE.fullmatch(value) is not None and ".." not in value
+
+
+def send_email(to_email: str, subject: str, body: str) -> bool:
+    """Send one plain-text message, returning false if it cannot be sent safely."""
     cfg = current_app.config
 
-    if not to_email:
-        return False
-
     if not cfg.get("MAIL_ENABLED"):
-        print(f"[MAIL-STUB] To: {to_email}\nSubject: {subject}\n{body}\n{'-'*40}")
+        return False
+    if not _valid_email(to_email) or not _safe_header(subject, 255) or not isinstance(body, str):
+        current_app.logger.warning("Email rejected because its address or subject was invalid")
         return False
 
-    msg = EmailMessage()
-    msg["Subject"] = subject
-    msg["From"] = cfg["MAIL_DEFAULT_SENDER"]
-    msg["To"] = to_email
-    msg.set_content(body)
+    sender = cfg.get("MAIL_DEFAULT_SENDER", "")
+    server_name = cfg.get("MAIL_SERVER", "")
+    if not _valid_email(sender) or not _safe_header(server_name, 253) or any(c.isspace() for c in server_name):
+        current_app.logger.warning("Email delivery configuration is invalid")
+        return False
+
+    use_ssl = bool(cfg.get("MAIL_USE_SSL", False))
+    use_tls = bool(cfg.get("MAIL_USE_TLS", False))
+    if not (use_ssl or use_tls):
+        current_app.logger.warning("Email delivery requires an encrypted SMTP connection")
+        return False
+    if use_ssl and use_tls:
+        current_app.logger.warning("Email delivery configuration selects conflicting SMTP transports")
+        return False
 
     try:
-        with smtplib.SMTP(cfg["MAIL_SERVER"], cfg["MAIL_PORT"], timeout=10) as server:
-            if cfg.get("MAIL_USE_TLS"):
-                server.starttls()
-            if cfg.get("MAIL_USERNAME"):
-                server.login(cfg["MAIL_USERNAME"], cfg["MAIL_PASSWORD"])
-            server.send_message(msg)
+        timeout = float(cfg.get("MAIL_TIMEOUT_SECONDS", 10))
+        port = int(cfg.get("MAIL_PORT", 587))
+    except (TypeError, ValueError, OverflowError):
+        current_app.logger.warning("Email delivery configuration is invalid")
+        return False
+    if not 0 < timeout <= 120 or not 1 <= port <= 65535:
+        current_app.logger.warning("Email delivery configuration is invalid")
+        return False
+
+    username = cfg.get("MAIL_USERNAME", "")
+    password = cfg.get("MAIL_PASSWORD", "")
+    if username and (not _safe_header(username, 254) or not password):
+        current_app.logger.warning("Email authentication configuration is invalid")
+        return False
+
+    message = EmailMessage()
+    try:
+        message["Subject"] = subject
+        message["From"] = sender
+        message["To"] = to_email
+        message.set_content(body)
+    except (TypeError, ValueError):
+        current_app.logger.warning("Email rejected because its headers were invalid")
+        return False
+
+    context = ssl.create_default_context()
+    try:
+        if use_ssl:
+            smtp_context = smtplib.SMTP_SSL(server_name, port, timeout=timeout, context=context)
+        else:
+            smtp_context = smtplib.SMTP(server_name, port, timeout=timeout)
+        with smtp_context as smtp:
+            if use_tls:
+                smtp.ehlo()
+                smtp.starttls(context=context)
+                smtp.ehlo()
+            if username:
+                smtp.login(username, password)
+            smtp.send_message(message)
         return True
     except Exception as exc:
-        # Khong de loi gui mail lam sap ca request nguoi dung dang cho.
-        print(f"[MAIL-ERROR] Gui mail toi {to_email} that bai: {exc}")
+        current_app.logger.warning("SMTP delivery failed (%s)", type(exc).__name__)
         return False
