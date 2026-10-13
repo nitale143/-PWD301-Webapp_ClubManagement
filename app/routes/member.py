@@ -13,11 +13,12 @@ def _parse_filters():
     q = request.args.get("q", "").strip()
     ban_id = request.args.get("ban_id", type=int)
     sort_by = request.args.get("sort", "ho_ten")  # ho_ten | mssv
-    return q, ban_id, sort_by
+    status = request.args.get("status", "").strip()
+    return q, ban_id, sort_by, status
 
 
 def _filtered_members():
-    q, ban_id, sort_by = _parse_filters()
+    q, ban_id, sort_by, status = _parse_filters()
 
     members = visible_members(current_user)
 
@@ -28,6 +29,8 @@ def _filtered_members():
         )
     if ban_id:
         members = members.join(User.ban_links).filter_by(ban_id=ban_id)
+    if status and can_view_all_members(current_user):
+        members = members.filter(User.hoat_dong_status == status)
 
     if sort_by == "mssv":
         members = members.order_by(User.mssv.asc())
@@ -43,7 +46,15 @@ def _filtered_members():
 def member_list():
     members = _filtered_members()
     bans = Ban.query.all()
-    q, ban_id, sort_by = _parse_filters()
+    q, ban_id, sort_by, status = _parse_filters()
+    visible = visible_members(current_user)
+    if ban_id:
+        visible = visible.join(User.ban_links).filter_by(ban_id=ban_id)
+    total_members = visible.count()
+    active_members = visible.filter(User.hoat_dong_status.in_(["tich_cuc", "hoat_dong"])).count()
+    follow_up_members = visible.filter(User.hoat_dong_status.in_(
+        ["it_hoat_dong", "khong_hoat_dong", "ngung_hoat_dong"]
+    )).count()
     # BDH xem day du thong tin; thanh vien thuong chi xem ho ten/mssv/chuc vu/ban
     return render_template(
         "member.html",
@@ -53,6 +64,10 @@ def member_list():
         selected_q=q,
         selected_ban_id=ban_id,
         selected_sort=sort_by,
+        selected_status=status,
+        total_members=total_members,
+        active_members=active_members,
+        follow_up_members=follow_up_members,
     )
 
 

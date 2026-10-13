@@ -1,0 +1,262 @@
+.parity-finance .preview-page-heading {
+  flex-wrap: wrap;
+}
+
+.parity-finance .preview-page-heading > .grow {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.parity-finance .toolbar-right {
+  flex-wrap: wrap;
+}
+
+.parity-finance .parity-finance-menu {
+  position: relative;
+}
+
+.parity-finance .parity-finance-menu > summary {
+  list-style: none;
+  cursor: pointer;
+}
+
+.parity-finance .parity-finance-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.parity-finance .parity-finance-menu-list {
+  position: absolute;
+  top: calc(100% + 7px);
+  right: 0;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 218px;
+  padding: 7px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+}
+
+.parity-finance .parity-finance-menu:not([open]) > .parity-finance-menu-list {
+  display: none;
+}
+
+.parity-finance .parity-finance-menu-list > a,
+.parity-finance .parity-finance-menu-list > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: inherit;
+  font-size: 11px;
+  text-align: left;
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.parity-finance .parity-finance-menu-list > a:hover,
+.parity-finance .parity-finance-menu-list > button:hover {
+  background: var(--surface-soft, rgba(128, 140, 160, .1));
+}
+
+.parity-finance .parity-finance-menu-list > button:disabled {
+  opacity: .5;
+  cursor: not-allowed;
+}
+
+.parity-finance .parity-finance-menu-list svg {
+  width: 15px;
+  height: 15px;
+  flex: 0 0 auto;
+}
+
+.parity-finance .preview-filter-toolbar {
+  margin-bottom: 0;
+}
+
+.parity-finance.parity-funds .preview-filter-toolbar > .toolbar-left {
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: row;
+  align-items: flex-end;
+  gap: 10px;
+  width: auto;
+}
+
+.parity-finance .preview-search {
+  flex: 0 1 260px;
+  width: 260px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.parity-finance.parity-funds .preview-filter-toolbar .preview-category {
+  flex: 0 0 150px;
+  width: 150px;
+  min-width: 0;
+  margin-bottom: 0;
+}
+
+.parity-finance .preview-search .input-with-icon {
+  position: relative;
+  display: block;
+}
+
+.parity-finance .preview-search .input-with-icon > svg {
+  position: absolute;
+  top: 11px;
+  left: 10px;
+  width: 15px;
+  height: 15px;
+  color: var(--muted);
+  pointer-events: none;
+}
+
+.parity-finance .preview-search .input {
+  padding-left: 33px;
+  width: 100%;
+}
+
+.parity-finance .tabs {
+  flex-wrap: wrap;
+}
+
+.parity-finance .fund-panel[hidden] {
+  display: none;
+}
+
+.parity-finance .table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+
+.parity-finance .data-table {
+  min-width: 720px;
+}
+
+.parity-finance .data-table tbody tr[hidden] {
+  display: none;
+}
+
+.parity-finance .data-table .row {
+  align-items: center;
+  gap: 9px;
+}
+
+.parity-finance .data-table .avatar {
+  flex: 0 0 auto;
+}
+
+.parity-finance .progress-bar {
+  margin-top: 6px;
+}
+
+.parity-finance .parity-status-note {
+  margin-top: 5px;
+}
+
+.parity-finance .preview-footnote {
+  flex-wrap: wrap;
+}
+
+.parity-finance.parity-approvals .preview-member-details .full {
+  grid-column: 1 / -1;
+}
+
+.parity-finance.parity-approvals .preview-member-details a {
+  overflow-wrap: anywhere;
+}
+
+.parity-finance.parity-approvals .member-review-card .toolbar {
+  margin-bottom: 0;
+}
+
+.parity-finance.parity-roles .preview-role-guidance .row {
+  align-items: flex-start;
+}
+
+.parity-finance.parity-roles .preview-role-guidance .row > svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.parity-finance .parity-role-search {
+  width: min(260px, 100%);
+  margin-bottom: 0;
+}
+
+.parity-finance .parity-role-search .input {
+  width: 100%;
+}
+
+.parity-finance .parity-readonly-field {
+  display: flex;
+  align-items: center;
+  color: var(--muted);
+}
+
+.parity-finance .parity-finance-dialog {
+  width: min(640px, calc(100vw - 28px));
+  max-height: min(88vh, 820px);
+  overflow: hidden;
+}
+
+.parity-finance .parity-finance-dialog::backdrop {
+  background: rgba(12, 17, 23, .68);
+  backdrop-filter: blur(3px);
+}
+
+.parity-finance .parity-finance-dialog .dialog-body {
+  max-height: calc(88vh - 130px);
+  overflow-y: auto;
+}
+
+.parity-finance .parity-finance-dialog .dialog-footer {
+  position: sticky;
+  bottom: -22px;
+  margin: 5px -25px -22px;
+}
+
+@media (max-width: 760px) {
+  .parity-finance.parity-funds .preview-filter-toolbar > .toolbar-left {
+    width: 100%;
+  }
+
+  .parity-finance .preview-search {
+    flex: 1 1 220px;
+    width: min(260px, 100%);
+  }
+
+  .parity-finance.parity-funds .preview-filter-toolbar .preview-category {
+    flex: 0 0 150px;
+    width: 150px;
+  }
+
+  .parity-finance .toolbar-right {
+    width: auto;
+  }
+
+  .parity-finance .toolbar-right > .btn,
+  .parity-finance .toolbar-right > details > summary {
+    flex: 0 0 auto;
+  }
+
+  .parity-finance .parity-role-search {
+    width: 100%;
+  }
+
+  .parity-finance .parity-finance-dialog .dialog-footer {
+    margin-right: -19px;
+    margin-left: -19px;
+    padding-right: 19px;
+    padding-left: 19px;
+  }
+}

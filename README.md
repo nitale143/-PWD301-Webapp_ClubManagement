@@ -7,6 +7,8 @@
 ## Bản thiết kế mới và backup web cũ
 
 - Ứng dụng Flask ở thư mục gốc đã dùng giao diện FIA xanh lá/đen/trắng: landing công khai, sidebar theo vai trò, màn hình nghiệp vụ và AI Agent dùng dữ liệu, đăng nhập, lịch sử chat, tiến trình xử lý và các bước duyệt thật. Không dùng phiên đăng nhập demo hoặc câu trả lời mô phỏng của preview.
+- Bố cục các màn đã được chuyển theo bản preview đã duyệt (không chỉ đổi theme): hero/dashboard, thẻ số liệu, bảng trong card, tab quỹ, lưới sự kiện, task kanban/list, hồ sơ, phê duyệt và các form/dialog. Các tệp `preview-*.css` là bộ thiết kế gốc dùng chung; `parity-*.css/js` nối với HTML và thao tác thật. Số liệu, trạng thái trống và các nút theo quyền có thể khác mẫu vì dùng database thật.
+- Trang `/tasks` dùng dữ liệu thật trong phạm vi quyền: thành viên chỉ xem task của mình, trưởng ban xem task ban phụ trách và của mình, CN/PCN xem toàn bộ.
 - Trang sự kiện thật có tab FIA và CTFtime. BDH bấm **Tạo sự kiện FIA** để lưu sự kiện tham gia CTF vào database; hệ thống xác minh thông tin từ nguồn trên server, giữ link nguồn, chuyển giờ theo múi giờ CLB và dùng mã duy nhất để chống trùng. Thao tác cần đăng nhập, quyền BDH và CSRF. Đây không phải đăng ký đội thi trên CTFtime.
 - [Các bản UI/UX preview cũ](previews/README.md) được giữ để đối chiếu thiết kế. Dữ liệu CLB và các thao tác trong các thư mục này vẫn chỉ là demo, khác với ứng dụng Flask thật.
 - [Backup mã nguồn web cũ](backups/club-management-before-ui-20261012-105648/README.md): snapshot trước khi thiết kế lại UI. Bản trên Git đã loại cấu hình bí mật, database, ảnh tải lên, Git nội bộ và tài liệu giải thích riêng. Backup đầy đủ vẫn lưu riêng ở máy chủ dự án, không đưa lên Git.
@@ -28,6 +30,8 @@ Mở `http://127.0.0.1:5000` và đăng nhập bằng tài khoản CLB thật. �
 CTFtime sử dụng lịch Google công khai được nhúng trên trang calendar, không dùng JSON API bị giới hạn mục đích. Cache/lỗi nguồn được thông báo rõ. Xác nhận điều khoản tái sử dụng trước khi phát hành website công khai.
 
 Kiểm tra backend bằng `python -m unittest discover -s tests -q` (database tạm). Để kiểm tra giao diện bằng trình duyệt, chạy `PYTHONPATH=. python tests/ui_fixture_server.py`, rồi chạy `node tests/test_live_ui.cjs` trong môi trường có Playwright và Edge; server test ở cổng 5090, tài khoản và database hoàn toàn tạm, không dùng dữ liệu CLB.
+
+`node tests/test_visual_parity.cjs` kiểm tra 14 màn desktop/mobile, tab và dialog quỹ, quyền thanh toán thành viên, ảnh chụp và tài nguyên. Có thể cấu hình `FIA_SCREENSHOTS` cho thư mục ảnh test trên máy mình. Script này chỉ dùng server test ở cổng 5090, không chạy với database CLB thật.
 
 Kiểm tra kết nối model thật tùy chọn: `PYTHONPATH=. python tests/provider_smoke.py`. Lệnh này dùng key riêng ở `.env` và có thể tính phí một yêu cầu ngắn; không gửi dữ liệu thành viên và không ghi database CLB. Không dùng các tài khoản test cho hệ thống thật.
 

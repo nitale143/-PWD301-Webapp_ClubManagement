@@ -1,0 +1,243 @@
+/* Public, profile, and confirmation screens using the approved preview layout. */
+.preview-login .auth-art-stats strong {
+  font-size: 14px;
+  letter-spacing: .08em;
+}
+
+.preview-register .auth-card {
+  justify-content: flex-start;
+}
+
+.auth-switch {
+  margin-top: 22px !important;
+}
+
+.register-ban-select {
+  min-height: 102px;
+  width: 100%;
+}
+
+.preview-pending .auth-card .card-body {
+  gap: 16px;
+}
+
+.preview-timeline .card-body {
+  padding-top: 5px;
+  padding-bottom: 5px;
+}
+
+.pending-actions {
+  display: flex;
+  justify-content: flex-start;
+}
+
+.profile-cover {
+  height: auto;
+  min-height: 218px;
+  display: flex;
+  align-items: flex-end;
+}
+
+.profile-cover-art {
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(ellipse at 12% 0%, #45de8726, transparent 55%),
+    linear-gradient(110deg, #283c30, #222825);
+}
+
+.profile-cover-content {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  width: 100%;
+  padding: 72px 25px 25px;
+}
+
+.profile-cover-content .grow {
+  min-width: 0;
+}
+
+.profile-cover-content h1 {
+  margin: 4px 0;
+  color: #f2f8f4;
+  font-size: clamp(22px, 3vw, 30px);
+  overflow-wrap: anywhere;
+}
+
+.profile-cover-content p {
+  margin: 0;
+  color: #a9bdb0;
+  font-size: 11px;
+  line-height: 1.7;
+}
+
+.profile-cover-content .eyebrow {
+  color: #91caa7;
+  font-size: 9px;
+  letter-spacing: .12em;
+}
+
+.profile-avatar-frame,
+.profile-avatar-form-preview {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 76px;
+  height: 76px;
+}
+
+.profile-avatar-frame > .avatar,
+.profile-avatar-form-preview > .avatar {
+  width: 100%;
+  height: 100%;
+  border: 5px solid #171b19;
+  font-size: 22px;
+}
+
+.profile-avatar-frame > img,
+.profile-avatar-form-preview > img {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  width: 100%;
+  height: 100%;
+  border: 5px solid #171b19;
+  border-radius: 50%;
+  background: #25382d;
+  object-fit: cover;
+}
+
+.profile-avatar-frame > img[hidden],
+.profile-avatar-form-preview > img[hidden] {
+  display: none;
+}
+
+.profile-cover-content > .badge {
+  margin-left: auto;
+  align-self: flex-start;
+}
+
+.profile-content-grid > .card {
+  min-width: 0;
+}
+
+.profile-member-details {
+  margin-bottom: 0;
+}
+
+.profile-member-details a {
+  overflow-wrap: anywhere;
+}
+
+.profile-form {
+  gap: 10px;
+}
+
+.profile-avatar-form {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.profile-avatar-form .field {
+  margin: 0;
+}
+
+.profile-avatar-form .btn {
+  flex: 0 0 auto;
+}
+
+.checkin-token-summary {
+  margin: 20px 0;
+  min-width: 0;
+}
+
+.checkin-token-summary > div {
+  min-width: 0;
+}
+
+.checkin-token {
+  display: block;
+  margin: 8px 0;
+  color: #d9f0e2;
+  font: 600 13px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.checkin-confirm-form .btn {
+  min-width: min(100%, 260px);
+  min-height: 42px;
+}
+
+.checkin-checklist {
+  gap: 0;
+}
+
+.checkin-validation-note {
+  margin-top: 18px;
+}
+
+.checkin-validation-note p {
+  margin: 8px 0 0;
+  line-height: 1.7;
+}
+
+.fia-footer-socials button:disabled {
+  cursor: default;
+  opacity: .6;
+}
+
+.fia-footer-about > .rl-data-note {
+  margin-top: 10px;
+  font-size: 10px;
+}
+
+@media (max-width: 760px) {
+  .profile-cover-content {
+    align-items: flex-start;
+    flex-wrap: wrap;
+    padding: 72px 18px 20px;
+  }
+
+  .profile-cover-content > .grow {
+    flex: 1 1 calc(100% - 100px);
+  }
+
+  .profile-cover-content > .badge {
+    margin-left: 92px;
+    margin-top: -12px;
+  }
+
+  .profile-avatar-form {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .profile-avatar-form .field {
+    flex: 1 1 calc(100% - 100px);
+  }
+
+  .profile-avatar-form .btn {
+    margin-left: 94px;
+  }
+}
+
+@media (max-width: 460px) {
+  .profile-content-grid .span-7,
+  .profile-content-grid .span-5,
+  .profile-content-grid .span-12 {
+    grid-column: span 12;
+  }
+
+  .profile-member-details {
+    grid-template-columns: 1fr;
+  }
+
+  .checkin-token {
+    font-size: 11px;
+  }
+}

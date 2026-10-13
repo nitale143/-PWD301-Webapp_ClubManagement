@@ -3,13 +3,14 @@
 import json
 import tempfile
 import unittest
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 
 from flask import g
 
 from app import create_app, db
-from app.models import MemberRecord, User
+from app.models import MemberRecord, User, Ban, UserBan, Event, Task, FundCollection
+from app.services.common import club_now
 
 
 class RealLandingAndWorkspaceTests(unittest.TestCase):
@@ -70,8 +71,8 @@ class RealLandingAndWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         html = response.get_data(as_text=True)
-        self.assertIn("FIA CLUB", html)
-        self.assertIn("Cùng công nghệ", html)
+        self.assertIn('class="reference-landing fia-landing"', html)
+        self.assertIn('class="rl-header"', html)
         self.assertIn("href=\"/login\"", html)
         self.assertIn("href=\"/register\"", html)
         self.assertIn("href=\"/home\"", html)
@@ -90,6 +91,46 @@ class RealLandingAndWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 302)
         self.assertTrue(response.headers["Location"].endswith("/home"))
+
+    def test_task_board_respects_member_and_managed_ban_scope(self):
+        db.session.add_all([Ban(id=1, ten_ban="Kỹ thuật"), Ban(id=2, ten_ban="Nhân sự")])
+        for user_id, role in ((3, "TB"), (4, "THANH_VIEN")):
+            db.session.add(User(id=user_id, mssv=f"QA{user_id}", ho_ten=f"Actor {user_id}",
+                                ngay_sinh=date(2003, 1, 1), sdt=f"090000000{user_id}",
+                                email=f"actor{user_id}@example.test", password_hash='unused-test-hash', status="approved", chuc_vu=role))
+        db.session.add(UserBan(user_id=3, ban_id=1, is_truong_ban=True))
+        now=club_now()
+        db.session.add(Event(id=1, ten_su_kien="Scope event", ma_su_kien="SCOPE",
+                            thoi_gian_bat_dau=now+timedelta(days=20), thoi_gian_ket_thuc=now+timedelta(days=21)))
+        for title, member, ban in (("VISIBLE_MANAGED_TASK", 1, 1), ("PRIVATE_OTHER_TASK", 4, 2), ("VISIBLE_SELF_TASK", 3, 2)):
+            db.session.add(Task(event_id=1, ten_task=title, assignee_id=member, ban_id=ban, deadline=now+timedelta(days=10)))
+        db.session.commit()
+        self._login(1)
+        html=self.client.get('/tasks').get_data(as_text=True)
+        self.assertIn('VISIBLE_MANAGED_TASK', html)
+        self.assertNotIn('PRIVATE_OTHER_TASK', html)
+        self.assertNotIn('VISIBLE_SELF_TASK', html)
+        self._login(3)
+        html=self.client.get('/tasks').get_data(as_text=True)
+        self.assertIn('VISIBLE_MANAGED_TASK', html)
+        self.assertIn('VISIBLE_SELF_TASK', html)
+        self.assertNotIn('PRIVATE_OTHER_TASK', html)
+        self._login(2)
+        self.assertIn('PRIVATE_OTHER_TASK', self.client.get('/tasks').get_data(as_text=True))
+
+    def test_member_payment_form_survives_dialog_relayout(self):
+        today=club_now().date()
+        db.session.add(FundCollection(id=1, ten_khoan_thu="Member contribution", loai="monthly",
+                                     so_tien=150000, ngay_bat_dau=today, han_dong=today+timedelta(days=10),
+                                     trang_thai="open", tao_boi_id=2))
+        db.session.commit()
+        self._login(1)
+        response=self.client.get('/funds')
+        self.assertEqual(response.status_code, 200)
+        html=response.get_data(as_text=True)
+        self.assertIn('action="/funds/collections/1/payments"', html)
+        self.assertIn('name="csrf_token"', html)
+        self.assertNotIn('id="fund-collection-dialog"', html)
 
     def test_guest_cannot_open_protected_member_home(self):
         response = self.client.get("/home")

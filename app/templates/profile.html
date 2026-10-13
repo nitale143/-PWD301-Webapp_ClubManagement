@@ -1,84 +1,121 @@
 {% extends "base.html" %}
-{% block title %}Ho so ca nhan{% endblock %}
+{% from "_ui.html" import icon, badge, avatar %}
+{% set role_labels = {'CN': 'Chủ nhiệm', 'PCN': 'Phó chủ nhiệm', 'TB': 'Trưởng ban', 'THUKY_THUQUY': 'Thư ký / Thủ quỹ', 'THANH_VIEN': 'Thành viên'} %}
+{% set role_label = role_labels.get(member.chuc_vu, member.chuc_vu) %}
+{% set team_names = member.ban_links|map(attribute='ban.ten_ban')|join(', ') %}
+{% set activity_labels = {'tich_cuc': 'Tích cực', 'hoat_dong': 'Đang hoạt động', 'it_hoat_dong': 'Ít hoạt động', 'khong_hoat_dong': 'Không hoạt động', 'ngung_hoat_dong': 'Ngừng hoạt động'} %}
+{% set activity_label = activity_labels.get(member.hoat_dong_status, member.hoat_dong_status or 'Chưa xác định') %}
+{% block title %}Hồ sơ · {{ member.ho_ten }}{% endblock %}
 {% block content %}
-<div class="profile-header">
-    <img src="{{ member.avatar_url }}" alt="avatar" class="profile-avatar">
-    <div>
-        <h1>{{ member.ho_ten }}</h1>
-        <p class="muted">MSSV: {{ member.mssv }} &middot; Chuc vu: {{ member.chuc_vu }}</p>
-        <p class="muted">{{ member.ban_links|map(attribute='ban.ten_ban')|join(', ') }}</p>
+<div class="page-stack profile-page">
+    <section class="card profile-cover">
+        <div class="profile-cover-art" aria-hidden="true"></div>
+        <div class="profile-cover-content">
+            <span class="profile-avatar-frame">
+                {{ avatar(member.ho_ten, 'indigo') }}
+                <img data-avatar-image src="{{ member.avatar_url }}" alt="" aria-hidden="true">
+            </span>
+            <div class="grow">
+                <p class="eyebrow">THÀNH VIÊN FIA</p>
+                <h1>{{ member.ho_ten }}</h1>
+                <p class="muted">MSSV {{ member.mssv }} · {{ role_label }}{% if team_names %} · {{ team_names }}{% endif %}</p>
+            </div>
+            {{ badge('Đã duyệt', 'success') }}
+        </div>
+    </section>
+
+    <div class="grid-12 profile-content-grid">
+        {% if can_see_full %}
+        <section class="span-7 card">
+            <div class="card-header"><div><h2>Thông tin liên hệ</h2><p class="small muted">Thông tin trong hồ sơ thành viên.</p></div>{{ icon('users') }}</div>
+            <div class="card-body">
+                <dl class="preview-member-details profile-member-details">
+                    <div><dt>Số điện thoại</dt><dd>{{ member.sdt }}</dd></div>
+                    <div><dt>Email</dt><dd><a href="mailto:{{ member.email }}">{{ member.email }}</a></dd></div>
+                    <div><dt>Facebook</dt><dd>{% if member.facebook_link %}<a href="{{ member.facebook_link }}" target="_blank" rel="noopener noreferrer">{{ member.facebook_link }}</a>{% else %}<span class="muted">Chưa cập nhật</span>{% endif %}</dd></div>
+                    <div><dt>Ngày sinh</dt><dd>{{ member.ngay_sinh.strftime('%d/%m/%Y') }}</dd></div>
+                    <div><dt>Chức vụ</dt><dd>{{ role_label }}</dd></div>
+                    <div><dt>Ban hoạt động</dt><dd>{{ team_names or 'Chưa có ban hoạt động' }}</dd></div>
+                    <div><dt>Tình trạng hoạt động</dt><dd>{{ activity_label }}</dd></div>
+                </dl>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if is_self %}
+        <section class="{% if can_see_full %}span-5{% else %}span-12{% endif %} card">
+            <div class="card-header"><div><h2>Khả năng nhận task</h2><p class="small muted">Tùy chọn này hỗ trợ đề xuất phân công từ AI.</p></div>{{ icon('sparkles') }}</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('profile.task_preferences') }}" class="page-stack profile-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <div class="field">
+                        <label class="field-label" for="profile-skills">Kỹ năng (phân cách bằng dấu phẩy)</label>
+                        <textarea class="textarea" id="profile-skills" name="skills" rows="3" maxlength="320" aria-describedby="profile-skills-help">{{ planning_profile.skills|join(', ') if planning_profile else '' }}</textarea>
+                        <span class="field-help" id="profile-skills-help">Tối đa 10 kỹ năng, mỗi kỹ năng từ 2 đến 30 ký tự.</span>
+                    </div>
+                    <div class="form-grid">
+                        <div class="field">
+                            <label class="field-label" for="profile-max-tasks">Số task đang làm tối đa</label>
+                            <input class="input" id="profile-max-tasks" type="number" name="max_active_tasks" min="1" max="10" required value="{{ planning_profile.max_active_tasks if planning_profile else 3 }}">
+                        </div>
+                        <div class="field">
+                            <label class="field-label" for="profile-unavailable-until">Tạm không nhận task đến ngày</label>
+                            <input class="input" id="profile-unavailable-until" type="date" name="unavailable_until" value="{{ planning_profile.unavailable_until.isoformat() if planning_profile and planning_profile.unavailable_until else '' }}">
+                        </div>
+                    </div>
+                    <button class="btn btn-primary" type="submit">{{ icon('check') }} Lưu tùy chọn</button>
+                </form>
+            </div>
+        </section>
+
+        <section class="span-12 card">
+            <div class="card-header"><div><h2>Ảnh đại diện</h2><p class="small muted">Tải ảnh mới để cập nhật hồ sơ của bạn.</p></div>{{ icon('edit') }}</div>
+            <div class="card-body">
+                <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data" class="profile-avatar-form">
+                    <span class="profile-avatar-form-preview">
+                        {{ avatar(member.ho_ten, 'indigo') }}
+                        <img data-avatar-image src="{{ member.avatar_url }}" alt="" aria-hidden="true">
+                    </span>
+                    <div class="field grow">
+                        <label class="field-label" for="profile-avatar">Chọn ảnh đại diện</label>
+                        <input class="input" id="profile-avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp" required>
+                        <span class="field-help">Định dạng hỗ trợ: PNG, JPG, JPEG, GIF hoặc WEBP.</span>
+                    </div>
+                    <button class="btn btn-secondary" type="submit">Tải ảnh lên</button>
+                </form>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if can_see_full %}
+        <section class="span-12 card">
+            <div class="card-header"><div><h2>Hoạt động theo ban / kỳ</h2><p class="small muted">Tổng hợp từ các kỳ hoạt động đã được ghi nhận.</p></div>{{ icon('calendar') }}</div>
+            {% if activities %}
+            <div class="table-wrap"><table class="data-table">
+                <thead><tr><th>Kỳ</th><th>Ban</th><th>Task hoàn thành / tổng</th><th>Tỷ lệ</th><th>Đánh giá</th></tr></thead>
+                <tbody>{% for activity in activities %}
+                    <tr><td>{{ activity.period.ten_ky }}</td><td>{{ activity.ban.ten_ban }}</td><td>{{ activity.task_hoan_thanh }} / {{ activity.tong_task }}</td><td>{{ '%.0f'|format(activity.phan_tram) }}%</td><td>{{ activity.trang_thai }}</td></tr>
+                {% endfor %}</tbody>
+            </table></div>
+            {% else %}
+            <div class="card-body"><p class="muted">Chưa có dữ liệu hoạt động được ghi nhận.</p></div>
+            {% endif %}
+        </section>
+
+        <section class="span-12 card">
+            <div class="card-header"><div><h2>Tình trạng đóng quỹ</h2><p class="small muted">Trạng thái đóng quỹ theo từng kỳ.</p></div>{{ icon('wallet') }}</div>
+            {% if dues %}
+            <div class="table-wrap"><table class="data-table">
+                <thead><tr><th>Kỳ</th><th>Trạng thái</th><th>Ngày đóng</th></tr></thead>
+                <tbody>{% for due in dues %}
+                    <tr><td>{{ due.period.ten_ky }}</td><td>{{ badge('Đã đóng', 'success') if due.da_dong else badge('Chưa đóng', 'warning') }}</td><td>{{ due.ngay_dong.strftime('%d/%m/%Y') if due.ngay_dong else '—' }}</td></tr>
+                {% endfor %}</tbody>
+            </table></div>
+            {% else %}
+            <div class="card-body"><p class="muted">Chưa có dữ liệu đóng quỹ.</p></div>
+            {% endif %}
+        </section>
+        {% endif %}
     </div>
 </div>
-
-{% if is_self %}
-<details class="new-task-box">
-    <summary>Khả năng nhận task cho đề xuất AI</summary>
-    <form method="post" action="{{ url_for('profile.task_preferences') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label>Kỹ năng (ngăn bằng dấu phẩy)</label>
-        <input type="text" name="skills" value="{{ planning_profile.skills|join(', ') if planning_profile else '' }}" maxlength="320">
-        <label>Số task đang làm tối đa</label>
-        <input type="number" name="max_active_tasks" min="1" max="10" value="{{ planning_profile.max_active_tasks if planning_profile else 3 }}">
-        <label>Tạm không nhận task đến ngày</label>
-        <input type="date" name="unavailable_until" value="{{ planning_profile.unavailable_until.isoformat() if planning_profile and planning_profile.unavailable_until else '' }}">
-        <button type="submit">Lưu</button>
-    </form>
-</details>
-<details class="new-task-box">
-    <summary>Doi anh dai dien</summary>
-    <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data">
-        <input type="file" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp" required>
-        <button type="submit">Tai len</button>
-    </form>
-</details>
-{% endif %}
-
-{% if can_see_full %}
-<section class="panel">
-    <h2>Thong tin lien he</h2>
-    <p>SDT: {{ member.sdt }}</p>
-    <p>Email: {{ member.email }}</p>
-    <p>Facebook: <a href="{{ member.facebook_link }}" target="_blank">{{ member.facebook_link }}</a></p>
-    <p>Ngay sinh: {{ member.ngay_sinh.strftime('%d/%m/%Y') }}</p>
-    <p>Tinh trang hoat dong (tong quan): {{ member.hoat_dong_status }}</p>
-</section>
-
-<section class="panel">
-    <h2>Tinh trang hoat dong theo ban / ky</h2>
-    {% if activities %}
-    <table class="data-table">
-        <thead><tr><th>Ky</th><th>Ban</th><th>Task hoan thanh / tong</th><th>%</th><th>Xep loai</th></tr></thead>
-        <tbody>
-        {% for a in activities %}
-            <tr>
-                <td>{{ a.period.ten_ky }}</td>
-                <td>{{ a.ban.ten_ban }}</td>
-                <td>{{ a.task_hoan_thanh }} / {{ a.tong_task }}</td>
-                <td>{{ a.phan_tram }}%</td>
-                <td>{{ a.trang_thai }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">Chua co du lieu (se duoc cap nhat sau khi cac su kien ket thuc).</p>
-    {% endif %}
-</section>
-
-<section class="panel">
-    <h2>Tinh trang dong quy</h2>
-    {% if dues %}
-    <table class="data-table">
-        <thead><tr><th>Ky</th><th>Da dong</th></tr></thead>
-        <tbody>
-        {% for d in dues %}
-            <tr><td>{{ d.period.ten_ky }}</td><td>{{ 'Co' if d.da_dong else 'Chua' }}</td></tr>
-        {% endfor %}
-        </tbody>
-    </table>
-    {% else %}
-    <p class="muted">Chua co du lieu dong quy.</p>
-    {% endif %}
-</section>
-{% endif %}
 {% endblock %}

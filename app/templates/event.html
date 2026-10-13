@@ -1,13 +1,9 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, badge %}
 {% block title %}Sự kiện{% endblock %}
 {% block content %}
-<div class="page-header">
-    <h1>Sự kiện</h1>
-    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}
-    <a class="btn-primary" href="{{ url_for('event.event_new') }}">+ Tạo sự kiện</a>
-    {% endif %}
-</div>
-
+{% set event_status_labels = {'sap_dien_ra': 'Sắp diễn ra', 'dang_dien_ra': 'Đang diễn ra', 'da_ket_thuc': 'Đã kết thúc'} %}
+<div class="page-stack ops-preview ops-events">
 <div class="events-sources"
      data-event-sources
      data-feed-url="{{ url_for('event.ctftime_events') }}"
@@ -25,17 +21,51 @@
 
     <section class="events-source-panel" id="events-source-panel-fia" role="tabpanel"
              aria-labelledby="events-source-tab-fia" data-events-panel="fia">
-        <div class="event-list">
-            {% for ev in events %}
-            <a class="event-summary-card" href="{{ url_for('event.event_detail', event_id=ev.id) }}">
-                <strong>{{ ev.ten_su_kien }}</strong> <span class="tag">{{ ev.ma_su_kien }}</span>
-                <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ ev.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p>
-                <span class="status-badge status-{{ ev.trang_thai }}">{{ ev.trang_thai }}</span>
-                <span class="muted small"> · {{ ev.registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length }} người đăng ký{% if ev.detail and ev.detail.so_nguoi_toi_da %} / {{ ev.detail.so_nguoi_toi_da }} chỗ{% endif %}</span>
+        <div class="ops-event-controls card" data-fia-events>
+            <div class="card-body toolbar">
+                <div class="toolbar-left event-filter-fields">
+                    <label class="field search-field"><span class="field-label">Tìm sự kiện</span><span class="input-with-icon">{{ icon('search') }}<input class="input" type="search" data-event-search placeholder="Tên, mã hoặc địa điểm" autocomplete="off"></span></label>
+                    <label class="field"><span class="field-label">Trạng thái</span><select class="select" data-event-status><option value="all">Tất cả sự kiện</option><option value="sap_dien_ra">Sắp diễn ra</option><option value="dang_dien_ra">Đang diễn ra</option><option value="da_ket_thuc">Đã kết thúc</option></select></label>
+                </div>
+                <div class="toolbar-right">
+                    <div class="segmented" role="group" aria-label="Kiểu hiển thị"><button type="button" data-event-view="grid" class="active" aria-pressed="true">{{ icon('grid') }} Thẻ</button><button type="button" data-event-view="list" aria-pressed="false">{{ icon('file') }} Danh sách</button></div>
+                    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}<a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>{% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="row events-heading"><div><span class="eyebrow">LỊCH CLB</span><h3>Sự kiện của chúng ta</h3></div><span class="muted small" data-event-count>{{ events|length }} sự kiện</span></div>
+        <div class="event-grid" data-event-grid-view>
+            {% for event in events|sort(attribute='thoi_gian_bat_dau') %}
+            {% set accent = ['indigo', 'orange', 'violet', 'teal'][event.id % 4] %}
+            {% set registration_count = event.registrations|selectattr('trang_thai', 'in', ['registered', 'waitlist'])|list|length %}
+            {% set status_label = event_status_labels.get(event.trang_thai, event.trang_thai) %}
+            {% if event.trang_thai == 'dang_dien_ra' %}{% set status_tone = 'success' %}{% elif event.trang_thai == 'sap_dien_ra' %}{% set status_tone = 'indigo' %}{% else %}{% set status_tone = 'neutral' %}{% endif %}
+            <a class="event-tile" href="{{ url_for('event.event_detail', event_id=event.id) }}" data-fia-event-item data-event-status-value="{{ event.trang_thai }}" data-event-search-value="{{ (event.ten_su_kien ~ ' ' ~ event.ma_su_kien ~ ' ' ~ (event.detail.dia_diem if event.detail else ''))|lower }}">
+                <span class="event-cover cover-{{ accent }}"><span class="event-cover-label">{{ event.detail.loai if event.detail and event.detail.loai else 'Sự kiện FIA' }}</span><span class="event-cover-mark">{{ icon('calendar') }}</span><span class="event-cover-code">{{ event.ma_su_kien }}</span></span>
+                <span class="event-tile-body"><span class="row event-tile-top"><strong>{{ event.ten_su_kien }}</strong>{{ badge(status_label, status_tone) }}</span>
+                    <span class="event-tile-meta">{{ icon('calendar') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</span>
+                    <span class="event-tile-meta">{{ icon('location') }} {{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật địa điểm' }}</span>
+                    <span class="event-tile-bottom"><span class="event-attendee-count">{{ icon('users') }} {{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% else %} đăng ký{% endif %}</span>
+                        {% if event.detail and event.detail.so_nguoi_toi_da %}<span class="event-progress"><span class="progress-bar"><span style="width:{{ [100, ((registration_count * 100) // event.detail.so_nguoi_toi_da)]|min }}%"></span></span></span>{% endif %}
+                    </span>
+                </span>
             </a>
             {% else %}
-            <p class="muted">Chưa có sự kiện nào.</p>
+            <div class="empty-state"><strong>Chưa có sự kiện nào</strong><span class="small muted">Sự kiện sẽ xuất hiện ở đây sau khi được tạo hoặc nhập từ nguồn.</span></div>
             {% endfor %}
+        </div>
+        <div class="table-wrap card events-table-card" data-event-list-view hidden>
+            <table class="data-table"><thead><tr><th>Sự kiện</th><th>Thời gian</th><th>Địa điểm</th><th>Trạng thái</th><th>Đăng ký</th></tr></thead><tbody>
+                {% for event in events|sort(attribute='thoi_gian_bat_dau') %}
+                {% set registration_count = event.registrations|selectattr('trang_thai', 'in', ['registered', 'waitlist'])|list|length %}
+                <tr data-fia-event-item data-event-status-value="{{ event.trang_thai }}" data-event-search-value="{{ (event.ten_su_kien ~ ' ' ~ event.ma_su_kien ~ ' ' ~ (event.detail.dia_diem if event.detail else ''))|lower }}">
+                    <td><a class="text-button" href="{{ url_for('event.event_detail', event_id=event.id) }}"><strong>{{ event.ten_su_kien }}</strong><span class="small muted">{{ event.ma_su_kien }} · {{ event.detail.loai if event.detail else 'Sự kiện FIA' }}</span></a></td>
+                    <td>{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật' }}</td>
+                    <td>{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge('Đã kết thúc', 'neutral') }}{% endif %}</td>
+                    <td>{{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% endif %}</td>
+                </tr>
+                {% else %}<tr><td colspan="5"><div class="empty-state"><strong>Chưa có sự kiện nào</strong></div></td></tr>{% endfor %}
+            </tbody></table>
         </div>
     </section>
 
@@ -58,6 +88,7 @@
             Nội dung sự kiện do CTFtime cung cấp.
         </p>
     </section>
+</div>
 </div>
 
 <script>

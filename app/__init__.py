@@ -21,6 +21,8 @@ def create_app(config_override=None):
     login_manager.init_app(app)
     from app.security import csrf_token
     app.jinja_env.globals["csrf_token"] = csrf_token
+    from app.services.ui_context import workspace_context
+    app.context_processor(workspace_context)
 
     from app import models  # noqa: F401  (dang ky models voi SQLAlchemy)
 
