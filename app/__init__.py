@@ -21,6 +21,8 @@ def create_app(config_override=None):
     login_manager.init_app(app)
     from app.security import csrf_token
     app.jinja_env.globals["csrf_token"] = csrf_token
+    from app.services.ui_context import workspace_context
+    app.context_processor(workspace_context)
 
     from app import models  # noqa: F401  (dang ky models voi SQLAlchemy)
 
@@ -46,9 +48,16 @@ def create_app(config_override=None):
     app.register_blueprint(api_bp)
 
     with app.app_context():
+        if db.engine.url.get_backend_name() == "sqlite":
+            from app.migrations import migrate_chat_conversations
+
+            database_path = db.engine.url.database or ":memory:"
+            backup = migrate_chat_conversations(database_path)
+            if backup:
+                app.logger.info("AI chat migration backup created: %s", backup)
         db.create_all()
 
-    if not app.config.get("TESTING"):
+    if not app.config.get("TESTING") and app.config.get("SCHEDULER_ENABLED", True):
         from app.scheduler import init_scheduler
         init_scheduler(app)
 

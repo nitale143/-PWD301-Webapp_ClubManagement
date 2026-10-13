@@ -46,6 +46,30 @@ def require(condition, message="Bạn không có quyền thực hiện thao tác
         raise DomainError(message, 403)
 
 
+def require_current_approval(actor):
+    """Re-read account and membership after a potentially slow external call."""
+    db.session.refresh(actor)
+    record = db.session.get(MemberRecord, actor.id, populate_existing=True)
+    require(actor.status == "approved" and (record is None or (
+        record.luu_tru_luc is None and record.tinh_trang != "left")),
+        "Tài khoản không còn quyền sử dụng AI.")
+    # Refresh relationship rows too: refreshing User alone can retain cached ban roles.
+    UserBan.query.filter_by(user_id=actor.id).populate_existing().all()
+    db.session.expire(actor, ["ban_links"])
+
+
+def actor_scope_stamp(actor):
+    managed = (tuple(row[0] for row in db.session.query(UserBan.ban_id).filter_by(
+        user_id=actor.id, is_truong_ban=True).distinct().order_by(UserBan.ban_id))
+        if actor.chuc_vu == "TB" else ())
+    return actor.chuc_vu, managed
+
+
+def require_unchanged_scope(actor, stamp):
+    require(stamp == actor_scope_stamp(actor),
+            "Quyền hoặc ban phụ trách đã thay đổi trong lúc xử lý. Hãy gửi yêu cầu mới.")
+
+
 def visible_members(actor):
     query = User.query.filter_by(status="approved").outerjoin(MemberRecord, User.id == MemberRecord.user_id).filter(MemberRecord.luu_tru_luc.is_(None))
     if can_view_all_members(actor):

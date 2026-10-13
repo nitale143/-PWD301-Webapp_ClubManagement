@@ -6,3 +6,13 @@ venv/
 .env
 app/static/uploads/
 docs/AI_RELIABILITY.md
+**/screenshots/
+*.db
+*.sqlite
+*.sqlite3
+*.db-*
+backups/**/*.tar.gz
+backups/**/.git/
+backups/**/.env
+backups/**/instance/
+backups/**/uploads/

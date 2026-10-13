@@ -1,159 +1,287 @@
 {% extends "base.html" %}
-{% block title %}Funds{% endblock %}
+{% from "_ui.html" import icon, badge, avatar, stat %}
+{% block title %}{{ workspace_title }}{% endblock %}
+
+{% macro money(value) -%}{{ '{:,.0f}'.format(value|float).replace(',', '.') }} đ{%- endmacro %}
+{% macro collection_type(value) -%}
+    {% set labels = {'monthly': 'Hằng tháng', 'semester': 'Học kỳ', 'yearly': 'Hằng năm', 'event': 'Sự kiện', 'voluntary': 'Tự nguyện', 'other': 'Khác'} %}
+    {{ labels.get(value, value) }}
+{%- endmacro %}
+{% macro collection_state(value) -%}
+    {% set labels = {'open': 'Đang mở', 'closed': 'Đã đóng', 'draft': 'Bản nháp', 'cancelled': 'Đã hủy'} %}
+    {{ badge(labels.get(value, value), 'success' if value == 'open' else 'warning' if value == 'draft' else 'neutral') }}
+{%- endmacro %}
+{% macro balance_state(value) -%}
+    {% set labels = {'paid': 'Đã đóng', 'partial': 'Đóng một phần', 'unpaid': 'Chưa đóng', 'pending': 'Chờ xác nhận', 'overdue': 'Quá hạn', 'exempt': 'Được miễn'} %}
+    {{ badge(labels.get(value, value), 'success' if value == 'paid' or value == 'exempt' else 'warning' if value == 'pending' or value == 'partial' else 'danger' if value == 'overdue' else 'neutral') }}
+{%- endmacro %}
+
 {% block content %}
-<div class="page-header">
-    <h1>Quy CLB</h1>
-    {% if period %}
-    <a class="btn-secondary" href="{{ url_for('funds.export_funds_excel') }}">Xuat Excel</a>
-    {% endif %}
-    {% if is_thu_quy %}<a class="btn-secondary" href="{{ url_for('api.fund_report') }}">Xuất báo cáo khoản thu</a>{% endif %}
-</div>
-
-{% if is_thu_quy %}
-<details class="new-task-box">
-    <summary>+ Tạo khoản thu mới</summary>
-    <form method="post" action="{{ url_for('funds.collection_new') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label>Tên khoản thu</label><input name="name" required maxlength="180">
-        <label>Loại</label>
-        <select name="type"><option value="monthly">Hằng tháng</option><option value="semester">Học kỳ</option><option value="yearly">Hằng năm</option><option value="event">Sự kiện</option><option value="voluntary">Tự nguyện</option><option value="other">Khác</option></select>
-        <label>Số tiền</label><input type="number" name="amount" min="0" step="0.01" required>
-        <label>Ngày bắt đầu</label><input type="date" name="start_date" required>
-        <label>Hạn đóng</label><input type="date" name="due_date" required>
-        <label>Mô tả</label><textarea name="description"></textarea>
-        <button type="submit">Mở khoản thu</button>
-    </form>
-</details>
-{% endif %}
-
-<h2>Khoản thu</h2>
-<table class="data-table">
-    <thead><tr><th>Khoản thu</th><th>Hạn đóng</th><th>Trạng thái</th><th>Đã đóng / Còn thiếu</th><th>Thanh toán</th></tr></thead>
-    <tbody>
-    {% for row in collection_rows %}
-    <tr>
-        <td>{{ row.fund.ten_khoan_thu }}<br><span class="muted small">{{ row.fund.loai }} · {{ row.fund.so_tien }} đ</span></td>
-        <td>{{ row.fund.han_dong.strftime('%d/%m/%Y') }}</td>
-        <td>{{ row.fund.trang_thai }}{% if row.balance %} · {{ row.balance.status }}{% endif %}</td>
-        <td>{% if row.balance %}{{ row.balance.paid }} / {{ row.balance.remaining }} đ{% else %}Không áp dụng{% endif %}</td>
-        <td>{% if row.balance and row.fund.trang_thai == 'open' and (row.balance.remaining > 0 or row.fund.loai == 'voluntary') %}
-            <form method="post" action="{{ url_for('funds.collection_pay', fund_id=row.fund.id) }}">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <input type="number" name="amount" min="0.01" step="0.01" max="{{ row.balance.remaining if row.fund.loai != 'voluntary' else '' }}" placeholder="Số tiền" required>
-                <select name="method"><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="other">Khác</option></select>
-                <input name="transaction_code" placeholder="Mã giao dịch (nếu có)">
-                <button type="submit">Gửi xác nhận</button>
-            </form>
-            {% endif %}</td>
-    </tr>
-    {% else %}
-    <tr><td colspan="5" class="muted">Chưa có khoản thu nào.</td></tr>
-    {% endfor %}
-    </tbody>
-</table>
-
-{% if is_thu_quy and pending_payments %}
-<h2>Giao dịch chờ xác nhận</h2>
-<table class="data-table">
-    <thead><tr><th>Thành viên</th><th>Khoản thu</th><th>Số tiền</th><th>Phương thức / Mã</th><th>Xử lý</th></tr></thead>
-    <tbody>{% for payment in pending_payments %}
-    <tr>
-        <td>{{ payment_members[payment.user_id].ho_ten }}</td><td>{{ collection_names[payment.fund_id] }}</td>
-        <td>{{ payment.so_tien }} đ</td><td>{{ payment.phuong_thuc }} · {{ payment.ma_giao_dich }}</td>
-        <td><form method="post" action="{{ url_for('funds.collection_payment_review', payment_id=payment.id) }}" class="inline-form">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button name="decision" value="confirmed" type="submit">Xác nhận</button>
-            <button name="decision" value="rejected" type="submit" class="btn-secondary">Từ chối</button>
-        </form></td>
-    </tr>{% endfor %}</tbody>
-</table>
-{% endif %}
-
-<h2>Quỹ theo kỳ</h2>
-
-{% if is_thu_quy %}
-<details class="new-task-box">
-    <summary>+ Mo ky moi (Spring / Summer / Fall...)</summary>
-    <form method="post" action="{{ url_for('funds.period_new') }}">
-        <label>Ten ky (vd: Spring 2027)</label>
-        <input type="text" name="ten_ky" required>
-        <label>Ngay bat dau</label>
-        <input type="date" name="ngay_bat_dau" required>
-        <label>Ngay ket thuc (theo lich hoc)</label>
-        <input type="date" name="ngay_ket_thuc">
-        <p class="muted small">Mo ky moi se tu dong dong ky dang mo hien tai (neu co).</p>
-        <button type="submit">Mo ky moi</button>
-    </form>
-</details>
-{% endif %}
-
-{% if period %}
-<div class="summary-cards">
-    <div class="summary-card">Ky hien tai<br><strong>{{ period.ten_ky }}</strong></div>
-    <div class="summary-card">So du<br><strong>{{ "%.0f"|format(so_du) }} d</strong></div>
-    <div class="summary-card">Tong thu<br><strong>{{ "%.0f"|format(tong_thu) }} d</strong></div>
-    <div class="summary-card">Tong chi<br><strong>{{ "%.0f"|format(tong_chi) }} d</strong></div>
-</div>
-
-{% if is_thu_quy %}
-<details class="new-task-box">
-    <summary>+ Ghi nhan thu / chi</summary>
-    <form method="post" action="{{ url_for('funds.transaction_new') }}">
-        <label>Danh muc</label>
-        <input type="text" name="danh_muc" required>
-        <label>Noi dung</label>
-        <input type="text" name="noi_dung">
-        <label>Ngay</label>
-        <input type="date" name="ngay" required>
-        <label>So tien (thu: duong, chi: am)</label>
-        <input type="number" step="1" name="so_tien" required>
-        <button type="submit">Luu</button>
-    </form>
-</details>
-{% endif %}
-
-<h2>Lich su giao dich</h2>
-<table class="data-table">
-    <thead><tr><th>Ngay</th><th>Danh muc</th><th>Noi dung</th><th>So tien</th></tr></thead>
-    <tbody>
-    {% for tx in transactions %}
-        <tr>
-            <td>{{ tx.ngay.strftime('%d/%m/%Y') }}</td>
-            <td>{{ tx.danh_muc }}</td>
-            <td>{{ tx.noi_dung }}</td>
-            <td class="{{ 'text-pos' if tx.so_tien >= 0 else 'text-neg' }}">{{ "%.0f"|format(tx.so_tien) }}</td>
-        </tr>
-    {% endfor %}
-    </tbody>
-</table>
-
-<div class="page-header">
-    <h2>Danh sach dong quy</h2>
-    {% if is_thu_quy %}
-    <form method="post" action="{{ url_for('funds.remind_unpaid') }}">
-        <button type="submit" class="btn-secondary">Nhac dong quy (mail)</button>
-    </form>
-    {% endif %}
-</div>
-<table class="data-table">
-    <thead><tr><th>Thanh vien</th><th>Da dong</th>{% if is_thu_quy %}<th></th>{% endif %}</tr></thead>
-    <tbody>
-    {% for due in dues %}
-        <tr>
-            <td>{{ due.user.ho_ten }} ({{ due.user.mssv }})</td>
-            <td>{{ 'Co' if due.da_dong else 'Chua' }}</td>
+{% set active_tab = request.args.get('tab', 'collections') %}
+{% if active_tab not in ['collections', 'transactions', 'dues'] %}{% set active_tab = 'collections' %}{% endif %}
+<div class="page-stack parity-finance parity-funds" data-finance-parity>
+    <div class="row preview-page-heading">
+        <div class="grow"><p class="eyebrow">TÀI CHÍNH · {{ period.ten_ky if period else 'CHƯA MỞ KỲ' }}</p></div>
+        <div class="toolbar-right">
             {% if is_thu_quy %}
-            <td>
-                <form method="post" action="{{ url_for('funds.toggle_due', user_id=due.user_id) }}">
-                    <button type="submit">Doi trang thai</button>
-                </form>
-            </td>
+            <button class="btn btn-primary" type="button" data-dialog-open="fund-collection-dialog">{{ icon('plus') }} Tạo khoản thu</button>
             {% endif %}
-        </tr>
+            <details class="parity-finance-menu">
+                <summary class="btn btn-secondary">{{ icon('more') }} Thao tác</summary>
+                <div class="parity-finance-menu-list">
+                    {% if is_thu_quy %}
+                    <button type="button" data-dialog-open="fund-period-dialog">{{ icon('calendar') }} Mở kỳ mới</button>
+                    <button type="button" data-dialog-open="fund-transaction-dialog"{% if not period %} disabled{% endif %}>{{ icon('arrow') }} Ghi nhận thu / chi</button>
+                    {% if period %}<a href="{{ url_for('funds.export_funds_excel') }}">{{ icon('download') }} Xuất Excel</a>{% endif %}
+                    <a href="{{ url_for('api.fund_report') }}">{{ icon('file') }} Xuất báo cáo khoản thu</a>
+                    {% else %}
+                    {% if period %}<a href="{{ url_for('funds.export_funds_excel') }}">{{ icon('download') }} Xuất Excel</a>{% endif %}
+                    {% endif %}
+                </div>
+            </details>
+        </div>
+    </div>
+
+    <div class="grid-12 parity-fund-stats">
+        <div class="span-3">{{ stat('Số dư hiện tại', money(so_du) if is_thu_quy else '—', 'wallet', period.ten_ky if period else 'Chưa có kỳ đang mở' if is_thu_quy else 'Chỉ thủ quỹ xem', 'green') }}</div>
+        <div class="span-3">{{ stat('Tổng thu', money(tong_thu) if is_thu_quy else '—', 'arrow', 'Trong kỳ hiện tại' if is_thu_quy and period else 'Chưa có kỳ đang mở' if is_thu_quy else 'Chỉ thủ quỹ xem', 'green') }}</div>
+        <div class="span-3">{{ stat('Tổng chi', money(tong_chi|abs) if is_thu_quy else '—', 'briefcase', 'Trong kỳ hiện tại' if is_thu_quy and period else 'Chưa có kỳ đang mở' if is_thu_quy else 'Chỉ thủ quỹ xem', 'green') }}</div>
+        <div class="span-3">{{ stat('Thanh toán cần xác nhận', pending_payments|length if is_thu_quy else '—', 'clock', 'Chờ thủ quỹ xử lý' if is_thu_quy else 'Chỉ thủ quỹ xem', 'green') }}</div>
+    </div>
+
+    <section class="card">
+        <div class="card-header">
+            <div>
+                <h2>Quản lý quỹ</h2>
+                <p class="muted small">Theo dõi khoản thu, giao dịch và tình trạng đóng quỹ thực tế.</p>
+            </div>
+        </div>
+        <div class="card-body page-stack">
+            <div class="toolbar preview-filter-toolbar">
+                <div class="toolbar-left">
+                    <label class="field preview-search">
+                        <span class="field-label">Tìm kiếm</span>
+                        <span class="input-with-icon">{{ icon('search') }}<input class="input" type="search" data-finance-search placeholder="Tên khoản thu, thành viên…" autocomplete="off"></span>
+                    </label>
+                    <label class="field preview-category">
+                        <span class="field-label">Danh mục</span>
+                        <select class="select" data-finance-category>
+                            <option value="all">Tất cả danh mục</option>
+                            <option value="monthly">Hằng tháng</option>
+                            <option value="semester">Học kỳ</option>
+                            <option value="yearly">Hằng năm</option>
+                            <option value="event">Sự kiện</option>
+                            <option value="voluntary">Tự nguyện</option>
+                            <option value="other">Khác</option>
+                            <option value="income">Thu</option>
+                            <option value="expense">Chi</option>
+                            <option value="pending">Chờ xác nhận</option>
+                            <option value="paid">Đã đóng</option>
+                            <option value="unpaid">Chưa đóng</option>
+                        </select>
+                    </label>
+                </div>
+            </div>
+
+            <div class="tabs" role="tablist" aria-label="Thông tin quỹ">
+                <button class="{{ 'active' if active_tab == 'collections' else '' }}" type="button" role="tab" id="fund-tab-collections" aria-controls="fund-panel-collections" aria-selected="{{ 'true' if active_tab == 'collections' else 'false' }}" data-finance-tab="collections">Khoản thu <span class="badge neutral">{{ collection_rows|length }}</span></button>
+                <button class="{{ 'active' if active_tab == 'transactions' else '' }}" type="button" role="tab" id="fund-tab-transactions" aria-controls="fund-panel-transactions" aria-selected="{{ 'true' if active_tab == 'transactions' else 'false' }}" data-finance-tab="transactions">Thu / chi <span class="badge neutral">{{ transactions|length if is_thu_quy else '—' }}</span></button>
+                <button class="{{ 'active' if active_tab == 'dues' else '' }}" type="button" role="tab" id="fund-tab-dues" aria-controls="fund-panel-dues" aria-selected="{{ 'true' if active_tab == 'dues' else 'false' }}" data-finance-tab="dues">Danh sách đóng quỹ <span class="badge neutral">{{ dues|length }}</span></button>
+            </div>
+
+            <section class="fund-panel" id="fund-panel-collections" role="tabpanel" aria-labelledby="fund-tab-collections" data-finance-panel="collections"{% if active_tab != 'collections' %} hidden{% endif %}>
+                {% if collection_rows %}
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Khoản thu</th><th>Hạn đóng</th><th>Tình trạng của bạn</th><th>Số tiền</th><th>Trạng thái</th><th></th></tr></thead>
+                        <tbody>
+                        {% for row in collection_rows %}
+                        <tr data-filter-row data-category="{{ row.fund.loai }}" data-filter-text="{{ (row.fund.ten_khoan_thu ~ ' ' ~ row.fund.loai ~ ' ' ~ row.fund.trang_thai ~ ' ' ~ (row.balance.status if row.balance else ''))|lower }}">
+                            <td><div class="row">{{ icon('wallet') }}<div><strong>{{ row.fund.ten_khoan_thu }}</strong><div class="small muted">{{ collection_type(row.fund.loai) }}</div></div></div></td>
+                            <td>{{ row.fund.han_dong.strftime('%d/%m/%Y') }}</td>
+                            <td>
+                                {% if row.balance %}
+                                    {% if row.balance.required > 0 %}
+                                    {% set progress = ((row.balance.paid / row.balance.required) * 100)|int %}
+                                    {% if progress > 100 %}{% set progress = 100 %}{% endif %}
+                                    <strong>{{ money(row.balance.paid) }} / {{ money(row.balance.required) }}</strong>
+                                    <div class="progress-bar" role="progressbar" aria-label="Tỷ lệ đã đóng" aria-valuemin="0" aria-valuemax="100" aria-valuenow="{{ progress }}"><span style="width: {{ progress }}%"></span></div>
+                                    {% else %}<span class="small muted">Không áp dụng số tiền cố định</span>{% endif %}
+                                {% else %}<span class="small muted">Không thuộc đối tượng đóng</span>{% endif %}
+                            </td>
+                            <td>{% if row.fund.loai == 'voluntary' or row.fund.so_tien == 0 %}Tùy tâm{% else %}{{ money(row.fund.so_tien) }}{% endif %}</td>
+                            <td>{{ collection_state(row.fund.trang_thai) }}{% if row.balance %}<div class="small muted parity-status-note">{{ balance_state(row.balance.status) }}</div>{% endif %}</td>
+                            <td>
+                                {% if row.balance and row.fund.trang_thai == 'open' and (row.balance.remaining > 0 or row.fund.loai == 'voluntary') %}
+                                <button class="btn btn-secondary btn-sm" type="button" data-dialog-open="fund-payment-dialog-{{ row.fund.id }}">{{ icon('plus') }} Gửi xác nhận</button>
+                                {% elif row.balance and row.balance.status == 'pending' %}<span class="small muted">Đang chờ duyệt</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">{{ icon('wallet') }}<strong>Chưa có khoản thu</strong><span class="muted">{% if is_thu_quy %}Tạo khoản thu để bắt đầu theo dõi. {% else %}Chưa có khoản thu áp dụng cho bạn.{% endif %}</span></div>
+                {% endif %}
+            </section>
+
+            <section class="fund-panel" id="fund-panel-transactions" role="tabpanel" aria-labelledby="fund-tab-transactions" data-finance-panel="transactions"{% if active_tab != 'transactions' %} hidden{% endif %}>
+                {% if not is_thu_quy %}
+                <div class="empty-state">{{ icon('shield') }}<strong>Giao dịch thu / chi</strong><span class="muted">Chi tiết giao dịch chỉ hiển thị với thủ quỹ.</span></div>
+                {% elif not period %}
+                <div class="empty-state">{{ icon('calendar') }}<strong>Chưa có kỳ quỹ đang mở</strong><span class="muted">Mở một kỳ mới để ghi nhận và xem giao dịch.</span></div>
+                {% elif transactions %}
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Ngày</th><th>Danh mục</th><th>Nội dung</th><th>Loại</th><th>Số tiền</th></tr></thead>
+                        <tbody>
+                        {% for tx in transactions %}
+                        {% set is_income = tx.so_tien >= 0 %}
+                        <tr data-filter-row data-category="{{ 'income' if is_income else 'expense' }}" data-filter-text="{{ (tx.ngay.strftime('%d/%m/%Y') ~ ' ' ~ tx.danh_muc ~ ' ' ~ (tx.noi_dung or ''))|lower }}">
+                            <td>{{ tx.ngay.strftime('%d/%m/%Y') }}</td>
+                            <td><strong>{{ tx.danh_muc }}</strong></td>
+                            <td>{{ tx.noi_dung or '—' }}</td>
+                            <td>{{ badge('Thu' if is_income else 'Chi', 'success' if is_income else 'warning') }}</td>
+                            <td class="{{ 'text-positive' if is_income else 'text-negative' }}"><strong>{{ '+' if is_income else '−' }}{{ money(tx.so_tien|abs) }}</strong></td>
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% else %}
+                <div class="empty-state">{{ icon('file') }}<strong>Chưa có giao dịch</strong><span class="muted">Các khoản thu hoặc chi đã ghi nhận sẽ xuất hiện tại đây.</span></div>
+                {% endif %}
+            </section>
+
+            <section class="fund-panel" id="fund-panel-dues" role="tabpanel" aria-labelledby="fund-tab-dues" data-finance-panel="dues"{% if active_tab != 'dues' %} hidden{% endif %}>
+                {% if dues %}
+                <div class="table-wrap">
+                    <table class="data-table">
+                        <thead><tr><th>Thành viên</th><th>MSSV</th><th>Trạng thái</th>{% if is_thu_quy %}<th></th>{% endif %}</tr></thead>
+                        <tbody>
+                        {% for due in dues %}
+                        <tr data-filter-row data-category="{{ 'paid' if due.da_dong else 'unpaid' }}" data-filter-text="{{ (due.user.ho_ten ~ ' ' ~ due.user.mssv ~ ' ' ~ ('đã đóng' if due.da_dong else 'chưa đóng'))|lower }}">
+                            <td><div class="row">{{ avatar(due.user.ho_ten) }}<strong>{{ due.user.ho_ten }}</strong></div></td>
+                            <td>{{ due.user.mssv }}</td>
+                            <td>{{ badge('Đã đóng' if due.da_dong else 'Chưa đóng', 'success' if due.da_dong else 'warning') }}</td>
+                            {% if is_thu_quy %}<td><form method="post" action="{{ url_for('funds.toggle_due', user_id=due.user_id) }}" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary btn-sm" type="submit">{{ 'Đánh dấu chưa đóng' if due.da_dong else 'Đánh dấu đã đóng' }}</button></form></td>{% endif %}
+                        </tr>
+                        {% endfor %}
+                        </tbody>
+                    </table>
+                </div>
+                {% elif not period %}
+                <div class="empty-state">{{ icon('calendar') }}<strong>Chưa có kỳ quỹ đang mở</strong><span class="muted">Danh sách đóng quỹ sẽ hiển thị sau khi mở kỳ.</span></div>
+                {% else %}
+                <div class="empty-state">{{ icon('users') }}<strong>Chưa có dữ liệu đóng quỹ</strong><span class="muted">Không tìm thấy bản ghi đóng quỹ trong kỳ hiện tại.</span></div>
+                {% endif %}
+            </section>
+        </div>
+    </section>
+
+    {% if is_thu_quy %}
+    <section class="card">
+        <div class="card-header">
+            <div><h2>Giao dịch chờ xác nhận</h2><p class="small muted">Duyệt hoặc từ chối từng khoản thanh toán đã gửi.</p></div>
+            {{ badge(pending_payments|length ~ ' chờ xử lý', 'warning' if pending_payments else 'neutral') }}
+        </div>
+        <div class="card-body">
+            {% if pending_payments %}
+            <div class="table-wrap">
+                <table class="data-table">
+                    <thead><tr><th>Mã</th><th>Thành viên</th><th>Khoản thu</th><th>Số tiền</th><th>Phương thức / mã giao dịch</th><th>Trạng thái</th><th></th></tr></thead>
+                    <tbody>
+                    {% for payment in pending_payments %}
+                    <tr data-filter-row data-category="pending" data-filter-text="{{ ('GD-' ~ payment.id ~ ' ' ~ payment_members[payment.user_id].ho_ten ~ ' ' ~ collection_names[payment.fund_id] ~ ' ' ~ (payment.ma_giao_dich or ''))|lower }}">
+                        <td><strong>GD-{{ payment.id }}</strong></td>
+                        <td>{{ payment_members[payment.user_id].ho_ten }}</td>
+                        <td>{{ collection_names[payment.fund_id] }}</td>
+                        <td>{{ money(payment.so_tien) }}</td>
+                        <td>{{ payment.phuong_thuc }}<div class="small muted">{{ payment.ma_giao_dich or 'Không có mã giao dịch' }}</div></td>
+                        <td>{{ badge('Chờ xác nhận', 'warning') }}</td>
+                        <td><form method="post" action="{{ url_for('funds.collection_payment_review', payment_id=payment.id) }}" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-primary btn-sm" name="decision" value="confirmed" type="submit">{{ icon('check') }} Xác nhận</button><button class="btn btn-ghost btn-sm" name="decision" value="rejected" type="submit">Từ chối</button></form></td>
+                    </tr>
+                    {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+            {% else %}
+            <div class="empty-state">{{ icon('check') }}<strong>Đã xử lý hết</strong><span class="muted">Không còn giao dịch chờ xác nhận.</span></div>
+            {% endif %}
+        </div>
+    </section>
+    {% endif %}
+
+    <div class="row preview-footnote">
+        <span class="muted small">{{ icon('shield') }} Số liệu được lấy từ khoản thu, giao dịch và trạng thái đóng quỹ thực tế.</span>
+        {% if is_thu_quy and period %}<button class="btn btn-ghost btn-sm" type="button" data-dialog-open="fund-reminder-dialog">{{ icon('mail') }} Nhắc đóng quỹ</button>{% endif %}
+    </div>
+
+    {% if is_thu_quy %}
+    <dialog class="dialog parity-finance-dialog" id="fund-collection-dialog" aria-labelledby="fund-collection-title">
+        <div class="dialog-heading"><div><p class="eyebrow">TÀI CHÍNH</p><h2 id="fund-collection-title">Tạo khoản thu mới</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('funds.collection_new') }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span class="field-label">Tên khoản thu</span><input class="input" type="text" name="name" maxlength="180" required placeholder="Ví dụ: Quỹ hoạt động tháng 11"></label>
+            <label class="field"><span class="field-label">Loại khoản thu</span><select class="select" name="type" required><option value="monthly">Hằng tháng</option><option value="semester">Học kỳ</option><option value="yearly">Hằng năm</option><option value="event">Sự kiện</option><option value="voluntary">Tự nguyện</option><option value="other">Khác</option></select></label>
+            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" name="amount" min="0" step="0.01" required></label>
+            <div class="form-grid"><label class="field"><span class="field-label">Ngày bắt đầu</span><input class="input" type="date" name="start_date" required></label><label class="field"><span class="field-label">Hạn đóng</span><input class="input" type="date" name="due_date" required></label></div>
+            <label class="field"><span class="field-label">Mô tả</span><textarea class="textarea" name="description" maxlength="500" rows="3" placeholder="Ghi chú cho thành viên"></textarea></label>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Mở khoản thu</button></div>
+        </form>
+    </dialog>
+
+    <dialog class="dialog parity-finance-dialog" id="fund-period-dialog" aria-labelledby="fund-period-title">
+        <div class="dialog-heading"><div><p class="eyebrow">TÀI CHÍNH · KỲ QUỸ</p><h2 id="fund-period-title">Mở kỳ mới</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('funds.period_new') }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span class="field-label">Tên kỳ</span><input class="input" type="text" name="ten_ky" required maxlength="50" placeholder="Ví dụ: Spring 2027"></label>
+            <div class="form-grid"><label class="field"><span class="field-label">Ngày bắt đầu</span><input class="input" type="date" name="ngay_bat_dau" required></label><label class="field"><span class="field-label">Ngày kết thúc</span><input class="input" type="date" name="ngay_ket_thuc"></label></div>
+            <p class="form-note">Mở kỳ mới sẽ tự động đóng kỳ đang mở hiện tại (nếu có).</p>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Mở kỳ mới</button></div>
+        </form>
+    </dialog>
+
+    {% if period %}
+    <dialog class="dialog parity-finance-dialog" id="fund-transaction-dialog" aria-labelledby="fund-transaction-title">
+        <div class="dialog-heading"><div><p class="eyebrow">{{ period.ten_ky }}</p><h2 id="fund-transaction-title">Ghi nhận thu / chi</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('funds.transaction_new') }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span class="field-label">Danh mục</span><input class="input" type="text" name="danh_muc" maxlength="100" required></label>
+            <label class="field"><span class="field-label">Nội dung</span><input class="input" type="text" name="noi_dung" maxlength="255"></label>
+            <label class="field"><span class="field-label">Ngày</span><input class="input" type="date" name="ngay" required></label>
+            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" step="1" name="so_tien" required><span class="small muted">Thu nhập dùng số dương, chi phí dùng số âm.</span></label>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Lưu giao dịch</button></div>
+        </form>
+    </dialog>
+    {% endif %}
+
+    {% if period %}
+    <dialog class="dialog parity-finance-dialog" id="fund-reminder-dialog" aria-labelledby="fund-reminder-title">
+        <div class="dialog-heading"><div><p class="eyebrow">{{ period.ten_ky }}</p><h2 id="fund-reminder-title">Gửi email nhắc đóng quỹ?</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('funds.remind_unpaid') }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <p>Hệ thống sẽ thử gửi email đến {{ dues|selectattr('da_dong', 'equalto', false)|list|length }} thành viên chưa đóng quỹ trong kỳ hiện tại.</p>
+            <p class="small muted">Email chỉ được gửi sau khi bạn chọn nút xác nhận bên dưới.</p>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Xác nhận gửi email</button></div>
+        </form>
+    </dialog>
+    {% endif %}
+    {% endif %}
+
+    {% for row in collection_rows if row.balance and row.fund.trang_thai == 'open' and (row.balance.remaining > 0 or row.fund.loai == 'voluntary') %}
+    <dialog class="dialog parity-finance-dialog" id="fund-payment-dialog-{{ row.fund.id }}" aria-labelledby="fund-payment-title-{{ row.fund.id }}">
+        <div class="dialog-heading"><div><p class="eyebrow">{{ collection_type(row.fund.loai) }}</p><h2 id="fund-payment-title-{{ row.fund.id }}">Gửi xác nhận thanh toán</h2><p class="small muted">{{ row.fund.ten_khoan_thu }}</p></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('funds.collection_pay', fund_id=row.fund.id) }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" name="amount" min="0.01" step="0.01"{% if row.fund.loai != 'voluntary' %} max="{{ row.balance.remaining }}"{% endif %} required></label>
+            <label class="field"><span class="field-label">Phương thức thanh toán</span><select class="select" name="method" required><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="other">Khác</option></select></label>
+            <label class="field"><span class="field-label">Mã giao dịch (nếu có)</span><input class="input" type="text" name="transaction_code" maxlength="100"></label>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Gửi xác nhận</button></div>
+        </form>
+    </dialog>
     {% endfor %}
-    </tbody>
-</table>
-{% else %}
-<p class="muted">Chua co ky quy nao duoc mo.{% if is_thu_quy %} Dung form "Mo ky moi" o tren de bat dau.{% endif %}</p>
-{% endif %}
+</div>
 {% endblock %}

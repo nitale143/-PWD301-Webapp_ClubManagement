@@ -1,0 +1,17 @@
+{% extends "base.html" %}
+{% block title %}Dang nhap{% endblock %}
+{% block content %}
+<div class="auth-box">
+    <h1>Dang nhap thanh vien CLB</h1>
+    <form method="post">
+        <label>MSSV</label>
+        <input type="text" name="mssv" required autofocus>
+
+        <label>Mat khau</label>
+        <input type="password" name="password" required>
+
+        <button type="submit">Dang nhap</button>
+    </form>
+    <p class="muted">Chua co tai khoan? <a href="{{ url_for('auth.register') }}">Dang ky thanh vien moi</a></p>
+</div>
+{% endblock %}

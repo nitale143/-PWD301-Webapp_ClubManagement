@@ -1,64 +1,118 @@
 {% extends "base.html" %}
-{% block title %}Quan ly chuc vu{% endblock %}
+{% from "_ui.html" import icon, badge, avatar %}
+{% block title %}{{ workspace_title }}{% endblock %}
+
+{% macro role_label(value) -%}
+    {% set labels = {'CN': 'Chủ nhiệm', 'PCN': 'Phó Chủ nhiệm', 'TB': 'Trưởng ban', 'THUKY_THUQUY': 'Thư ký / Thủ quỹ', 'THANH_VIEN': 'Thành viên'} %}
+    {{ labels.get(value, value) }}
+{%- endmacro %}
+
 {% block content %}
-<h1>Quan ly chuc vu BDH</h1>
-<p class="muted small">Gioi han: CN toi da 1, PCN toi da 2, TB toi da 3, Thu ky/Thu quy toi da 1. Chi nguoi quyen cao hon moi duoc chi dinh xuong.</p>
+{% set transfer_targets = namespace(count=0) %}
+{% for m in members %}
+    {% if m.id != current_user.id and current_user.outranks(m) and (current_user.chuc_vu != 'THUKY_THUQUY' or m.chuc_vu == 'THANH_VIEN') and (m.member_record is none or (m.member_record.luu_tru_luc is none and m.member_record.tinh_trang != 'left')) %}
+        {% set transfer_targets.count = transfer_targets.count + 1 %}
+    {% endif %}
+{% endfor %}
 
-{% if current_user.chuc_vu != 'THANH_VIEN' %}
-<details class="new-task-box">
-    <summary>Nhuong quyen chuc vu cua ban ({{ current_user.chuc_vu }})</summary>
-    <form method="post" action="{{ url_for('admin.nhuong_quyen') }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <p class="small muted">Chon thanh vien de nhuong lai chuc vu <strong>{{ current_user.chuc_vu }}</strong> cua ban. Ban se tro thanh thanh vien thuong.</p>
-        <select name="target_id" id="nhuong-target">
-            {% for m in members if m.id != current_user.id %}
-            <option value="{{ m.id }}">{{ m.ho_ten }} ({{ m.mssv }})</option>
-            {% endfor %}
-        </select>
-        {% if current_user.chuc_vu == 'TB' %}
-        <select name="ban_id">
-            {% for ban in bans %}
-            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
-            {% endfor %}
-        </select>
+<div class="page-stack parity-finance parity-roles" data-finance-parity>
+    <div class="row preview-page-heading">
+        <div class="grow"><p class="eyebrow">BAN ĐIỀU HÀNH · PHÂN QUYỀN</p></div>
+        <div class="toolbar-right">
+            <button class="btn btn-secondary" type="button" data-dialog-open="role-transfer-dialog"{% if transfer_targets.count == 0 %} disabled{% endif %}>{{ icon('arrow') }} {{ 'Nhượng chức vụ' if transfer_targets.count else 'Chưa có người nhận phù hợp' }}</button>
+        </div>
+    </div>
+
+    <div class="card card-body preview-role-guidance">
+        <div class="row">{{ icon('shield') }}<div><strong>Giới hạn vai trò</strong><p class="muted small">Chủ nhiệm tối đa 1 · Phó Chủ nhiệm tối đa 2 · Trưởng ban tối đa 3 · Thư ký / Thủ quỹ tối đa 1. Chỉ người có quyền cao hơn mới được chỉ định xuống.</p></div></div>
+    </div>
+
+    <section class="card">
+        <div class="card-header">
+            <div><h2>Thành viên &amp; chức vụ</h2><p class="small muted">{{ members|length }} thành viên trong phạm vi bạn có quyền xem.</p></div>
+            <label class="field parity-role-search"><span class="field-label">Tìm thành viên</span><input class="input" type="search" data-role-search placeholder="Tên hoặc MSSV" autocomplete="off"></label>
+        </div>
+        {% if members %}
+        <div class="table-wrap">
+            <table class="data-table">
+                <thead><tr><th>Thành viên</th><th>MSSV</th><th>Ban quản lý</th><th>Chức vụ hiện tại</th><th></th></tr></thead>
+                <tbody>
+                {% for m in members %}
+                {% set team_names = m.ban_links|selectattr('is_truong_ban', 'equalto', true)|map(attribute='ban.ten_ban')|join(', ') %}
+                {% if not team_names %}{% set team_names = m.ban_links|map(attribute='ban.ten_ban')|join(', ') %}{% endif %}
+                <tr data-role-row data-filter-text="{{ (m.ho_ten ~ ' ' ~ m.mssv ~ ' ' ~ team_names ~ ' ' ~ (role_label(m.chuc_vu)|striptags))|lower }}">
+                    <td><div class="row">{{ avatar(m.ho_ten) }}<strong>{{ m.ho_ten }}</strong>{% if m.id == current_user.id %}{{ badge('Bạn', 'indigo') }}{% endif %}</div></td>
+                    <td>{{ m.mssv }}</td>
+                    <td>{{ team_names or '—' }}</td>
+                    <td>{{ badge(role_label(m.chuc_vu), 'neutral' if m.chuc_vu == 'THANH_VIEN' else 'indigo') }}</td>
+                    <td>{% if current_user.chuc_vu in ['CN', 'PCN'] and current_user.outranks(m) %}<button class="btn btn-secondary btn-sm" type="button" data-dialog-open="role-assign-{{ m.id }}">{{ icon('edit') }} Gán chức vụ</button>{% endif %}</td>
+                </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+        {% else %}
+        <div class="card-body"><div class="empty-state">{{ icon('users') }}<strong>Chưa có thành viên để hiển thị</strong><span class="muted">Các thành viên đã duyệt trong phạm vi quản lý sẽ xuất hiện tại đây.</span></div></div>
         {% endif %}
-        <button type="submit">
-            Xac nhan nhuong quyen
-        </button>
-    </form>
-</details>
-{% endif %}
+    </section>
 
-<table class="data-table">
-    <thead><tr><th>Ho ten</th><th>MSSV</th><th>Chuc vu hien tai</th><th>Ban quan ly</th><th>Chi dinh chuc vu moi</th></tr></thead>
-    <tbody>
-    {% for m in members %}
-        <tr>
-            <td>{{ m.ho_ten }}</td>
-            <td>{{ m.mssv }}</td>
-            <td>{{ m.chuc_vu }}</td>
-            <td>{{ m.ban_links|selectattr('is_truong_ban')|map(attribute='ban.ten_ban')|join(', ') }}</td>
-            <td>
-                <form method="post" action="{{ url_for('admin.assign_role', user_id=m.id) }}" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <select name="chuc_vu">
-                        <option value="THANH_VIEN">Thanh vien</option>
-                        <option value="THUKY_THUQUY">Thu ky/Thu quy</option>
-                        <option value="TB">Truong ban</option>
-                        <option value="PCN">Pho chu nhiem</option>
-                        <option value="CN">Chu nhiem</option>
-                    </select>
-                    <select name="ban_id">
-                        <option value="">(neu la Truong ban) chon ban</option>
-                        {% for ban in bans %}
-                        <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
-                        {% endfor %}
-                    </select>
-                    <button type="submit">Chi dinh</button>
-                </form>
-            </td>
-        </tr>
+    <p class="small muted">{{ icon('shield') }} Các thay đổi chức vụ chỉ được lưu sau khi bạn xác nhận biểu mẫu.</p>
+
+    {% for m in members if current_user.chuc_vu in ['CN', 'PCN'] and current_user.outranks(m) %}
+    {% set current_team_lead = m.ban_links|selectattr('is_truong_ban', 'equalto', true)|first %}
+    <dialog class="dialog parity-finance-dialog" id="role-assign-{{ m.id }}" aria-labelledby="role-assign-title-{{ m.id }}">
+        <div class="dialog-heading"><div><p class="eyebrow">BAN ĐIỀU HÀNH · PHÂN QUYỀN</p><h2 id="role-assign-title-{{ m.id }}">Gán chức vụ · {{ m.ho_ten }}</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('admin.assign_role', user_id=m.id) }}" class="dialog-body page-stack" data-role-form>
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <div class="field"><span class="field-label">Thành viên</span><div class="input parity-readonly-field">{{ m.ho_ten }} · {{ m.mssv }}</div></div>
+            <label class="field"><span class="field-label">Chức vụ mới</span>
+                <select class="select" name="chuc_vu" required data-role-select>
+                    {% if current_user.chuc_vu == 'CN' %}
+                    <option value="PCN"{% if m.chuc_vu == 'PCN' %} selected{% endif %}>Phó Chủ nhiệm</option>
+                    {% endif %}
+                    <option value="TB"{% if m.chuc_vu == 'TB' %} selected{% endif %}>Trưởng ban</option>
+                    <option value="THUKY_THUQUY"{% if m.chuc_vu == 'THUKY_THUQUY' %} selected{% endif %}>Thư ký / Thủ quỹ</option>
+                    <option value="THANH_VIEN"{% if m.chuc_vu == 'THANH_VIEN' %} selected{% endif %}>Thành viên</option>
+                </select>
+            </label>
+            <label class="field"><span class="field-label">Ban quản lý (nếu là Trưởng ban)</span>
+                <select class="select" name="ban_id" data-role-team-select>
+                    <option value="">Chọn ban</option>
+                    {% for ban in bans %}<option value="{{ ban.id }}"{% if current_team_lead and current_team_lead.ban_id == ban.id %} selected{% endif %}>{{ ban.ten_ban }}</option>{% endfor %}
+                </select>
+            </label>
+            <p class="small muted">Giới hạn số lượng và quyền chỉ định sẽ được kiểm tra khi lưu.</p>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Lưu chức vụ</button></div>
+        </form>
+    </dialog>
     {% endfor %}
-    </tbody>
-</table>
+
+    {% if transfer_targets.count %}
+    <dialog class="dialog parity-finance-dialog" id="role-transfer-dialog" aria-labelledby="role-transfer-title">
+        <div class="dialog-heading"><div><p class="eyebrow">BAN ĐIỀU HÀNH · CHUYỂN GIAO</p><h2 id="role-transfer-title">Nhượng chức vụ {{ role_label(current_user.chuc_vu) }}</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+        <form method="post" action="{{ url_for('admin.nhuong_quyen') }}" class="dialog-body page-stack">
+            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+            <p>Người nhận sẽ giữ chức vụ {{ role_label(current_user.chuc_vu) }}; tài khoản của bạn sẽ trở thành thành viên thường.</p>
+            <label class="field"><span class="field-label">Người nhận</span>
+                <select class="select" name="target_id" required>
+                    <option value="">Chọn thành viên</option>
+                    {% for m in members if m.id != current_user.id and current_user.outranks(m) and (current_user.chuc_vu != 'THUKY_THUQUY' or m.chuc_vu == 'THANH_VIEN') and (m.member_record is none or (m.member_record.luu_tru_luc is none and m.member_record.tinh_trang != 'left')) %}
+                    <option value="{{ m.id }}">{{ m.ho_ten }} · {{ m.mssv }} ({{ role_label(m.chuc_vu) }})</option>
+                    {% endfor %}
+                </select>
+            </label>
+            {% if current_user.chuc_vu == 'TB' %}
+            <label class="field"><span class="field-label">Ban sẽ được chuyển giao</span>
+                <select class="select" name="ban_id" required>
+                    <option value="">Chọn ban</option>
+                    {% for ban in bans if ban.id in current_user.quan_ly_ban_ids() %}<option value="{{ ban.id }}">{{ ban.ten_ban }}</option>{% endfor %}
+                </select>
+            </label>
+            {% endif %}
+            <p class="form-note">Thao tác này thay đổi quyền của hai tài khoản và đưa bạn về trang tổng quan sau khi lưu.</p>
+            <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-danger" type="submit">Xác nhận chuyển giao</button></div>
+        </form>
+    </dialog>
+    {% endif %}
+</div>
 {% endblock %}

@@ -101,7 +101,7 @@ def _record_model_use(provider, model, purpose, data, elapsed_ms):
 
 class AssistantProvider(ABC):
     @abstractmethod
-    def answer(self, actor, question):
+    def answer(self, actor, question, history=None):
         raise NotImplementedError
 
 
@@ -112,7 +112,7 @@ class TemporaryAIError(DomainError):
 class RulesProvider(AssistantProvider):
     """Câu hỏi chỉ ánh xạ tới các truy vấn ORM được định nghĩa trước."""
 
-    def answer(self, actor, question):
+    def answer(self, actor, question, history=None):
         result = self._answer(actor, question)
         intent = result.get("intent")
         verification = {

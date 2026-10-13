@@ -305,7 +305,7 @@ def is_chat_proposal_command(message):
     return bool(_CHAT_EVENT.match(message) or _CHAT_TASK.match(message))
 
 
-def maybe_create_chat_proposal(actor, message):
+def maybe_create_chat_proposal(actor, message, provider=None):
     event_match = _CHAT_EVENT.match(message)
     task_match = _CHAT_TASK.match(message)
     if not event_match and not task_match:
@@ -325,7 +325,7 @@ def maybe_create_chat_proposal(actor, message):
         data = {"kind": "task", "event_id": parts[0], "ban_id": parts[1],
                 "deadline": parts[2], "brief": parts[3],
                 "required_skills": parts[4] if len(parts) == 5 else ""}
-    proposal = create_proposal(actor, data)
+    proposal = create_proposal(actor, data, provider=provider)
     return {"intent": "ai_proposal", "preview": True, "provider": proposal.provider,
             "proposal_id": proposal.id,
             "answer": f"Đã tạo đề xuất #{proposal.id}; chưa áp dụng. BDH cần xem trước rồi bấm Duyệt và áp dụng."}

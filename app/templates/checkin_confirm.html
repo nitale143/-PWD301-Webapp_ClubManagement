@@ -1,12 +1,42 @@
 {% extends "base.html" %}
-{% block title %}Điểm danh{% endblock %}
+{% from "_ui.html" import icon, badge, avatar %}
+{% set role_labels = {'CN': 'Chủ nhiệm', 'PCN': 'Phó chủ nhiệm', 'TB': 'Trưởng ban', 'THUKY_THUQUY': 'Thư ký / Thủ quỹ', 'THANH_VIEN': 'Thành viên'} %}
+{% set role_label = role_labels.get(current_user.chuc_vu, current_user.chuc_vu) %}
+{% block title %}Xác nhận điểm danh{% endblock %}
 {% block content %}
-<div class="auth-box wide">
-    <h1>Điểm danh: {{ event.ten_su_kien }}</h1>
-    <p class="muted">Xác nhận điểm danh bằng tài khoản của bạn.</p>
-    <form method="post">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <button type="submit">Xác nhận điểm danh</button>
-    </form>
+<div class="page-stack checkin-page">
+    <div class="grid-12">
+        <section class="span-7 card">
+            <div class="card-header">
+                <div><p class="eyebrow">{{ event.ma_su_kien }}</p><h2>{{ event.ten_su_kien }}</h2><p class="muted">{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p></div>
+                {{ badge('Đang diễn ra' if event.trang_thai == 'dang_dien_ra' else 'Sắp diễn ra' if event.trang_thai == 'sap_dien_ra' else event.trang_thai, 'success' if event.trang_thai == 'dang_dien_ra' else 'warning') }}
+            </div>
+            <div class="card-body">
+                <div class="grid-12 preview-event-details">
+                    <div class="span-6 list-item">{{ icon('calendar') }}<span><strong>{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y') }}</strong><span class="small muted">Ngày diễn ra</span></span></div>
+                    <div class="span-6 list-item">{{ icon('clock') }}<span><strong>{{ event.thoi_gian_bat_dau.strftime('%H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%H:%M') }}</strong><span class="small muted">Thời gian</span></span></div>
+                    <div class="span-6 list-item">{{ avatar(current_user.ho_ten, 'indigo') }}<span><strong>{{ current_user.ho_ten }}</strong><span class="small muted">MSSV {{ current_user.mssv }}</span></span></div>
+                    <div class="span-6 list-item">{{ icon('users') }}<span><strong>{{ role_label }}</strong><span class="small muted">Tài khoản FIA đang đăng nhập</span></span></div>
+                </div>
+                <div class="preview-checkin-summary checkin-token-summary">
+                    <div><p class="eyebrow">MÃ XÁC NHẬN</p><code class="checkin-token">{{ token }}</code><p class="small muted">Mã được kiểm tra trên máy chủ khi bạn gửi xác nhận.</p></div>
+                </div>
+                <form method="post" action="{{ url_for('event.event_qr_checkin', event_id=event.id, token=token) }}" class="checkin-confirm-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-primary" type="submit">{{ icon('check') }} Xác nhận điểm danh</button>
+                </form>
+            </div>
+        </section>
+
+        <aside class="span-5 card">
+            <div class="card-header"><div><h2>Trước khi xác nhận</h2><p class="small muted">Hệ thống sẽ kiểm tra thông tin khi gửi.</p></div>{{ icon('check') }}</div>
+            <div class="card-body page-stack checkin-checklist">
+                <div class="list-item">{{ badge('01', 'indigo') }}<span><strong>Đúng sự kiện</strong><span class="small muted">{{ event.ten_su_kien }} · {{ event.ma_su_kien }}</span></span></div>
+                <div class="list-item">{{ badge('02', 'indigo') }}<span><strong>Đúng tài khoản</strong><span class="small muted">{{ current_user.ho_ten }} · {{ current_user.mssv }}</span></span></div>
+                <div class="list-item">{{ badge('03', 'indigo') }}<span><strong>Đúng thời gian</strong><span class="small muted">{{ event.thoi_gian_bat_dau.strftime('%H:%M %d/%m/%Y') }} – {{ event.thoi_gian_ket_thuc.strftime('%H:%M %d/%m/%Y') }}</span></span></div>
+                <div class="card card-body checkin-validation-note"><strong>Điều kiện điểm danh</strong><p class="muted small">Mã sự kiện, thời hạn mã và trạng thái đăng ký sẽ được xác minh trước khi ghi nhận điểm danh.</p></div>
+            </div>
+        </aside>
+    </div>
 </div>
 {% endblock %}

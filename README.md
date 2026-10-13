@@ -4,6 +4,37 @@
 
 > Dự án hiện phù hợp để học tập và demo. Xem [Lưu ý trước khi triển khai thật](#lưu-ý-trước-khi-triển-khai-thật) nếu muốn dùng với dữ liệu thật.
 
+## Bản thiết kế mới và backup web cũ
+
+- Ứng dụng Flask ở thư mục gốc đã dùng giao diện FIA xanh lá/đen/trắng: landing công khai, sidebar theo vai trò, màn hình nghiệp vụ và AI Agent dùng dữ liệu, đăng nhập, lịch sử chat, tiến trình xử lý và các bước duyệt thật. Không dùng phiên đăng nhập demo hoặc câu trả lời mô phỏng của preview.
+- Bố cục các màn đã được chuyển theo bản preview đã duyệt (không chỉ đổi theme): hero/dashboard, thẻ số liệu, bảng trong card, tab quỹ, lưới sự kiện, task kanban/list, hồ sơ, phê duyệt và các form/dialog. Các tệp `preview-*.css` là bộ thiết kế gốc dùng chung; `parity-*.css/js` nối với HTML và thao tác thật. Số liệu, trạng thái trống và các nút theo quyền có thể khác mẫu vì dùng database thật.
+- Trang `/tasks` dùng dữ liệu thật trong phạm vi quyền: thành viên chỉ xem task của mình, trưởng ban xem task ban phụ trách và của mình, CN/PCN xem toàn bộ.
+- Trang sự kiện thật có tab FIA và CTFtime. BDH bấm **Tạo sự kiện FIA** để lưu sự kiện tham gia CTF vào database; hệ thống xác minh thông tin từ nguồn trên server, giữ link nguồn, chuyển giờ theo múi giờ CLB và dùng mã duy nhất để chống trùng. Thao tác cần đăng nhập, quyền BDH và CSRF. Đây không phải đăng ký đội thi trên CTFtime.
+- [Các bản UI/UX preview cũ](previews/README.md) được giữ để đối chiếu thiết kế. Dữ liệu CLB và các thao tác trong các thư mục này vẫn chỉ là demo, khác với ứng dụng Flask thật.
+- [Backup mã nguồn web cũ](backups/club-management-before-ui-20261012-105648/README.md): snapshot trước khi thiết kế lại UI. Bản trên Git đã loại cấu hình bí mật, database, ảnh tải lên, Git nội bộ và tài liệu giải thích riêng. Backup đầy đủ vẫn lưu riêng ở máy chủ dự án, không đưa lên Git.
+
+Các bản preview chạy riêng bằng `python3 preview_server.py --port 5082`; ứng dụng Flask thật tiếp tục dùng hướng dẫn dưới đây. Không triển khai preview thay cho ứng dụng thật.
+
+### Mở giao diện mới chạy thật
+
+```bash
+cd /home/phanquang/my-project
+source /home/phanquang/.virtualenvs/club-manager-group/bin/activate
+SCHEDULER_ENABLED=false flask --app run.py run --host 0.0.0.0 --port 5000 --no-reload
+```
+
+Mở `http://127.0.0.1:5000` và đăng nhập bằng tài khoản CLB thật. Đường dẫn trên là môi trường Ubuntu của máy phát triển; trên máy khác dùng thư mục clone và virtualenv của mình. Với WSL, nếu Windows không truy cập localhost được, dùng IP Ubuntu từ `hostname -I`. Chỉ dùng development server trong môi trường tin cậy, không mở ra Internet.
+
+`SCHEDULER_ENABLED=false` tắt lịch gửi mail nền khi thử giao diện; mặc định vẫn bật như trước. AI và SMTP đọc cấu hình bí mật của server, không đưa API key hoặc mật khẩu mail ra trình duyệt/Git. Truy vấn xác minh có thể trả lời bằng quy tắc; tác vụ dùng model phụ thuộc cấu hình provider, key, hạn mức và kết nối. Nháp mail/đề xuất vẫn phải qua quyền duyệt hiện có.
+
+CTFtime sử dụng lịch Google công khai được nhúng trên trang calendar, không dùng JSON API bị giới hạn mục đích. Cache/lỗi nguồn được thông báo rõ. Xác nhận điều khoản tái sử dụng trước khi phát hành website công khai.
+
+Kiểm tra backend bằng `python -m unittest discover -s tests -q` (database tạm). Để kiểm tra giao diện bằng trình duyệt, chạy `PYTHONPATH=. python tests/ui_fixture_server.py`, rồi chạy `node tests/test_live_ui.cjs` trong môi trường có Playwright và Edge; server test ở cổng 5090, tài khoản và database hoàn toàn tạm, không dùng dữ liệu CLB.
+
+`node tests/test_visual_parity.cjs` kiểm tra 14 màn desktop/mobile, tab và dialog quỹ, quyền thanh toán thành viên, ảnh chụp và tài nguyên. Có thể cấu hình `FIA_SCREENSHOTS` cho thư mục ảnh test trên máy mình. Script này chỉ dùng server test ở cổng 5090, không chạy với database CLB thật.
+
+Kiểm tra kết nối model thật tùy chọn: `PYTHONPATH=. python tests/provider_smoke.py`. Lệnh này dùng key riêng ở `.env` và có thể tính phí một yêu cầu ngắn; không gửi dữ liệu thành viên và không ghi database CLB. Không dùng các tài khoản test cho hệ thống thật.
+
 ## Chạy nhanh trên Ubuntu
 
 Yêu cầu: Python 3, `venv` và Git. Nếu Ubuntu báo thiếu `venv`, cài thêm gói `python3-venv`.
@@ -50,7 +81,7 @@ Database SQLite mặc định nằm tại `instance/clb.db`. Nếu đã có dữ
 | Phân quyền | Vai trò Chủ nhiệm, Phó chủ nhiệm, Trưởng ban, Thư ký/Thủ quỹ và Thành viên; chỉ định vai trò, nhượng quyền, giới hạn dữ liệu theo quyền. |
 | Sự kiện, công việc | Tạo sự kiện, đặt sức chứa/hạn đăng ký, đăng ký hoặc vào danh sách chờ, hủy đăng ký, điểm danh QR hoặc thủ công, đánh giá; giao task và duyệt sản phẩm đã nộp. |
 | Quỹ | Tạo khoản thu, ghi nhận tiền thành viên gửi, Thủ quỹ xác nhận/từ chối, tính đã đóng/còn thiếu, miễn/giảm qua API và xuất báo cáo. Phần quỹ theo kỳ cũ vẫn hiển thị riêng. |
-| Trợ lý AI | Chat/API dùng chung luồng, lưu ngữ cảnh gần đây theo từng người; câu trả lời số liệu lấy trực tiếp từ database; đề xuất sự kiện/chia task và tạo nháp email để BDH duyệt trước khi thực hiện. Nhật ký token và giới hạn lượt gọi giúp kiểm soát tài khoản AI chung. |
+| Trợ lý AI | Chat/API dùng chung luồng, lưu cuộc trò chuyện riêng để mở lại, đổi tên, lưu trữ và khôi phục; tải tối đa 40 tin nhắn/trang, ngữ cảnh model giới hạn 6 tin của chat đang chọn. Câu trả lời số liệu lấy trực tiếp từ database; đề xuất sự kiện/chia task và tạo nháp email để BDH duyệt trước khi thực hiện. Nhật ký token và giới hạn lượt gọi giúp kiểm soát tài khoản AI chung. |
 | Thông báo | Email khi duyệt thành viên, giao/duyệt task; nhắc deadline và kỳ quỹ qua lịch chạy nền. Mặc định chỉ in email ra terminal. |
 
 ### Luồng sử dụng cơ bản
@@ -65,7 +96,25 @@ Database SQLite mặc định nằm tại `instance/clb.db`. Nếu đã có dữ
 8. BDH có thể nói tự nhiên, ví dụ `Tạo sự kiện Workshop bảo mật ngày 15/11/2026 09:00 đến 15/11/2026 11:00` hoặc `Giao task thiết kế poster cho SV123 trong sự kiện Workshop bảo mật ban Truyền thông hạn 14/11/2026 18:00`. Nếu thiếu sự kiện, ban, giờ hoặc tên việc, Agent hỏi lại; câu trả lời bổ sung được giữ tối đa 30 phút (`hủy` để bỏ). Mỗi task gắn **một ban**; yêu cầu mơ hồ như `cho 3 ban` không được tự chia hoặc thực thi. Sau khi đủ dữ kiện, Agent chỉ tạo đề xuất cho BDH duyệt; câu tự nhiên không đưa trực tiếp dữ liệu vào bảng sự kiện/task.
 9. Trang Home và AI hiển thị **việc cần xử lý hôm nay** theo quyền của BDH khi mở trang. Chat nhận `Hôm nay cần xử lý gì?`, `Báo cáo tuần này`, `Báo cáo tháng này`. Báo cáo nêu khoảng ngày, phạm vi quyền và ID bản ghi nguồn. BDH có thể lưu một bản xem trước cố định rồi tải đúng bản đó ra Excel hoặc tạo nháp email gửi tới email hồ sơ của mình; email vẫn cần duyệt. Nếu chức vụ hoặc ban quản lý thay đổi, bản lưu có phạm vi quyền cũ sẽ không còn tải/gửi được. Số thu trong báo cáo chỉ tính `FundPayment` mới đã xác nhận, không cộng luồng quỹ kỳ cũ; task được đếm theo **hạn trong kỳ**, không ngụ ý hoàn thành trong kỳ vì chưa có thời điểm hoàn thành riêng.
 
+Thời gian trong câu tự nhiên có thể đặt trước hoặc sau ngày: `tối 23:00 10/10`, `10/10 lúc 23h`, `23h30 ngày 10/10`, `ngày mai 11 giờ tối`. Nếu chỉ ghi ngày/tháng, hệ thống dùng **năm hiện tại theo giờ CLB**, không tự nhảy sang năm sau; câu trả lời tạo đề xuất nhắc lại ngày, giờ và năm đã hiểu để BDH kiểm tra. Nếu giờ/ngày không hợp lệ hoặc thông tin mâu thuẫn, Agent hỏi lại thay vì đoán. Các cách ghi ISO và ngày/tháng/năm trước đây vẫn dùng được. Việc hiểu thời gian không bỏ qua kiểm tra quyền, người nhận, ban, sự kiện và hạn task; đề xuất vẫn cần duyệt.
+
+### Lịch sử theo cuộc trò chuyện
+
+Trang AI có danh sách chat riêng cho từng tài khoản và nút **Chat mới**. Chat tự đặt tên theo câu hỏi đầu tiên nếu chưa đặt tên; menu **Tùy chọn** cho phép đổi tên hoặc lưu trữ, mục **Đã lưu trữ** cho phép mở lại và khôi phục. Lưu trữ chỉ ẩn khỏi danh sách đang dùng, không xóa dữ liệu. Danh sách tải 20 chat/trang; nội dung tải 40 tin/trang và có liên kết xem cũ hơn/mới hơn, không đưa toàn bộ lịch sử vào trang. Model chỉ nhận tối đa 6 tin của chat đang chọn; yêu cầu đang hỏi bổ sung cũng được tách theo chat. Giới hạn lượt nhắn vẫn tính chung theo tài khoản, không đặt lại khi tạo chat mới.
+
+API `POST /api/v1/assistant` nhận thêm `conversation_id` và trả lại ID này. Client nên luôn gửi ID để các tab độc lập; bỏ ID thì dùng chat đang chọn trong phiên hoặc chat gần nhất (tương thích client cũ). Quản lý chat qua `GET/POST /api/v1/assistant/conversations`, đọc tin qua `GET /api/v1/assistant/conversations/<id>/messages?before=<id>` hoặc `?after=<id>`, đổi tên qua `PATCH /api/v1/assistant/conversations/<id>` với `title`, lưu trữ/khôi phục qua `POST /api/v1/assistant/conversations/<id>/archive` với `archived: true/false`. Các thao tác quản lý chat cần `X-CSRF-Token`; mọi truy cập được kiểm tra chủ sở hữu.
+
+Phân trang giảm lượng tải và bộ nhớ trang, không tự giảm dung lượng SQLite: lịch sử vẫn được giữ để mở lại. Chưa có cơ chế tự xóa tin cũ.
+
 ### Độ tin cậy của AI Agent
+
+Chat có JavaScript dùng **vòng lặp model chọn công cụ → backend kiểm tra và chạy → model đọc kết quả**. Mỗi lượt mặc định tối đa 3 lần lập kế hoạch; chỉ có các công cụ tra cứu/chuẩn bị bản nháp được cho phép. Model không được gửi SMTP, duyệt đề xuất hay ghi sự kiện/task thật. Câu trả lời cuối được ghép từ kết quả dịch vụ nghiệp vụ, không lấy phần văn bản model tự bịa làm số liệu. Model vẫn có thể chọn sai công cụ; khi thiếu dữ liệu hoặc phạm vi chưa hỗ trợ, hệ thống hỏi lại/báo giới hạn thay vì đoán.
+
+Có thể hỏi nhiều mảng trong một câu, ví dụ `Tổng đã thu và các sự kiện sắp diễn ra`; các mệnh đề nghiệp vụ rõ ràng được tra cứu riêng. Chưa hỗ trợ mọi cách diễn đạt hoặc mọi bộ lọc: task theo ưu tiên/sự kiện, tổng thu theo kỳ và tình trạng quỹ theo tháng chưa được tự đoán hoặc bỏ bộ lọc. Các yêu cầu chưa hỗ trợ được báo rõ. Nếu quyền/ban quản lý thay đổi giữa lúc model xử lý, dừng lượt đó và yêu cầu gửi lại; kết quả đã lấy bằng quyền cũ không được trả như kết quả mới.
+
+Khung **Tiến trình xử lý** nhận sự kiện trực tiếp từ `POST /ai/stream`: gọi model, chạy công cụ, kiểm tra và hoàn tất. Đây là nhật ký thao tác thực tế, **không phải suy nghĩ nội bộ của model**. Câu trả lời đã kiểm chứng được truyền theo đoạn sau khi lưu; không giả lập thời gian chờ. Nếu model lỗi, JSON không hợp lệ hoặc hết giới hạn sau khi đã tra cứu, giữ kết quả đã kiểm tra và báo lý do dừng; nếu chưa có kết quả hoặc không có key, dùng chế độ quy tắc dự phòng. Câu hỏi được lưu trước khi gọi model; nếu mạng ngắt, tải lại lịch sử và kiểm tra bản nháp trước khi gửi lại, vì ngắt trình duyệt không đảm bảo hủy tác vụ trên server.
+
+`AI_AGENT_ENABLED=false` tắt vòng lặp model, giữ tra cứu quy tắc. API JSON tương thích cũ mặc định vẫn dùng luồng cũ; thêm `"agent": true` vào `POST /api/v1/assistant` để bật Agent và bắt buộc `X-CSRF-Token` cho mọi câu hỏi. Form không JavaScript cũng dùng luồng cũ. Không cần thêm bảng database cho vòng lặp: dùng hội thoại/tin nhắn, audit và thống kê AI hiện có; tiến trình hiển thị trực tiếp, audit chỉ lưu tên bước/công cụ an toàn.
 
 Mặc định `AI_STRICT_FACTS=true`: câu hỏi tra cứu chưa được hỗ trợ không được chuyển cho model đoán dữ liệu. Có thể hỏi `Xem thông tin SV123`, `Task của SV123 đang làm là gì?` hoặc `Tóm tắt dữ liệu của tôi`; hệ thống tra cứu hồ sơ/task hiện tại theo quyền và trả ID nguồn. Câu hỏi lịch sử/ngày chưa hỗ trợ được báo rõ. Nếu đặt `AI_STRICT_FACTS=false`, phần chat sinh tự do được đánh dấu `unverified_draft` và không có cam kết đúng/lặp lại; bản nháp email/sự kiện vẫn cần duyệt trong cả hai chế độ.
 
@@ -101,6 +150,8 @@ Sao chép `.env.example` thành `.env` và chỉnh các giá trị cần thiết
 | `AI_API_KEY`, `AI_MODEL` | API key chung và tên model cho Claude Messages API khi chọn `anthropic`. |
 | `AI_MAX_CALLS_PER_MINUTE`, `AI_DAILY_TOKEN_LIMIT`, `AI_CHAT_MESSAGES_PER_MINUTE` | Giới hạn mặc định lần lượt 12 lượt model/phút, 100.000 token/24 giờ và 20 tin chat/phút cho mỗi người. |
 | `AI_STRICT_FACTS` | Mặc định `true`: câu hỏi tra cứu không được hỗ trợ nhận thông báo cố định thay vì câu trả lời model chưa kiểm chứng. |
+| `AI_AGENT_ENABLED` | Mặc định `true`: chat trực tiếp dùng vòng lặp chọn công cụ khi có provider/key. Không bỏ kiểm tra quyền hoặc bước BDH duyệt. |
+| `AI_AGENT_MAX_STEPS`, `AI_AGENT_MAX_SECONDS` | Mặc định 3 bước model và ngân sách 90 giây; bước được chặn trong khoảng 1–5. Ngân sách kiểm tra giữa các bước, không ngắt một lời gọi HTTP đang chạy; timeout/retry của provider vẫn áp dụng. |
 | `MAIL_ENABLED` | Mặc định `false`: email chỉ in ra terminal. Đặt `true` khi đã cấu hình SMTP. |
 | `MAIL_SERVER`, `MAIL_PORT`, `MAIL_USE_TLS`, `MAIL_USERNAME`, `MAIL_PASSWORD`, `MAIL_DEFAULT_SENDER` | Thông tin máy chủ gửi email. |
 
@@ -112,7 +163,7 @@ GEMINI_API_KEY=your-private-key
 GEMINI_MODEL=gemini-3.5-flash-lite
 ```
 
-Khởi động lại webapp sau khi đổi `.env`. Không có ô nhập API key riêng cho từng thành viên. Các truy vấn đã hỗ trợ trả dữ liệu trực tiếp bằng code, dù chọn provider nào. Với `gemini` hoặc `anthropic` và key hợp lệ, model soạn bản nháp có duyệt; nếu tắt `AI_STRICT_FACTS`, model cũng có thể viết chat sinh tự do được đánh dấu chưa kiểm chứng. Model nhận dữ kiện theo quyền, không được cấp công cụ tự ghi database; ngữ cảnh hội thoại chỉ gồm các tin người dùng, không lấy câu trả lời AI cũ làm bằng chứng. Danh sách sự kiện sắp tới là dữ liệu công khai trong CLB theo trang Event hiện tại; task của thành viên khác vẫn lọc theo ban của TB. Gemini dùng JSON có schema cho nháp email/đề xuất; backend kiểm tra giá trị trước khi lưu. Nếu Gemini tạm thời quá tải, ứng dụng thử lại một lần; chat mở nhận thông báo và hướng dẫn truy vấn, còn thao tác tạo đề xuất báo lỗi. Truy vấn database không phụ thuộc kết nối Gemini. Trang AI hiển thị tổng lượt gọi, token và độ trễ 24 giờ, **không tự quy đổi thành chi phí tiền**.
+Khởi động lại webapp sau khi đổi `.env`. Không có ô nhập API key riêng cho từng thành viên. Số liệu của các truy vấn đã hỗ trợ được tính trực tiếp bằng code, dù chọn provider nào. Chat Agent có thể tốn thêm lượt model để chọn công cụ; đặt `AI_AGENT_ENABLED=false` nếu cần giảm chi phí. Với `gemini` hoặc `anthropic` và key hợp lệ, model cũng có thể soạn bản nháp có duyệt; nếu tắt `AI_STRICT_FACTS`, luồng chat cũ có thể viết sinh tự do được đánh dấu chưa kiểm chứng. Model nhận dữ kiện theo quyền, không được cấp công cụ tự ghi database; ngữ cảnh hội thoại chỉ gồm các tin người dùng, không lấy câu trả lời AI cũ làm bằng chứng. Danh sách sự kiện sắp tới là dữ liệu công khai trong CLB theo trang Event hiện tại; task của thành viên khác vẫn lọc theo ban của TB. Gemini dùng JSON có schema; backend vẫn kiểm tra tên công cụ, giá trị và quyền trước khi chạy. Khi provider tạm thời quá tải, ứng dụng thử lại một lần; Agent có thể chuyển sang truy vấn quy tắc và báo rõ. Truy vấn database không phụ thuộc kết nối Gemini. Trang AI hiển thị tổng lượt gọi, token và độ trễ 24 giờ, **không tự quy đổi thành chi phí tiền**.
 
 Email duyệt/từ chối thành viên chỉ được gửi thật khi `MAIL_ENABLED=true` và cấu hình SMTP hợp lệ. Nếu SMTP chưa bật hoặc gửi lỗi, trạng thái duyệt vẫn được lưu và BDH sẽ thấy cảnh báo để thông báo thủ công; hãy xác nhận với thành viên trước khi coi thông báo là đã đến nơi. Ví dụ cấu hình:
 
@@ -153,7 +204,7 @@ Ví dụ body tạo khoản thu (gửi bằng tài khoản Chủ nhiệm hoặc 
 }
 ```
 
-API tạo/duyệt đề xuất AI yêu cầu thêm header `X-CSRF-Token` gắn với phiên đăng nhập; token có trong trường ẩn `csrf_token` của trang `/ai` dành cho BDH. API chatbot `POST /api/v1/assistant` dùng chung nghiệp vụ với chat trên trang AI: lệnh tạo nháp email/đề xuất cũng yêu cầu header CSRF; câu hỏi tra cứu không tạo dữ liệu. Form chat, duyệt/sửa/đối soát nháp email, nhượng quyền, phân vai trò, tạo/duyệt đề xuất AI và các form nghiệp vụ mới trên trang Quỹ/Sự kiện cũng có CSRF token. Hai lượt duyệt đồng thời cùng một đề xuất hoặc giao dịch chờ được chặn ở bước cập nhật trạng thái.
+API tạo/duyệt đề xuất AI yêu cầu thêm header `X-CSRF-Token` gắn với phiên đăng nhập; token có trong trường ẩn `csrf_token` của trang `/ai`. API chatbot `POST /api/v1/assistant` dùng chung nghiệp vụ với chat trên trang AI: lệnh tạo nháp email/đề xuất và câu trả lời bổ sung cho đề xuất cần header CSRF; câu hỏi tra cứu không thay đổi dữ liệu nghiệp vụ nhưng vẫn lưu tin nhắn vào lịch sử. Các API quản lý cuộc trò chuyện và form chat, duyệt/sửa/đối soát nháp email, nhượng quyền, phân vai trò, tạo/duyệt đề xuất AI và các form nghiệp vụ mới trên trang Quỹ/Sự kiện cũng có CSRF token. Hai lượt duyệt đồng thời cùng một đề xuất hoặc giao dịch chờ được chặn ở bước cập nhật trạng thái.
 
 Tệp nhập thành viên CSV/XLSX cần các cột `code,name,birth_date,email,phone,department_ids,password`. Việc nhập được hoàn tác toàn bộ nếu có dòng không hợp lệ.
 
@@ -181,6 +232,10 @@ Giờ sự kiện và hạn task trong database là giờ địa phương của 
 
 Để điện thoại quét mã QR điểm danh, mở web bằng địa chỉ mạng mà điện thoại truy cập được; QR sinh từ `127.0.0.1` sẽ chỉ hoạt động trên chính máy chạy web. Mã QR hết hạn sau 15 phút và có trang xác nhận trước khi điểm danh.
 
+### Nâng cấp lịch sử chat trên SQLite
+
+Dừng webapp rồi khởi động lại với code mới. Trước `db.create_all()`, ứng dụng tự kiểm tra database SQLite và tạo bản sao lưu riêng `.bak-chat-...` (quyền `0600`) nếu cần nâng cấp. Migration thêm `chat_conversation`, `conversation_pending`, cột `chat_message.conversation_id` và các index; giữ nguyên ID, nội dung, thời gian của tin nhắn cũ, gom chúng thành **Lịch sử trước nâng cấp** cho từng tài khoản. Trạng thái đang hỏi bổ sung cũ được chuyển một lần; không khôi phục lại yêu cầu đã hủy/hoàn tất sau khi restart. Có thể kiểm tra lại bằng `flask --app run.py migrate-chats`; chạy lại không chuyển trùng. Nếu phát hiện schema/ràng buộc không hợp lệ, nâng cấp dừng và rollback, không xóa bảng chat cũ. PostgreSQL cần migration riêng trước khi chạy phiên bản mới.
+
 ## Kiểm thử
 
 Sau khi kích hoạt môi trường ảo:
@@ -189,13 +244,13 @@ Sau khi kích hoạt môi trường ảo:
 python -m unittest discover -s tests -v
 ```
 
-Các bài test dùng database tạm, không sửa `instance/clb.db`. Hiện có kiểm thử cho phân quyền, quỹ, đăng ký/danh sách chờ/điểm danh, đề xuất AI qua form/chat, gợi ý task theo tải/kỹ năng, mail mẫu và nháp email/đối soát gửi dở, giới hạn AI, số liệu theo phạm vi quyền, CSRF, múi giờ và migration SQLite. Test tự động mô phỏng Gemini/SMTP, không gửi email thật.
+Các bài test dùng database tạm, không sửa `instance/clb.db`. Hiện có kiểm thử cho phân quyền, quỹ, đăng ký/danh sách chờ/điểm danh, đề xuất AI qua form/chat, gợi ý task theo tải/kỹ năng, mail mẫu và nháp email/đối soát gửi dở, giới hạn AI, số liệu theo phạm vi quyền, CSRF, múi giờ và migration SQLite. `tests/test_agent_orchestrator.py` thêm vòng lặp công cụ, phản hồi nhiều bước, chặn JSON/công cụ không hợp lệ, bộ lọc không được bỏ, giới hạn bước/thời gian, đổi quyền giữa lượt, bản nháp chưa thực thi và lưu tin trước/sau luồng SSE. Test tự động mô phỏng Gemini/SMTP, không gửi email thật; không chứng minh chất lượng mọi quyết định của model thật hoặc khả năng gửi mail trên máy triển khai.
 
 ## Cấu trúc dự án
 
 ```text
 .
-├── run.py                 # Chạy ứng dụng; CLI init-db, create-cn, migrate-money, migrate-email-recipients
+├── run.py                 # Chạy ứng dụng; CLI init-db, create-cn, migrate-money, migrate-email-recipients, migrate-chats
 ├── app/
 │   ├── __init__.py        # App factory, blueprint và database
 │   ├── config.py          # Cấu hình từ biến môi trường

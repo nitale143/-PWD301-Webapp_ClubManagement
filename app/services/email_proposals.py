@@ -197,10 +197,10 @@ def _validate_address(value):
     return address
 
 
-def _draft_text(display_name, purpose):
+def _draft_text(display_name, purpose, provider=None):
     subject = "Thông báo từ CLB"
     body = f"Chào {display_name},\n\n{purpose}\n\nTrân trọng,\nBan điều hành CLB"
-    provider = get_provider()
+    provider = provider if provider is not None else get_provider()
     if isinstance(provider, AnthropicProvider):
         try:
             response = provider.complete(
@@ -234,7 +234,7 @@ def _draft_text(display_name, purpose):
     return subject, body, provider_name
 
 
-def maybe_create_email_draft(actor, message):
+def maybe_create_email_draft(actor, message, provider=None):
     parsed = _split_command(message)
     if parsed is None and not _is_template_request(message):
         return None
@@ -267,7 +267,7 @@ def maybe_create_email_draft(actor, message):
                 f"Hãy nhập mục đích, ví dụ: Gửi mail {address}: liên hệ về hoạt động CLB."}
     if not 3 <= len(purpose) <= 1000:
         raise DomainError("Nội dung yêu cầu email phải từ 3 đến 1000 ký tự.")
-    subject, body, provider = _draft_text(display_name, purpose)
+    subject, body, provider = _draft_text(display_name, purpose, provider=provider)
     draft = EmailProposal(recipient_id=member.id if member else None, recipient_email=address,
                           request_text=purpose, subject=subject, body=body,
                           status="pending", created_by_id=actor.id)

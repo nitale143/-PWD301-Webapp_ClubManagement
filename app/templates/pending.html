@@ -1,9 +1,29 @@
 {% extends "base.html" %}
-{% block title %}Cho duyet{% endblock %}
+{% from "_ui.html" import icon, badge %}
+{% block title %}Chờ xét duyệt{% endblock %}
 {% block content %}
-<div class="auth-box">
-    <h1>Tai khoan dang cho xet duyet</h1>
-    <p>Cam on ban da dang ky. Ban dieu hanh (BDH) se xet duyet thong tin cua ban trong thoi gian som nhat.</p>
-    <a href="{{ url_for('auth.logout') }}">Dang xuat</a>
+<div class="auth-layout preview-auth preview-pending">
+    <section class="auth-art">
+        <div class="auth-art-mark">{{ icon('clock') }}</div>
+        <p class="eyebrow">BƯỚC TIẾP THEO</p>
+        <h1>Ban Điều hành sẽ xem xét thông tin của bạn.</h1>
+        <p>Đơn đăng ký đã được nhận. Bạn sẽ truy cập workspace sau khi hồ sơ được duyệt.</p>
+    </section>
+    <section class="auth-card card">
+        <div class="card-body page-stack">
+            <div class="preview-pending-icon">{{ icon('clock') }}</div>
+            <p class="eyebrow">HỒ SƠ · FIA</p>
+            <h1>Tài khoản đang chờ xét duyệt</h1>
+            <p class="muted">Cảm ơn bạn đã đăng ký. Ban Điều hành sẽ xem xét thông tin của bạn trong thời gian sớm nhất.</p>
+            <div class="card preview-timeline">
+                <div class="card-body">
+                    <div class="list-item">{{ badge('Đã nhận', 'success') }}<span>Thông tin đăng ký đã được gửi</span></div>
+                    <div class="list-item">{{ badge('Đang chờ', 'warning') }}<span>Ban Điều hành xem xét hồ sơ</span></div>
+                    <div class="list-item">{{ badge('Tiếp theo', 'neutral') }}<span>Thông báo kết quả xét duyệt</span></div>
+                </div>
+            </div>
+            <div class="pending-actions"><a class="btn btn-secondary" href="{{ url_for('auth.logout') }}">{{ icon('logout') }} Đăng xuất</a></div>
+        </div>
+    </section>
 </div>
 {% endblock %}

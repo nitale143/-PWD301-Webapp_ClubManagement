@@ -216,6 +216,32 @@ class ChatMessage(db.Model):
     role = db.Column(db.String(10), nullable=False)  # 'user' | 'ai'
     content = db.Column(db.Text, nullable=False)
     thoi_gian = db.Column(db.DateTime, default=datetime.utcnow)
+    conversation_id = db.Column(db.Integer, db.ForeignKey("chat_conversation.id"), nullable=True)
+
+    __table_args__ = (
+        db.Index("ix_chat_message_conversation_id_id", "conversation_id", "id"),
+    )
+
+
+class ChatConversation(db.Model):
+    """A bounded, user-owned tab in the AI chat history."""
+
+    __tablename__ = "chat_conversation"
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
+    title = db.Column(db.String(100), nullable=False, default="Cuộc trò chuyện mới",
+                      server_default="Cuộc trò chuyện mới")
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                            onupdate=datetime.utcnow)
+    archived = db.Column(db.Boolean, nullable=False, default=False, server_default=db.false())
+    legacy_marker = db.Column(db.String(16), nullable=True)
+
+    __table_args__ = (
+        db.UniqueConstraint("user_id", "legacy_marker", name="uq_chat_conversation_legacy"),
+        db.Index("ix_chat_conversation_owner_archived_updated",
+                 "user_id", "archived", "updated_at", "id"),
+    )
 
 
 class Notification(db.Model):
@@ -494,6 +520,18 @@ class AssistantPending(db.Model):
 
     __tablename__ = "assistant_pending"
     user_id = db.Column(db.Integer, db.ForeignKey("user.id"), primary_key=True)
+    kind = db.Column(db.String(10), nullable=False)
+    text = db.Column(db.Text, nullable=False)
+    updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,
+                           onupdate=datetime.utcnow)
+
+
+class ConversationPending(db.Model):
+    """A pending clarification scoped to one conversation tab."""
+
+    __tablename__ = "conversation_pending"
+    conversation_id = db.Column(db.Integer, db.ForeignKey("chat_conversation.id"), primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey("user.id"), nullable=False)
     kind = db.Column(db.String(10), nullable=False)
     text = db.Column(db.Text, nullable=False)
     updated_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow,

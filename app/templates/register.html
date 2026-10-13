@@ -1,47 +1,74 @@
 {% extends "base.html" %}
-{% block title %}Dang ky thanh vien{% endblock %}
+{% from "_ui.html" import icon, badge %}
+{% set selected_bans = form.getlist('ban_hoat_dong') if form.getlist is defined else form.get('ban_hoat_dong', []) %}
+{% block title %}Đăng ký thành viên{% endblock %}
 {% block content %}
-<div class="auth-box wide">
-    <h1>Dang ky thanh vien moi</h1>
-    <form method="post">
-        <label>Ho va Ten</label>
-        <input type="text" name="ho_ten" value="{{ form.get('ho_ten','') }}" required>
-        {% if errors.ho_ten %}<p class="field-error">{{ errors.ho_ten }}</p>{% endif %}
-
-        <label>MSSV</label>
-        <input type="text" name="mssv" value="{{ form.get('mssv','') }}" required>
-        {% if errors.mssv %}<p class="field-error">{{ errors.mssv }}</p>{% endif %}
-
-        <label>Ngay sinh</label>
-        <input type="date" name="ngay_sinh" value="{{ form.get('ngay_sinh','') }}" required>
-        {% if errors.ngay_sinh %}<p class="field-error">{{ errors.ngay_sinh }}</p>{% endif %}
-
-        <label>Ban hoat dong (co the chon nhieu)</label>
-        <select name="ban_hoat_dong" multiple required>
-            {% for ban in bans %}
-            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
-            {% endfor %}
-        </select>
-        {% if errors.ban_hoat_dong %}<p class="field-error">{{ errors.ban_hoat_dong }}</p>{% endif %}
-
-        <label>So dien thoai</label>
-        <input type="text" name="sdt" value="{{ form.get('sdt','') }}" required>
-        {% if errors.sdt %}<p class="field-error">{{ errors.sdt }}</p>{% endif %}
-
-        <label>Email</label>
-        <input type="email" name="email" value="{{ form.get('email','') }}" required>
-        {% if errors.email %}<p class="field-error">{{ errors.email }}</p>{% endif %}
-
-        <label>Link Facebook</label>
-        <input type="text" name="facebook_link" value="{{ form.get('facebook_link','') }}" placeholder="https://facebook.com/..." required>
-        {% if errors.facebook_link %}<p class="field-error">{{ errors.facebook_link }}</p>{% endif %}
-
-        <label>Mat khau</label>
-        <input type="password" name="password" required>
-        {% if errors.password %}<p class="field-error">{{ errors.password }}</p>{% endif %}
-
-        <button type="submit">Dang ky</button>
-    </form>
-    <p class="muted">Da co tai khoan? <a href="{{ url_for('auth.login') }}">Dang nhap</a></p>
+<div class="auth-layout preview-auth preview-register">
+    <section class="auth-art">
+        <div class="auth-art-mark">{{ icon('users') }}</div>
+        <p class="eyebrow">THAM GIA FIA</p>
+        <h1>Góp sức trong một đội ngũ nhiều màu sắc.</h1>
+        <p>Gửi thông tin của bạn để Ban Điều hành xem xét đăng ký thành viên.</p>
+        <div class="auth-art-quote">“Cùng học hỏi, cùng làm nên những dự án có ích.”</div>
+    </section>
+    <section class="auth-card card">
+        <div class="card-body">
+            <p class="eyebrow">TẠO TÀI KHOẢN</p>
+            <h1>Đăng ký thành viên</h1>
+            <p class="muted">Điền thông tin để gửi đơn đăng ký vào FIA.</p>
+            {{ badge('Ban Điều hành sẽ xem xét hồ sơ', 'neutral') }}
+            <form method="post" action="{{ url_for('auth.register') }}" class="page-stack" autocomplete="on">
+                <div class="form-grid">
+                    <div class="field">
+                        <label class="field-label" for="register-ho-ten">Họ và tên</label>
+                        <input class="input" id="register-ho-ten" type="text" name="ho_ten" value="{{ form.get('ho_ten', '') }}" required maxlength="100" autocomplete="name" placeholder="Nguyễn Văn A">
+                        {% if errors.ho_ten %}<p class="field-error" role="alert">{{ errors.ho_ten }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="register-mssv">MSSV</label>
+                        <input class="input" id="register-mssv" type="text" name="mssv" value="{{ form.get('mssv', '') }}" required maxlength="15" autocomplete="username" placeholder="22110018">
+                        {% if errors.mssv %}<p class="field-error" role="alert">{{ errors.mssv }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="register-ngay-sinh">Ngày sinh</label>
+                        <input class="input" id="register-ngay-sinh" type="date" name="ngay_sinh" value="{{ form.get('ngay_sinh', '') }}" required autocomplete="bday">
+                        {% if errors.ngay_sinh %}<p class="field-error" role="alert">{{ errors.ngay_sinh }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="register-sdt">Số điện thoại</label>
+                        <input class="input" id="register-sdt" type="tel" name="sdt" value="{{ form.get('sdt', '') }}" required maxlength="15" autocomplete="tel" placeholder="09xx xxx xxx">
+                        {% if errors.sdt %}<p class="field-error" role="alert">{{ errors.sdt }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="register-email">Email</label>
+                        <input class="input" id="register-email" type="email" name="email" value="{{ form.get('email', '') }}" required maxlength="120" autocomplete="email" placeholder="ban@example.com">
+                        {% if errors.email %}<p class="field-error" role="alert">{{ errors.email }}</p>{% endif %}
+                    </div>
+                    <div class="field">
+                        <label class="field-label" for="register-facebook">Link Facebook</label>
+                        <input class="input" id="register-facebook" type="url" name="facebook_link" value="{{ form.get('facebook_link', '') }}" required maxlength="255" placeholder="https://facebook.com/…">
+                        {% if errors.facebook_link %}<p class="field-error" role="alert">{{ errors.facebook_link }}</p>{% endif %}
+                    </div>
+                </div>
+                <div class="field">
+                    <label class="field-label" for="register-ban">Ban hoạt động</label>
+                    <select class="select register-ban-select" id="register-ban" name="ban_hoat_dong" multiple required size="3" aria-describedby="register-ban-help{% if errors.ban_hoat_dong %} register-ban-error{% endif %}">
+                        {% for ban in bans %}
+                        <option value="{{ ban.id }}"{% if ban.id|string in selected_bans %} selected{% endif %}>{{ ban.ten_ban }}</option>
+                        {% endfor %}
+                    </select>
+                    <span class="field-help" id="register-ban-help">Có thể chọn nhiều ban. Giữ Ctrl (Windows) hoặc Command (Mac) khi chọn.</span>
+                    {% if errors.ban_hoat_dong %}<p class="field-error" id="register-ban-error" role="alert">{{ errors.ban_hoat_dong }}</p>{% endif %}
+                </div>
+                <div class="field">
+                    <label class="field-label" for="register-password">Mật khẩu</label>
+                    <input class="input" id="register-password" type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="Tối thiểu 6 ký tự">
+                    {% if errors.password %}<p class="field-error" role="alert">{{ errors.password }}</p>{% endif %}
+                </div>
+                <button class="btn btn-primary" type="submit">Gửi đăng ký {{ icon('arrow') }}</button>
+            </form>
+            <p class="auth-switch muted">Đã có tài khoản? <a href="{{ url_for('auth.login') }}">Đăng nhập</a></p>
+        </div>
+    </section>
 </div>
 {% endblock %}

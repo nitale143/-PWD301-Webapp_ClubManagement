@@ -1,0 +1,9 @@
+{% extends "base.html" %}
+{% block title %}Cho duyet{% endblock %}
+{% block content %}
+<div class="auth-box">
+    <h1>Tai khoan dang cho xet duyet</h1>
+    <p>Cam on ban da dang ky. Ban dieu hanh (BDH) se xet duyet thong tin cua ban trong thoi gian som nhat.</p>
+    <a href="{{ url_for('auth.logout') }}">Dang xuat</a>
+</div>
+{% endblock %}

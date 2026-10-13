@@ -1,33 +1,77 @@
 {% extends "base.html" %}
-{% block title %}Duyet thanh vien{% endblock %}
-{% block content %}
-<div class="page-header">
-    <h1>Duyet thanh vien moi</h1>
-    <a class="btn-secondary" href="{{ url_for('admin.role_list') }}">Quan ly chuc vu</a>
-</div>
+{% from "_ui.html" import icon, badge, avatar, stat %}
+{% block title %}{{ workspace_title }}{% endblock %}
 
-<table class="data-table">
-    <thead><tr><th>Ho ten</th><th>MSSV</th><th>Ngay sinh</th><th>SDT</th><th>Email</th><th>Facebook</th><th>Hanh dong</th></tr></thead>
-    <tbody>
-    {% for u in pending_users %}
-        <tr>
-            <td>{{ u.ho_ten }}</td>
-            <td>{{ u.mssv }}</td>
-            <td>{{ u.ngay_sinh.strftime('%d/%m/%Y') }}</td>
-            <td>{{ u.sdt }}</td>
-            <td>{{ u.email }}</td>
-            <td><a href="{{ u.facebook_link }}" target="_blank">Link</a></td>
-            <td>
-                <form method="post" action="{{ url_for('admin.approve_user', user_id=u.id) }}" class="inline-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                    <button type="submit" name="action" value="accept">Duyet</button>
-                    <button type="submit" name="action" value="reject" class="btn-danger">Tu choi</button>
-                </form>
-            </td>
-        </tr>
+{% block content %}
+{% set facebook_count = pending_users|selectattr('facebook_link')|list|length %}
+{% set oldest = namespace(created_at=none) %}
+{% for applicant in pending_users %}
+    {% if applicant.ngay_tao and (oldest.created_at is none or applicant.ngay_tao < oldest.created_at) %}
+        {% set oldest.created_at = applicant.ngay_tao %}
+    {% endif %}
+{% endfor %}
+{% set waiting_days = (workspace_today.date() - oldest.created_at.date()).days if oldest.created_at else none %}
+
+<div class="page-stack parity-finance parity-approvals" data-finance-parity>
+    <div class="row preview-page-heading">
+        <div class="grow"><p class="eyebrow">BAN ĐIỀU HÀNH · THÀNH VIÊN</p></div>
+        <div class="toolbar-right"><a class="btn btn-secondary" href="{{ url_for('admin.role_list') }}">{{ icon('users') }} Quản lý chức vụ</a></div>
+    </div>
+
+    <div class="grid-12 parity-approval-stats">
+        <div class="span-4">{{ stat('Đơn đang chờ', pending_users|length, 'users', 'Trong phạm vi bạn quản lý', 'green') }}</div>
+        <div class="span-4">{{ stat('Hồ sơ chờ lâu nhất', (waiting_days ~ ' ngày') if waiting_days is not none else '—', 'clock', 'Tính từ ngày đăng ký', 'green') }}</div>
+        <div class="span-4">{{ stat('Có liên kết Facebook', facebook_count ~ ' / ' ~ (pending_users|length), 'file', 'Trong các đơn đang chờ', 'green') }}</div>
+    </div>
+
+    <div class="row preview-status-note"><span class="muted small">{{ icon('shield') }} Duyệt hoặc từ chối sẽ cập nhật trạng thái tài khoản và thử gửi email thông báo đến thành viên.</span></div>
+
+    {% if pending_users %}
+    <div class="grid-12">
+        {% for u in pending_users %}
+        {% set applicant_teams = u.ban_links|map(attribute='ban.ten_ban')|join(', ') %}
+        <article class="span-6 card member-review-card">
+            <div class="card-header">
+                <div class="row">{{ avatar(u.ho_ten) }}<div><h2>{{ u.ho_ten }}</h2><p class="small muted">MSSV {{ u.mssv }}{% if u.ngay_tao %} · Nộp {{ u.ngay_tao.strftime('%d/%m/%Y') }}{% endif %}</p></div></div>
+                {{ badge('Chờ duyệt', 'warning') }}
+            </div>
+            <div class="card-body">
+                <dl class="preview-member-details">
+                    <div><dt>Ngày sinh</dt><dd>{{ u.ngay_sinh.strftime('%d/%m/%Y') if u.ngay_sinh else '—' }}</dd></div>
+                    <div><dt>Số điện thoại</dt><dd>{{ u.sdt or '—' }}</dd></div>
+                    <div><dt>Email</dt><dd>{{ u.email or '—' }}</dd></div>
+                    <div><dt>Ban đăng ký</dt><dd>{{ applicant_teams or 'Chưa chọn ban' }}</dd></div>
+                    <div class="full"><dt>Facebook</dt><dd>{% if u.facebook_link %}<a href="{{ u.facebook_link }}" target="_blank" rel="noopener noreferrer">{{ u.facebook_link }}</a>{% else %}Chưa cung cấp{% endif %}</dd></div>
+                </dl>
+                <div class="toolbar">
+                    <button class="btn btn-primary" type="button" data-dialog-open="approval-accept-{{ u.id }}">{{ icon('check') }} Duyệt</button>
+                    <button class="btn btn-danger" type="button" data-dialog-open="approval-reject-{{ u.id }}">{{ icon('close') }} Từ chối</button>
+                </div>
+            </div>
+        </article>
+
+        <dialog class="dialog parity-finance-dialog" id="approval-accept-{{ u.id }}" aria-labelledby="approval-accept-title-{{ u.id }}">
+            <div class="dialog-heading"><div><p class="eyebrow">XÁC NHẬN QUYẾT ĐỊNH</p><h2 id="approval-accept-title-{{ u.id }}">Duyệt {{ u.ho_ten }}?</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+            <form method="post" action="{{ url_for('admin.approve_user', user_id=u.id) }}" class="dialog-body page-stack">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="accept">
+                <p>Xác nhận duyệt hồ sơ của <strong>{{ u.ho_ten }}</strong> (MSSV {{ u.mssv }}). Sau khi lưu, hệ thống sẽ thử gửi email thông báo đến {{ u.email }}.</p>
+                <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">{{ icon('check') }} Duyệt và gửi thông báo</button></div>
+            </form>
+        </dialog>
+        <dialog class="dialog parity-finance-dialog" id="approval-reject-{{ u.id }}" aria-labelledby="approval-reject-title-{{ u.id }}">
+            <div class="dialog-heading"><div><p class="eyebrow">XÁC NHẬN QUYẾT ĐỊNH</p><h2 id="approval-reject-title-{{ u.id }}">Từ chối {{ u.ho_ten }}?</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
+            <form method="post" action="{{ url_for('admin.approve_user', user_id=u.id) }}" class="dialog-body page-stack">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <input type="hidden" name="action" value="reject">
+                <p>Xác nhận từ chối hồ sơ của <strong>{{ u.ho_ten }}</strong> (MSSV {{ u.mssv }}). Sau khi lưu, hệ thống sẽ thử gửi email thông báo đến {{ u.email }}.</p>
+                <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Quay lại</button><button class="btn btn-danger" type="submit">{{ icon('close') }} Từ chối và gửi thông báo</button></div>
+            </form>
+        </dialog>
+        {% endfor %}
+    </div>
     {% else %}
-        <tr><td colspan="7" class="muted">Khong co yeu cau nao dang cho duyet.</td></tr>
-    {% endfor %}
-    </tbody>
-</table>
+    <div class="card empty-state">{{ icon('check') }}<strong>Không còn đơn chờ duyệt</strong><span class="muted">Các hồ sơ mới sẽ xuất hiện tại đây.</span></div>
+    {% endif %}
+</div>
 {% endblock %}

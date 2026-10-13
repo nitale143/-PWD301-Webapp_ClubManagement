@@ -1,138 +1,146 @@
 {% extends "base.html" %}
+{% from "_ui.html" import icon, badge, avatar, stat %}
 {% block title %}{{ event.ten_su_kien }}{% endblock %}
 {% block content %}
-<div class="page-header">
-    <div>
-        <h1>{{ event.ten_su_kien }} <span class="tag">{{ event.ma_su_kien }}</span></h1>
-        <p class="muted">{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }} &middot; Trang thai: <span class="status-badge status-{{ event.trang_thai }}">{{ event.trang_thai }}</span></p>
+{% set event_status_labels = {'sap_dien_ra': 'Sắp diễn ra', 'dang_dien_ra': 'Đang diễn ra', 'da_ket_thuc': 'Đã kết thúc'} %}
+{% set accent = ['indigo', 'orange', 'violet', 'teal'][event.id % 4] %}
+{% set registered_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length %}
+{% set waitlist_count = registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length %}
+{% set attended_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|selectattr('attendance.trang_thai', 'in', ['on_time', 'late'])|list|length %}
+{% set capacity = detail.so_nguoi_toi_da if detail and detail.so_nguoi_toi_da else none %}
+{% set event_tab = request.args.get('tab', 'attendance') %}
+{% if event_tab not in ['attendance', 'tasks', 'details'] %}{% set event_tab = 'attendance' %}{% endif %}
+<div class="page-stack ops-preview ops-event-detail">
+    <div class="toolbar detail-back-toolbar">
+        <div class="toolbar-left"><a class="btn btn-ghost btn-sm" href="{{ url_for('event.event_list') }}">{{ icon('arrow') }} Tất cả sự kiện</a><span class="muted small">/ {{ event.ma_su_kien }}</span></div>
+        <div class="toolbar-right">{% if is_bdh and event.trang_thai != 'da_ket_thuc' %}<form method="post" action="{{ url_for('event.event_end', event_id=event.id) }}" onsubmit="return confirm('Đánh dấu sự kiện đã kết thúc? Tình trạng hoạt động liên quan sẽ được cập nhật.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-secondary btn-sm">{{ icon('check') }} Kết thúc sự kiện</button></form>{% endif %}</div>
     </div>
-    {% if is_bdh and event.trang_thai != 'da_ket_thuc' %}
-    <form method="post" action="{{ url_for('event.event_end', event_id=event.id) }}"
-          onsubmit="return confirm('Danh dau su kien da ket thuc? Tinh trang hoat dong lien quan se duoc cap nhat lai.');">
-        <button type="submit" class="btn-secondary">Ket thuc su kien</button>
-    </form>
-    {% endif %}
-</div>
 
-<div class="new-task-box">
-    <h2>Tham gia sự kiện</h2>
-    {% if detail %}<p class="muted small">{{ detail.dia_diem }}{% if detail.so_nguoi_toi_da %} · Tối đa {{ detail.so_nguoi_toi_da }} người{% endif %}{% if detail.han_dang_ky %} · Hạn đăng ký {{ detail.han_dang_ky.strftime('%d/%m/%Y %H:%M') }}{% endif %}</p>{% endif %}
-    <p class="small">Đã đăng ký: {{ registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length }} · Chờ: {{ registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length }}</p>
-    {% if registration and registration.trang_thai != 'cancelled' %}
-        <p>Trạng thái của bạn: <strong>{{ registration.trang_thai }}</strong>{% if registration.attendance %} · Điểm danh: {{ registration.attendance.trang_thai }}{% endif %}</p>
-        {% if event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
-        <form method="post" action="{{ url_for('event.event_cancel_registration', event_id=event.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit" class="btn-secondary">Hủy đăng ký</button>
-        </form>
-        {% endif %}
-    {% elif can_register %}
-        <form method="post" action="{{ url_for('event.event_register', event_id=event.id) }}">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <button type="submit">Đăng ký tham gia</button>
-        </form>
-    {% endif %}
-    {% if registration and registration.trang_thai == 'registered' and event.trang_thai == 'da_ket_thuc' %}
-    <form method="post" action="{{ url_for('event.event_feedback', event_id=event.id) }}">
-        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-        <label>Đánh giá sự kiện</label><select name="rating">{% for score in range(5, 0, -1) %}<option value="{{ score }}" {% if prior_feedback and prior_feedback.danh_gia == score %}selected{% endif %}>{{ score }} sao</option>{% endfor %}</select>
-        <label>Nhận xét</label><textarea name="comment">{{ prior_feedback.binh_luan if prior_feedback else '' }}</textarea>
-        <button type="submit">Lưu đánh giá</button>
-    </form>
-    {% endif %}
-</div>
-
-{% if is_board %}
-<details class="new-task-box">
-    <summary>Điểm danh sự kiện</summary>
-    <p class="muted small">Mã QR hết hạn sau 15 phút; tải lại trang để lấy mã mới.</p>
-    <img src="{{ url_for('api.event_qr_png', event_id=event.id) }}" alt="Mã QR điểm danh" width="180" height="180">
-    <table class="data-table">
-        <thead><tr><th>Thành viên</th><th>Đăng ký</th><th>Điểm danh</th><th>Cập nhật</th></tr></thead>
-        <tbody>{% for item in registrations if item.trang_thai == 'registered' %}
-        <tr><td>{{ item.user.ho_ten }}</td><td>{{ item.trang_thai }}</td><td>{{ item.attendance.trang_thai if item.attendance else 'pending' }}</td>
-            <td><form method="post" action="{{ url_for('event.event_manual_attendance', event_id=event.id, registration_id=item.id) }}" class="inline-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <select name="status"><option value="on_time">Có mặt</option><option value="late">Đi muộn</option><option value="excused">Có phép</option><option value="absent">Vắng</option></select>
-                <input name="note" placeholder="Ghi chú"><button type="submit">Lưu</button>
-            </form></td></tr>{% endfor %}</tbody>
-    </table>
-</details>
-{% endif %}
-
-{% if is_bdh %}
-<details class="new-task-box">
-    <summary>+ Them task con</summary>
-    <form method="post" action="{{ url_for('event.task_new', event_id=event.id) }}">
-        <label>Ten task</label>
-        <input type="text" name="ten_task" required>
-        <label>Mo ta</label>
-        <textarea name="mo_ta"></textarea>
-        <label>Deadline</label>
-        <input type="datetime-local" name="deadline" required>
-        <label>Ban phu trach task nay</label>
-        <select name="ban_id" required>
-            {% for ban in bans %}
-            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
-            {% endfor %}
-        </select>
-        <label>MSSV nguoi phu trach (bat buoc)</label>
-        <input type="text" name="assignee_mssv" required>
-        <button type="submit">Them task</button>
-    </form>
-</details>
-{% endif %}
-
-<div class="task-list">
-    {% for task in event.tasks %}
-    <details class="task-card">
-        <summary>
-            <strong>{{ task.ten_task }}</strong>
-            {% if task.ban %}<span class="tag">{{ task.ban.ten_ban }}</span>{% endif %}
-            <span class="status-badge status-{{ task.trang_thai }}">{{ task.trang_thai }}</span>
-            &middot; Han: {{ task.deadline.strftime('%d/%m/%Y %H:%M') }}
-        </summary>
-
-        <p>{{ task.mo_ta }}</p>
-        <p><strong>Nguoi phu trach:</strong> {{ task.assignee.ho_ten }} ({{ task.assignee.mssv }}, {{ task.assignee.sdt }})</p>
-
-        {% if is_bdh %}
-        <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form">
-            <input type="text" name="assignee_mssv" placeholder="MSSV nguoi phu trach moi">
-            <button type="submit">Chi dinh lai</button>
-        </form>
-        {% endif %}
-
-        <div class="submission-box">
-            <h4>San pham / nhan xet</h4>
-            {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] %}
-            <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}">
-                <textarea name="noi_dung_nop" placeholder="Dan link hoac mo ta san pham...">{{ task.noi_dung_nop or '' }}</textarea>
-                <button type="submit">Nop san pham</button>
-            </form>
-            {% elif task.noi_dung_nop %}
-            <p class="small">{{ task.noi_dung_nop }}</p>
-            {% endif %}
-
-            {% if task.nhan_xet_bdh %}
-            <p class="small"><strong>Nhan xet BDH:</strong> {{ task.nhan_xet_bdh }}</p>
-            {% endif %}
-
-            {% if is_bdh and task.trang_thai == 'cho_duyet' %}
-            <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form">
-                <select name="trang_thai">
-                    <option value="hoan_thanh">Hoan thanh</option>
-                    <option value="lam_lai">Yeu cau lam lai</option>
-                    <option value="huy">Huy</option>
-                </select>
-                <input type="text" name="nhan_xet_bdh" placeholder="Nhan xet (bat buoc neu lam lai)">
-                <button type="submit">Cap nhat</button>
-            </form>
-            {% endif %}
+    <section class="event-detail-hero cover-{{ accent }}">
+        <div class="event-detail-copy">
+            <span class="eyebrow">{{ (detail.loai if detail and detail.loai else 'Sự kiện FIA')|upper }} · {{ event.ma_su_kien }}</span>
+            <h2>{{ event.ten_su_kien }}</h2>
+            <p class="detail-meta-line">{{ icon('calendar') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }} <span>·</span> {{ icon('location') }} {{ detail.dia_diem if detail and detail.dia_diem else 'Chưa cập nhật địa điểm' }}</p>
+            {% if detail and detail.loai == 'ctftime' and event.ma_su_kien.startswith('CTF-') %}<p class="small"><a class="event-source-link" href="https://ctftime.org/event/{{ event.ma_su_kien[4:] }}/" target="_blank" rel="noopener noreferrer">Nguồn: CTFtime ↗</a></p>{% endif %}
+            <div class="toolbar"><div class="toolbar-left">{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge(event_status_labels.get(event.trang_thai, event.trang_thai), 'neutral') }}{% endif %}{{ badge(registered_count|string ~ ' đăng ký' ~ (' · ' ~ waitlist_count|string ~ ' chờ' if waitlist_count else '') ~ (' / ' ~ capacity|string ~ ' chỗ' if capacity else ''), 'neutral') }}</div></div>
         </div>
-    </details>
-    {% else %}
-    <p class="muted">Chua co task nao trong su kien nay.</p>
-    {% endfor %}
+        <div class="event-detail-art" aria-hidden="true">{{ icon('calendar') }}</div>
+    </section>
+
+    <section class="card rsvp-card">
+        <div class="card-body toolbar">
+            <div class="toolbar-left"><div class="rsvp-symbol">{{ icon('check') }}</div><div>
+                {% if registration and registration.trang_thai != 'cancelled' %}
+                <strong>Trạng thái đăng ký của bạn</strong><p class="small muted">{{ 'Đã đăng ký' if registration.trang_thai == 'registered' else 'Đang trong danh sách chờ' }}{% if registration.attendance %} · Điểm danh: {{ registration.attendance.trang_thai }}{% endif %}</p>
+                {% elif can_register %}<strong>Cùng tham gia sự kiện nhé?</strong><p class="small muted">Đăng ký để lưu trạng thái tham gia của bạn.</p>
+                {% else %}<strong>Hiện không nhận đăng ký</strong><p class="small muted">Thời gian hoặc điều kiện đăng ký không còn phù hợp.</p>{% endif %}
+            </div></div>
+            <div class="toolbar-right">
+                {% if registration and registration.trang_thai != 'cancelled' and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
+                <form method="post" action="{{ url_for('event.event_cancel_registration', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-secondary">Hủy đăng ký</button></form>
+                {% elif can_register %}
+                <form method="post" action="{{ url_for('event.event_register', event_id=event.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-primary">Đăng ký tham gia</button></form>
+                {% endif %}
+            </div>
+        </div>
+        {% if registration and registration.trang_thai == 'registered' and event.trang_thai == 'da_ket_thuc' %}
+        <div class="card-body rsvp-feedback">
+            <form method="post" action="{{ url_for('event.event_feedback', event_id=event.id) }}" class="form-grid">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="field"><span class="field-label">Đánh giá sự kiện</span><select class="select" name="rating">{% for score in range(5, 0, -1) %}<option value="{{ score }}" {% if prior_feedback and prior_feedback.danh_gia == score %}selected{% endif %}>{{ score }} sao</option>{% endfor %}</select></label>
+                <label class="field"><span class="field-label">Nhận xét</span><textarea class="textarea" name="comment" maxlength="2000">{{ prior_feedback.binh_luan if prior_feedback else '' }}</textarea></label>
+                <button type="submit" class="btn btn-secondary">Lưu đánh giá</button>
+            </form>
+        </div>
+        {% endif %}
+    </section>
+
+    <div class="tabs" role="tablist" aria-label="Thông tin sự kiện">
+        <button id="event-tab-attendance" type="button" role="tab" data-event-tab="attendance" aria-controls="event-panel-attendance" aria-selected="{{ 'true' if event_tab == 'attendance' else 'false' }}" class="{{ 'active' if event_tab == 'attendance' else '' }}">{{ icon('users') }} Người tham gia <span>{{ registered_count }}</span></button>
+        <button id="event-tab-tasks" type="button" role="tab" data-event-tab="tasks" aria-controls="event-panel-tasks" aria-selected="{{ 'true' if event_tab == 'tasks' else 'false' }}" class="{{ 'active' if event_tab == 'tasks' else '' }}">{{ icon('check') }} Nhiệm vụ <span>{{ event.tasks|length }}</span></button>
+        <button id="event-tab-details" type="button" role="tab" data-event-tab="details" aria-controls="event-panel-details" aria-selected="{{ 'true' if event_tab == 'details' else 'false' }}" class="{{ 'active' if event_tab == 'details' else '' }}">{{ icon('file') }} Chi tiết</button>
+    </div>
+
+    <section class="page-stack detail-panel event-tab-panel" id="event-panel-attendance" role="tabpanel" data-event-panel="attendance" aria-labelledby="event-tab-attendance" {% if event_tab != 'attendance' %}hidden{% endif %}>
+        <div class="grid-12 detail-stats">
+            <div class="span-4">{{ stat('Đã đăng ký', registered_count, 'users', '', 'indigo') }}</div>
+            <div class="span-4">{{ stat('Đã điểm danh', attended_count, 'check', '', 'green') }}</div>
+            <div class="span-4">{{ stat('Chỗ còn lại', (capacity - registered_count) if capacity else 'Chưa xác nhận', 'calendar', '', 'orange') }}</div>
+        </div>
+        {% if is_board %}
+        <section class="card">
+            <div class="card-header"><div><h3>Điểm danh sự kiện</h3><p class="small muted">Mã QR có hiệu lực trong 15 phút; tải lại trang để lấy mã mới.</p></div></div>
+            <div class="card-body event-checkin-qr"><img src="{{ url_for('api.event_qr_png', event_id=event.id) }}" alt="Mã QR điểm danh" width="180" height="180"><p class="small muted">Thành viên đã đăng ký có thể quét mã trong thời gian sự kiện.</p></div>
+            <div class="table-wrap"><table class="data-table"><thead><tr><th>Thành viên</th><th>Đăng ký</th><th>Điểm danh</th><th>Cập nhật</th></tr></thead><tbody>
+                {% for item in registrations if item.trang_thai == 'registered' %}
+                <tr><td><div class="member-cell">{{ avatar(item.user.ho_ten, 'indigo') }}<span><strong>{{ item.user.ho_ten }}</strong><span class="small muted">{{ item.user.mssv }}</span></span></div></td><td>{{ badge('Đã đăng ký', 'success') }}</td><td>{{ badge(item.attendance.trang_thai if item.attendance else 'Chưa điểm danh', 'neutral') }}</td>
+                    <td><form method="post" action="{{ url_for('event.event_manual_attendance', event_id=event.id, registration_id=item.id) }}" class="inline-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><select class="select" name="status"><option value="on_time" {% if item.attendance and item.attendance.trang_thai == 'on_time' %}selected{% endif %}>Có mặt</option><option value="late" {% if item.attendance and item.attendance.trang_thai == 'late' %}selected{% endif %}>Đi muộn</option><option value="excused" {% if item.attendance and item.attendance.trang_thai == 'excused' %}selected{% endif %}>Có phép</option><option value="absent" {% if item.attendance and item.attendance.trang_thai == 'absent' %}selected{% endif %}>Vắng</option></select><input class="input" name="note" value="{{ item.attendance.ghi_chu if item.attendance else '' }}" placeholder="Ghi chú"><button type="submit" class="btn btn-secondary btn-sm">Lưu</button></form></td>
+                </tr>
+                {% else %}<tr><td colspan="4"><div class="empty-state"><strong>Chưa có người đăng ký</strong><span class="small muted">Danh sách sẽ cập nhật khi thành viên đăng ký.</span></div></td></tr>{% endfor %}
+            </tbody></table></div>
+        </section>
+        {% else %}
+        <section class="card"><div class="card-body toolbar"><div class="toolbar-left">{{ avatar(current_user.ho_ten, 'green') }}<div><strong>Trạng thái điểm danh của bạn</strong><p class="small muted">{{ registration.attendance.trang_thai if registration and registration.attendance else 'Chưa có dữ liệu điểm danh' }}</p></div></div></div></section>
+        {% endif %}
+    </section>
+
+    <section class="page-stack detail-panel event-tab-panel" id="event-panel-tasks" role="tabpanel" data-event-panel="tasks" aria-labelledby="event-tab-tasks" {% if event_tab != 'tasks' %}hidden{% endif %}>
+        {% if is_bdh %}
+        <details class="card event-task-create">
+            <summary class="card-header"><div><h3>Giao nhiệm vụ mới</h3><p class="small muted">Mỗi nhiệm vụ cần ban và người phụ trách hợp lệ.</p></div>{{ icon('plus') }}</summary>
+            <div class="card-body"><form method="post" action="{{ url_for('event.task_new', event_id=event.id) }}" class="modal-form">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                <label class="field"><span class="field-label">Tên nhiệm vụ</span><input class="input" type="text" name="ten_task" maxlength="150" required></label>
+                <label class="field"><span class="field-label">Mô tả</span><textarea class="textarea" name="mo_ta" maxlength="4000"></textarea></label>
+                <div class="grid-12 form-grid">
+                    <div class="span-6"><label class="field"><span class="field-label">Hạn hoàn thành</span><input class="input" type="datetime-local" name="deadline" required></label></div>
+                    <div class="span-6"><label class="field"><span class="field-label">Ban phụ trách</span><select class="select" name="ban_id" required>{% for ban in bans %}{% if current_user.chuc_vu != 'TB' or ban.id in current_user.quan_ly_ban_ids() %}<option value="{{ ban.id }}">{{ ban.ten_ban }}</option>{% endif %}{% endfor %}</select></label></div>
+                </div>
+                <label class="field"><span class="field-label">MSSV người phụ trách</span><input class="input" type="text" name="assignee_mssv" maxlength="20" required><span class="small muted">Người được giao phải là thành viên đã duyệt trong ban phụ trách.</span></label>
+                <button type="submit" class="btn btn-primary">{{ icon('plus') }} Giao nhiệm vụ</button>
+            </form></div>
+        </details>
+        {% endif %}
+
+        <div class="task-list">
+            {% for task in event.tasks %}
+            {% set task_status_labels = {'dang_lam': 'Đang làm', 'cho_duyet': 'Chờ duyệt', 'lam_lai': 'Cần làm lại', 'hoan_thanh': 'Hoàn thành', 'huy': 'Đã hủy'} %}
+            {% set can_manage_task = current_user.chuc_vu in ['CN', 'PCN'] or (current_user.chuc_vu == 'TB' and task.ban_id in current_user.quan_ly_ban_ids()) %}
+            <details class="task-card detail-task-card">
+                <summary class="row task-card-title"><span class="grow"><strong>{{ task.ten_task }}</strong><span class="small muted">{{ task.ban.ten_ban if task.ban else 'Chưa gắn ban' }} · {{ task.assignee.ho_ten }}</span></span>{{ badge(task_status_labels.get(task.trang_thai, task.trang_thai), {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'}.get(task.trang_thai, 'neutral')) }}</summary>
+                <div class="detail-task-body">
+                    {% if task.mo_ta %}<p>{{ task.mo_ta }}</p>{% endif %}
+                    <p class="small muted"><strong>Người phụ trách:</strong> {{ task.assignee.ho_ten }} ({{ task.assignee.mssv }}, {{ task.assignee.sdt }})</p>
+                    <div class="row task-card-footer"><span class="small muted">{{ icon('clock') }} Hạn {{ task.deadline.strftime('%d/%m/%Y %H:%M') }}</span>{% if task.ban %}{{ badge(task.ban.ten_ban, 'neutral') }}{% endif %}</div>
+                    {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and event.trang_thai != 'da_ket_thuc' %}
+                    <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form task-reassign-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">MSSV người phụ trách mới</span><input class="input" type="text" name="assignee_mssv" placeholder="MSSV thành viên trong ban"></label><button class="btn btn-secondary btn-sm" type="submit">Chỉ định lại</button></form>
+                    {% endif %}
+                    <div class="submission-box"><h4>Sản phẩm / nhận xét</h4>
+                        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and event.trang_thai != 'da_ket_thuc' %}
+                        <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Nội dung sản phẩm</span><textarea class="textarea" name="noi_dung_nop" maxlength="10000" placeholder="Dán liên kết hoặc mô tả sản phẩm">{{ task.noi_dung_nop or '' }}</textarea></label><button type="submit" class="btn btn-primary btn-sm">Nộp sản phẩm</button></form>
+                        {% elif task.noi_dung_nop %}<p class="small">{{ task.noi_dung_nop }}</p>{% else %}<p class="small muted">Chưa có sản phẩm được nộp.</p>{% endif %}
+                        {% if task.nhan_xet_bdh %}<p class="small"><strong>Nhận xét Ban điều hành:</strong> {{ task.nhan_xet_bdh }}</p>{% endif %}
+                        {% if can_manage_task and task.trang_thai == 'cho_duyet' and event.trang_thai != 'da_ket_thuc' %}
+                        <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-review-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><label class="field"><span class="field-label">Nhận xét (bắt buộc khi yêu cầu làm lại)</span><input class="input" type="text" name="nhan_xet_bdh" maxlength="2000"></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
+                        {% endif %}
+                    </div>
+                </div>
+            </details>
+            {% else %}<div class="empty-state"><strong>Chưa có nhiệm vụ cho sự kiện này</strong><span class="small muted">{% if is_bdh %}Giao nhiệm vụ mới để cùng chuẩn bị.{% else %}Nhiệm vụ sẽ xuất hiện ở đây khi được giao.{% endif %}</span></div>{% endfor %}
+        </div>
+    </section>
+
+    <section class="page-stack detail-panel event-tab-panel" id="event-panel-details" role="tabpanel" data-event-panel="details" aria-labelledby="event-tab-details" {% if event_tab != 'details' %}hidden{% endif %}>
+        <section class="card"><div class="card-header"><div><span class="eyebrow">THÔNG TIN SỰ KIỆN</span><h3>{{ event.ten_su_kien }}</h3><p class="small muted">{{ event.ma_su_kien }}</p></div></div>
+            <div class="card-body event-detail-information">
+                <div class="list-item">{{ icon('calendar') }}<div><strong>Thời gian</strong><p class="small muted">{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p></div></div>
+                <div class="list-item">{{ icon('location') }}<div><strong>Địa điểm</strong><p class="small muted">{{ detail.dia_diem if detail and detail.dia_diem else 'Chưa cập nhật địa điểm' }}</p></div></div>
+                {% if detail and detail.han_dang_ky %}<div class="list-item">{{ icon('clock') }}<div><strong>Hạn đăng ký</strong><p class="small muted">{{ detail.han_dang_ky.strftime('%d/%m/%Y %H:%M') }}</p></div></div>{% endif %}
+                {% if capacity %}<div class="list-item">{{ icon('users') }}<div><strong>Sức chứa</strong><p class="small muted">{{ capacity }} người</p></div></div>{% endif %}
+                <div class="event-description">{{ detail.noi_dung if detail and detail.noi_dung else 'Chưa có nội dung mô tả cho sự kiện này.' }}</div>
+                {% if detail and detail.loai == 'ctftime' and event.ma_su_kien.startswith('CTF-') %}<p><a class="btn btn-secondary btn-sm" href="https://ctftime.org/event/{{ event.ma_su_kien[4:] }}/" target="_blank" rel="noopener noreferrer">Mở sự kiện trên CTFtime ↗</a></p>{% endif %}
+            </div>
+        </section>
+    </section>
 </div>
 {% endblock %}

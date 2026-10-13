@@ -1,0 +1,33 @@
+{% macro icon(name) -%}
+{% set paths = {
+'grid':'<rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/><rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>',
+'users':'<circle cx="9" cy="8" r="3"/><path d="M3 21v-2a6 6 0 0 1 12 0v2M16 5a3 3 0 0 1 0 6M21 21v-2a6 6 0 0 0-4-5.65"/>',
+'calendar':'<rect x="3" y="5" width="18" height="16" rx="3"/><path d="M16 3v4M8 3v4M3 11h18M8 15h2M14 15h2"/>',
+'wallet':'<path d="M20 8V5a2 2 0 0 0-2-2L5 5a2 2 0 0 0 0 4h15v12H5a2 2 0 0 1-2-2V7M20 12h-5v5h5"/>',
+'sparkles':'<path d="m12 3 2.5 6.5L21 12l-6.5 2.5L12 21l-2.5-6.5L3 12l6.5-2.5L12 3ZM20 2v4M18 4h4"/>',
+'shield':'<path d="m12 3 8 3v6c0 5-8 9-8 9s-8-4-8-9V6l8-3Z"/><path d="m8 12 3 3 5-6"/>',
+'check':'<path d="m5 12 4 4L19 6"/>',
+'plus':'<path d="M12 5v14M5 12h14"/>',
+'search':'<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/>',
+'arrow':'<path d="M4 12h16m-6-6 6 6-6 6"/>',
+'chevron':'<path d="m9 5 7 7-7 7"/>',
+'download':'<path d="M12 3v12m-5-5 5 5 5-5M4 16v4h16v-4"/>',
+'more':'<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+'clock':'<circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/>',
+'location':'<path d="M19 10c0 5-7 11-7 11S5 15 5 10a7 7 0 1 1 14 0Z"/><circle cx="12" cy="10" r="2"/>',
+'mail':'<rect x="3" y="5" width="18" height="14" rx="3"/><path d="m3 7 9 6 9-6"/>',
+'close':'<path d="m6 6 12 12M18 6 6 18"/>',
+'filter':'<path d="M4 6h16M7 12h10M10 18h4"/>',
+'edit':'<path d="m15 4 5 5M4 20l4-1L20 7a3 3 0 0 0-4-4L4 15v5Z"/>',
+'logout':'<path d="M9 3H4v18h5M9 12h12m-5-5 5 5-5 5"/>',
+'settings':'<path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1"/><circle cx="12" cy="12" r="5"/>',
+'bell':'<path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9M9 21h6"/>',
+'briefcase':'<rect x="3" y="7" width="18" height="14" rx="3"/><path d="M8 7V3h8v4M3 12a20 20 0 0 0 18 0M12 12v3"/>',
+'file':'<path d="M14 3H5v18h14V8l-5-5Z"/><path d="M14 3v6h5M8 13h8M8 17h5"/>'} %}
+<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.65" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">{{ paths.get(name, paths.file)|safe }}</svg>
+{%- endmacro %}
+{% macro badge(text, tone='neutral') -%}<span class="badge {{ tone }}">{{ text }}</span>{%- endmacro %}
+{% macro avatar(name, tone='indigo') -%}<span class="avatar {{ tone }}">{% for part in name.split()[-2:] %}{{ part[:1]|upper }}{% endfor %}</span>{%- endmacro %}
+{% macro stat(label, value, glyph='wallet', note='', tone='green') -%}
+<article class="stat-card"><div class="stat-icon {{ tone }}">{{ icon(glyph) }}</div><div class="stat-value">{{ value }}</div><div class="stat-label">{{ label }}</div>{% if note %}<div class="stat-note">{{ note }}</div>{% endif %}</article>
+{%- endmacro %}

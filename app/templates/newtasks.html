@@ -1,0 +1,69 @@
+{% extends "base.html" %}
+{% from "_ui.html" import icon, badge, avatar, stat %}
+{% block title %}Nhiệm vụ{% endblock %}
+{% block content %}
+{% set status_labels = {'dang_lam': 'Đang làm', 'cho_duyet': 'Chờ duyệt', 'lam_lai': 'Cần làm lại', 'hoan_thanh': 'Hoàn thành', 'huy': 'Đã hủy'} %}
+{% set status_tones = {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'} %}
+{% set status_order = ['dang_lam', 'cho_duyet', 'lam_lai', 'hoan_thanh', 'huy'] %}
+{% macro task_card(task, compact=false) %}
+{% set can_manage_task = current_user.chuc_vu in ['CN', 'PCN'] or (current_user.chuc_vu == 'TB' and task.ban_id in current_user.quan_ly_ban_ids()) %}
+<article class="task-card {{ 'task-card-compact' if compact else '' }}">
+    <div class="row task-card-title"><strong>{{ task.ten_task }}</strong><a class="btn btn-ghost btn-sm task-more" href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}" aria-label="Mở nhiệm vụ trong sự kiện">{{ icon('more') }}</a></div>
+    <p class="small muted"><a href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}">{{ task.event.ten_su_kien }}</a></p>
+    <div class="task-card-tags">{% if task.ban %}{{ badge(task.ban.ten_ban, 'neutral') }}{% endif %}{{ badge(status_labels.get(task.trang_thai, task.trang_thai), status_tones.get(task.trang_thai, 'neutral')) }}</div>
+    <div class="row task-card-footer"><span class="task-assignee">{{ avatar(task.assignee.ho_ten, 'indigo') }}<span class="small">{{ task.assignee.ho_ten }}</span></span><span class="small muted">{{ icon('clock') }} {{ task.deadline.strftime('%d/%m/%Y') }}</span></div>
+    {% if (task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai != 'da_ket_thuc') or (can_manage_task and task.event.trang_thai != 'da_ket_thuc' and task.trang_thai not in ['hoan_thanh', 'huy']) %}
+    <details class="task-card-action"><summary class="btn btn-ghost btn-sm">Cập nhật nhiệm vụ {{ icon('arrow') }}</summary>
+        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai != 'da_ket_thuc' %}
+        <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}" class="task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Sản phẩm / liên kết</span><textarea class="textarea" name="noi_dung_nop" maxlength="10000" placeholder="Dán liên kết hoặc mô tả sản phẩm">{{ task.noi_dung_nop or '' }}</textarea></label><button type="submit" class="btn btn-primary btn-sm">Nộp sản phẩm</button></form>
+        {% endif %}
+        {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and task.event.trang_thai != 'da_ket_thuc' %}
+        <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">MSSV người phụ trách mới</span><input class="input" name="assignee_mssv" maxlength="20" placeholder="Thành viên trong ban"></label><button type="submit" class="btn btn-secondary btn-sm">Chỉ định lại</button></form>
+        {% endif %}
+        {% if can_manage_task and task.trang_thai == 'cho_duyet' and task.event.trang_thai != 'da_ket_thuc' %}
+        <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><label class="field"><span class="field-label">Nhận xét khi yêu cầu làm lại</span><input class="input" name="nhan_xet_bdh" maxlength="2000"></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
+        {% endif %}
+    </details>
+    {% endif %}
+</article>
+{% endmacro %}
+
+<div class="page-stack ops-preview ops-tasks">
+    <div class="grid-12 task-summary-grid">
+        <div class="span-3">{{ stat('Tổng nhiệm vụ', total_tasks, 'briefcase', 'Trong phạm vi quyền của bạn', 'indigo') }}</div>
+        <div class="span-3">{{ stat('Đang làm', task_counts.get('dang_lam', 0), 'clock', '', 'indigo') }}</div>
+        <div class="span-3">{{ stat('Chờ duyệt', task_counts.get('cho_duyet', 0), 'file', '', 'orange') }}</div>
+        <div class="span-3">{{ stat('Đã hoàn thành', task_counts.get('hoan_thanh', 0), 'check', '', 'green') }}</div>
+    </div>
+
+    <section class="card">
+        <div class="card-body">
+            <div class="toolbar task-toolbar">
+                <div class="toolbar-left"><div class="segmented task-status-filters" role="group" aria-label="Lọc theo trạng thái">
+                    <a href="{{ url_for('main.tasks', status='all', view=selected_view) }}" class="{{ 'active' if selected_status == 'all' else '' }}" {% if selected_status == 'all' %}aria-current="page"{% endif %}>Tất cả <span>{{ total_tasks }}</span></a>
+                    {% for status in status_order %}<a href="{{ url_for('main.tasks', status=status, view=selected_view) }}" class="{{ 'active' if selected_status == status else '' }}" {% if selected_status == status %}aria-current="page"{% endif %}>{{ status_labels[status] }} <span>{{ task_counts.get(status, 0) }}</span></a>{% endfor %}
+                </div></div>
+                <div class="toolbar-right"><div class="segmented" role="group" aria-label="Kiểu hiển thị"><a href="{{ url_for('main.tasks', status=selected_status, view='board') }}" class="{{ 'active' if selected_view == 'board' else '' }}" aria-pressed="{{ 'true' if selected_view == 'board' else 'false' }}">{{ icon('grid') }} Bảng</a><a href="{{ url_for('main.tasks', status=selected_status, view='list') }}" class="{{ 'active' if selected_view == 'list' else '' }}" aria-pressed="{{ 'true' if selected_view == 'list' else 'false' }}">{{ icon('file') }} Danh sách</a></div>
+                    {% if is_board %}<a class="btn btn-primary" href="{{ url_for('event.event_list') }}">{{ icon('plus') }} Mở sự kiện để giao việc</a>{% endif %}
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <div class="task-view-container">
+        {% if selected_view == 'board' %}
+        <div class="task-board">
+            {% for status in status_order %}
+            {% set column_tasks = tasks|selectattr('trang_thai', 'equalto', status)|list %}
+            <section class="task-column task-column-{{ status }}"><div class="task-column-header"><span class="task-column-dot task-dot-{{ status }}"></span><strong>{{ status_labels[status] }}</strong><span class="task-column-count">{{ column_tasks|length }}</span></div>
+                <div class="task-column-body">{% for task in column_tasks %}{{ task_card(task) }}{% else %}<div class="task-column-empty">Chưa có nhiệm vụ</div>{% endfor %}</div>
+            </section>
+            {% endfor %}
+        </div>
+        {% else %}
+        <div class="task-list">{% for task in tasks %}{{ task_card(task, true) }}{% else %}<div class="empty-state"><strong>Chưa có nhiệm vụ ở trạng thái này</strong><span class="small muted">Thử chọn trạng thái khác hoặc mở một sự kiện để xem đầu việc.</span></div>{% endfor %}</div>
+        {% endif %}
+    </div>
+    {% if not total_tasks %}<div class="empty-state"><strong>Chưa có nhiệm vụ trong phạm vi của bạn</strong><span class="small muted">Nhiệm vụ sẽ xuất hiện sau khi được giao trong một sự kiện.</span></div>{% endif %}
+</div>
+{% endblock %}

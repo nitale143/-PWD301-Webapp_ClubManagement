@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light">
+  <title>FIA Workspace · UI/UX Preview</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="ui.js" defer></script>
+  <script src="operations.js" defer></script>
+  <script src="services.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <a class="skip-link" href="#main-content">Đến nội dung chính</a>
+  <div class="sidebar-overlay" id="sidebar-overlay" hidden></div>
+  <aside class="sidebar" id="sidebar" aria-label="Điều hướng chính">
+    <a href="#dashboard" class="brand"><span class="brand-mark" data-icon="shield"></span><span><strong>FIA<span class="brand-dot">.</span></strong><small>CLUB WORKSPACE</small></span></a>
+    <div class="workspace-switch"><span class="workspace-avatar">F</span><div><strong>FPT Infomation Assurance</strong><small>Câu lạc bộ · Đại học FPT</small></div></div>
+    <p class="nav-label">KHÔNG GIAN LÀM VIỆC</p>
+    <nav id="primary-navigation">
+      <a href="#dashboard" data-nav="dashboard"><span data-icon="grid"></span>Tổng quan</a>
+      <a href="#members" data-nav="members"><span data-icon="users"></span>Thành viên<span class="nav-count">184</span></a>
+      <a href="#events" data-nav="events"><span data-icon="calendar"></span>Sự kiện</a>
+      <a href="#tasks" data-nav="tasks"><span data-icon="briefcase"></span>Công việc<span class="nav-dot"></span></a>
+      <a href="#funds" data-nav="funds"><span data-icon="wallet"></span>Quỹ câu lạc bộ</a>
+      <a href="#ai" data-nav="ai"><span data-icon="sparkles"></span>Trợ lý AI<span class="nav-ai">AI</span></a>
+      <p class="nav-label">ĐIỀU HÀNH</p>
+      <a href="#approvals" data-nav="approvals"><span data-icon="shield"></span>Phê duyệt<span class="nav-count">5</span></a>
+      <a href="#roles" data-nav="roles"><span data-icon="settings"></span>Vai trò & phân quyền</a>
+    </nav>
+    <div class="sidebar-bottom"><div class="sidebar-help"><span data-icon="sparkles"></span><strong>Một CLB. Một không gian.</strong><p>Ít thao tác hơn.<br>Nhiều thời gian cho điều quan trọng.</p><a href="#ai">Khám phá trợ lý <span data-icon="arrow"></span></a></div><a class="sidebar-user" href="#profile"><span class="avatar indigo">MA</span><span><strong>Nguyễn Minh An</strong><small>Chủ nhiệm câu lạc bộ</small></span><span data-icon="chevron"></span></a></div>
+  </aside>
+  <div class="app-shell">
+    <header class="topbar"><div class="row"><button class="icon-button mobile-menu" id="menu-toggle" aria-label="Mở menu" aria-controls="sidebar" aria-expanded="false"><span data-icon="grid"></span></button><span class="topbar-workspace">Workspace <span>/</span> <strong id="topbar-view">Tổng quan</strong></span></div><div class="topbar-actions"><button class="search-trigger" id="global-search"><span data-icon="search"></span><span>Tìm nhanh trong workspace</span><kbd>Ctrl K</kbd></button><span class="preview-tag">PREVIEW · DỮ LIỆU MẪU</span><button class="icon-button" id="notification-button" aria-label="Xem thông báo mẫu"><span data-icon="bell"></span><i></i></button><a href="#profile" class="avatar small-avatar indigo" aria-label="Xem hồ sơ mẫu">MA</a></div></header>
+    <main id="main-content" tabindex="-1"><div class="page-heading"><div><p class="eyebrow">FIA / CLUB MANAGEMENT</p><h1 id="page-title">Tổng quan câu lạc bộ</h1><p class="page-subtitle" id="page-subtitle"></p></div><div class="heading-actions"><span class="date-pill"><span data-icon="calendar"></span>12 tháng 10, 2026</span><button class="btn btn-secondary btn-sm" id="preview-options"><span data-icon="more"></span> Xem các màn hình</button></div></div><div id="view"></div><footer class="app-footer"><span>FIA Workspace · Thiết kế mới, cùng một câu lạc bộ.</span><span>Bản xem trước độc lập · Không gửi mail hoặc ghi dữ liệu thật.</span></footer></main>
+  </div>
+  <dialog id="preview-dialog" class="dialog"><div id="dialog-content"></div></dialog>
+  <div id="toast-region" class="toast-region" role="status" aria-live="polite"></div>
+</body>
+</html>

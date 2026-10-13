@@ -1,45 +1,116 @@
 {% extends "base.html" %}
-{% block title %}Home{% endblock %}
+{% from "_ui.html" import icon, badge, stat %}
+{% block title %}Tổng quan{% endblock %}
 {% block content %}
-{% if daily_digest %}
-<section class="panel">
-    <h2>Việc cần xử lý hôm nay</h2>
-    <pre style="white-space: pre-wrap">{{ daily_digest }}</pre>
-    <p class="small muted">Số liệu lấy trực tiếp từ database theo quyền của bạn; mở trang AI để xem báo cáo tuần/tháng.</p>
-</section>
-{% endif %}
-<div class="home-grid">
-    <section class="panel">
-        <h2>Thong bao</h2>
-        {% if notifications %}
-        <ul class="notif-list">
-            {% for n in notifications %}
-            <li class="{{ 'unread' if not n.da_doc }}">{{ n.noi_dung }}
-                <span class="muted small">{{ n.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</span>
-            </li>
-            {% endfor %}
-        </ul>
-        {% else %}
-        <p class="muted">Chua co thong bao nao.</p>
-        {% endif %}
+<div class="page-stack ops-preview ops-dashboard">
+    <section class="hero">
+        <div class="hero-copy">
+            <span class="eyebrow">HÔM NAY · {{ current_time.strftime('%d/%m/%Y') }}</span>
+            <h2>Xin chào, {{ current_user.ho_ten }} <span aria-hidden="true">✦</span></h2>
+            <p class="muted">Những cập nhật và đầu việc mới nhất trong phạm vi bạn có thể xem.</p>
+            <div class="toolbar">
+                <div class="toolbar-left">
+                    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}
+                    <a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>
+                    {% endif %}
+                    <a class="btn btn-secondary" href="{{ url_for('member.member_list') }}">{{ icon('users') }} Xem thành viên</a>
+                </div>
+            </div>
+        </div>
+        <div class="hero-art" aria-hidden="true">
+            <div class="hero-art-orbit"></div><div class="hero-art-star">✦</div><div class="hero-art-dot"></div>
+            <div class="hero-art-caption">CLB<br><span>FIA</span></div>
+        </div>
     </section>
 
-    <section class="panel">
-        <h2>Su kien sap dien ra</h2>
-        {% if upcoming_events %}
-        {% for ev in upcoming_events %}
-        <div class="event-card">
-            <a href="{{ url_for('event.event_detail', event_id=ev.id) }}"><strong>{{ ev.ten_su_kien }}</strong> ({{ ev.ma_su_kien }})</a>
-            <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} - Trang thai: {{ ev.trang_thai }}</p>
-            {% set participants = event_participants.get(ev.id, []) %}
-            {% if participants %}
-            <p class="small">Nguoi tham gia: {{ participants|map(attribute='ho_ten')|join(', ') }}</p>
+    <div class="grid-12">
+        <div class="span-3">{{ stat('Thành viên hoạt động', active_members, 'users', badge(visible_member_count|string ~ ' trong phạm vi quyền xem', 'neutral'), 'indigo') }}</div>
+        <div class="span-3">{{ stat('Sự kiện năm nay', events_this_year, 'calendar', 'Theo dữ liệu sự kiện', 'violet') }}</div>
+        <div class="span-3">{{ stat('Đầu việc hoàn thành', completed_tasks, 'check', 'Trong phạm vi nhiệm vụ của bạn', 'green') }}</div>
+        <div class="span-3">
+            {% if fund_balance_label is not none %}
+            {{ stat('Số dư quỹ kỳ hiện tại', fund_balance_label, 'wallet', 'Từ giao dịch của kỳ đang mở', 'orange') }}
+            {% else %}
+            {{ stat('Nhiệm vụ sắp hạn', upcoming_deadline_tasks, 'clock', 'Trong 7 ngày tới · theo quyền của bạn', 'orange') }}
             {% endif %}
         </div>
-        {% endfor %}
-        {% else %}
-        <p class="muted">Khong co su kien sap toi.</p>
-        {% endif %}
-    </section>
+    </div>
+
+    <div class="grid-12">
+        <section class="card span-7">
+            <div class="card-header">
+                <div><span class="eyebrow">GẮN KẾT CỘNG ĐỒNG</span><h3>Lượt điểm danh</h3><p class="muted small">Điểm danh hợp lệ trong 6 tháng gần đây</p></div>
+                {{ badge(attendance_total|string ~ ' lượt', 'indigo') }}
+            </div>
+            <div class="card-body">
+                {% if attendance_total %}
+                <div class="chart-legend"><span class="chart-legend-dot"></span> Lượt điểm danh <span class="muted small">·</span> <strong>{{ attendance_total }}</strong><span class="muted small">trong 6 tháng</span></div>
+                <div class="ops-chart-scroll">
+                    <svg class="ops-attendance-chart" viewBox="0 0 720 225" role="img" aria-label="Lượt điểm danh theo tháng trong sáu tháng gần đây">
+                        <g class="ops-chart-grid"><line x1="56" y1="45" x2="690" y2="45"/><line x1="56" y1="90" x2="690" y2="90"/><line x1="56" y1="135" x2="690" y2="135"/><line x1="56" y1="180" x2="690" y2="180"/></g>
+                        <path d="M{{ attendance_months[0].x }} 180 {{ attendance_chart_path[1:] }} L690 180 Z" class="ops-chart-area"/>
+                        <path d="{{ attendance_chart_path }}" class="ops-chart-line"/>
+                        {% for point in attendance_months %}
+                        <circle cx="{{ point.x }}" cy="{{ point.y }}" r="5" class="ops-chart-point"/>
+                        <text x="{{ point.x }}" y="{{ point.y - 12 }}" class="ops-chart-value">{{ point.value }}</text>
+                        <text x="{{ point.x }}" y="214" class="ops-chart-label">{{ point.label }}</text>
+                        {% endfor %}
+                    </svg>
+                </div>
+                {% else %}
+                <div class="empty-state"><strong>Chưa có lượt điểm danh trong 6 tháng gần đây</strong><span class="small muted">Biểu đồ sẽ hiển thị khi có dữ liệu điểm danh.</span></div>
+                {% endif %}
+            </div>
+        </section>
+
+        <section class="card span-5">
+            <div class="card-header"><div><span class="eyebrow">CẬP NHẬT CHO BẠN</span><h3>Thông báo</h3><p class="muted small">Nội dung từ tài khoản của bạn</p></div>{{ badge(notifications|selectattr('da_doc', 'equalto', false)|list|length|string ~ ' chưa đọc', 'orange') }}</div>
+            <div class="card-body">
+                {% if notifications %}
+                <ul class="fia-notification-list">
+                    {% for notification in notifications %}
+                    <li class="fia-notification {{ 'is-unread' if not notification.da_doc else '' }}">
+                        <span class="fia-notification__mark" aria-hidden="true"></span>
+                        <div class="fia-notification__body"><p>{{ notification.noi_dung }}</p><time class="muted small" datetime="{{ notification.thoi_gian.isoformat() }}">{{ notification.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</time></div>
+                        {% if not notification.da_doc %}<span class="fia-notification__state">Mới</span>{% endif %}
+                    </li>
+                    {% endfor %}
+                </ul>
+                {% else %}
+                <div class="empty-state"><strong>Chưa có thông báo</strong><span class="small muted">Các cập nhật dành cho bạn sẽ xuất hiện ở đây.</span></div>
+                {% endif %}
+            </div>
+        </section>
+    </div>
+
+    <div class="grid-12">
+        <section class="card span-7">
+            <div class="card-header"><div><span class="eyebrow">LỊCH HOẠT ĐỘNG</span><h3>Sự kiện sắp tới</h3></div><a class="btn btn-ghost btn-sm" href="{{ url_for('event.event_list') }}">Xem tất cả {{ icon('arrow') }}</a></div>
+            <div class="card-body dashboard-events">
+                {% for event in upcoming_events %}
+                <a class="list-item dashboard-event" href="{{ url_for('event.event_detail', event_id=event.id) }}">
+                    <span class="event-date-chip"><strong>{{ event.thoi_gian_bat_dau.strftime('%d') }}</strong><span>Tháng {{ event.thoi_gian_bat_dau.strftime('%m') }}</span></span>
+                    <span class="grow"><strong>{{ event.ten_su_kien }}</strong><span class="small muted">{{ icon('clock') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} · {{ icon('location') }} {{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật địa điểm' }}</span>
+                        {% set assigned = event_participants.get(event.id, []) %}
+                        {% if assigned %}<span class="small muted">Được giao task: {{ assigned|map(attribute='ho_ten')|join(', ') }}</span>{% endif %}
+                    </span>
+                    {% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'da_ket_thuc' %}{{ badge('Đã kết thúc', 'neutral') }}{% else %}{{ badge('Sắp diễn ra', 'indigo') }}{% endif %}
+                </a>
+                {% else %}
+                <div class="empty-state"><strong>Chưa có sự kiện sắp diễn ra</strong><span class="small muted">Khi có sự kiện mới, lịch sẽ được cập nhật tại đây.</span></div>
+                {% endfor %}
+            </div>
+        </section>
+
+        <section class="card span-5">
+            {% if daily_digest %}
+            <div class="card-header"><div><span class="eyebrow">TÓM TẮT DÀNH CHO BAN ĐIỀU HÀNH</span><h3>Việc cần xử lý hôm nay</h3><p class="muted small">Số liệu trong phạm vi quyền của bạn</p></div>{{ icon('sparkles') }}</div>
+            <div class="card-body"><pre class="ops-digest">{{ daily_digest }}</pre><a class="btn btn-secondary btn-sm" href="{{ url_for('main.tasks') }}">Mở nhiệm vụ {{ icon('arrow') }}</a></div>
+            {% else %}
+            <div class="card-header"><div><span class="eyebrow">TÓM TẮT CỦA BẠN</span><h3>Thông tin hôm nay</h3><p class="muted small">Các bản ghi liên quan đến tài khoản hiện tại</p></div>{{ icon('sparkles') }}</div>
+            <div class="card-body"><p class="ops-digest-summary">Bạn có <strong>{{ notifications|selectattr('da_doc', 'equalto', false)|list|length }}</strong> thông báo chưa đọc và <strong>{{ upcoming_deadline_tasks }}</strong> nhiệm vụ đến hạn trong 7 ngày tới.</p><a class="btn btn-secondary btn-sm" href="{{ url_for('main.tasks') }}">Mở nhiệm vụ {{ icon('arrow') }}</a></div>
+            {% endif %}
+        </section>
+    </div>
 </div>
 {% endblock %}

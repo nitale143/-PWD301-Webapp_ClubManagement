@@ -1,0 +1,45 @@
+{% extends "base.html" %}
+{% block title %}Member{% endblock %}
+{% block content %}
+<h1>Danh sach thanh vien</h1>
+
+<form method="get" class="filter-bar">
+    <input type="text" name="q" placeholder="Tim theo ten hoac MSSV" value="{{ selected_q }}">
+    <select name="ban_id">
+        <option value="">-- Tat ca ban --</option>
+        {% for ban in bans %}
+        <option value="{{ ban.id }}" {{ 'selected' if selected_ban_id == ban.id }}>{{ ban.ten_ban }}</option>
+        {% endfor %}
+    </select>
+    <select name="sort">
+        <option value="ho_ten" {{ 'selected' if selected_sort == 'ho_ten' }}>Sap xep theo ten</option>
+        <option value="mssv" {{ 'selected' if selected_sort == 'mssv' }}>Sap xep theo MSSV</option>
+    </select>
+    <button type="submit">Loc</button>
+    <a class="btn-secondary" href="{{ url_for('member.export_excel', **request.args) }}">Xuat Excel</a>
+</form>
+
+<table class="data-table">
+    <thead>
+        <tr>
+            <th>Ho ten</th><th>MSSV</th><th>Chuc vu</th><th>Ban hoat dong</th>
+            {% if is_bdh %}<th>SDT</th><th>Email</th><th>Tinh trang HD</th>{% endif %}
+        </tr>
+    </thead>
+    <tbody>
+        {% for m in members %}
+        <tr>
+            <td><a href="{{ url_for('profile.view_profile', user_id=m.id) }}">{{ m.ho_ten }}</a></td>
+            <td>{{ m.mssv }}</td>
+            <td>{{ m.chuc_vu }}</td>
+            <td>{{ m.ban_links|map(attribute='ban.ten_ban')|join(', ') }}</td>
+            {% if is_bdh %}
+            <td>{{ m.sdt }}</td>
+            <td>{{ m.email }}</td>
+            <td>{{ m.hoat_dong_status }}</td>
+            {% endif %}
+        </tr>
+        {% endfor %}
+    </tbody>
+</table>
+{% endblock %}

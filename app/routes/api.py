@@ -7,6 +7,7 @@ from io import BytesIO
 from io import StringIO
 import os
 import secrets
+from uuid import uuid4
 
 from flask import Blueprint, current_app, jsonify, request, send_file, url_for
 from flask_login import current_user
@@ -17,16 +18,19 @@ from sqlalchemy import or_
 
 from app import db
 from app.models import (
-    ActivityPoint, AIProposal, Attendance, AuditLog, Ban, ChatMessage, ClubSetting, Event, EventDetail,
+    ActivityPoint, AIProposal, Attendance, AuditLog, Ban, ClubSetting, Event, EventDetail,
     EventRegistration, EventTargetBan, FundCollection, FundPayment,
     FundTargetBan, MemberRecord, PaymentEvidence, User, UserBan,
 )
 from app.services.access import (
     approved, can_manage_member, can_view_member, can_view_all_members,
-    is_admin, is_board, is_treasurer, require, visible_members,
+    is_admin, is_board, is_treasurer, require, visible_members, actor_scope_stamp,
 )
 from app.services.activities import activity_stats, manual_point, DEFAULT_POINTS, DEFAULT_THRESHOLDS
-from app.services.agent import check_chat_rate, respond
+from app.services.agent import check_chat_rate, respond, respond_events
+from app.services.chat_conversations import (append_exchange, checked_title,
+    conversation_json, conversation_list, create_conversation, message_page,
+    owned_conversation, select_conversation, begin_turn, finish_turn)
 from app.services.email_proposals import is_email_write_command
 from app.services.proposals import (create_proposal, is_chat_proposal_command,
                                     proposal_preview, review_proposal)
@@ -668,20 +672,97 @@ def event_feedback(event_id):
 
 @api_bp.post("/assistant")
 def assistant():
-    question = str(body().get("question", "")).strip()
+    data = body()
+    if "agent" in data and not isinstance(data["agent"], bool):
+        raise DomainError("Chế độ Agent phải là true hoặc false.")
+    use_agent = data.get("agent") is True
+    if use_agent:
+        # Every tool-capable request requires CSRF, including apparently read-only text.
+        require_csrf()
+    question = str(data.get("question", "")).strip()
     if not question or len(question) > 2000:
         raise DomainError("Câu hỏi không hợp lệ.")
     check_chat_rate(current_user)
+    if "conversation_id" in data and data["conversation_id"] is None:
+        raise DomainError("Mã cuộc trò chuyện không hợp lệ.")
+    conversation = select_conversation(current_user, data.get("conversation_id"), active=True)
     if (is_email_write_command(question) or is_chat_proposal_command(question)
             or (not briefing_kind(question) and not member_query_kind(question)
-                and is_natural_proposal_command(question, current_user))):
+                and is_natural_proposal_command(question, current_user, conversation))):
         require_csrf()
-    answer = respond(current_user, question)
-    db.session.add(ChatMessage(user_id=current_user.id, role="user", content=question))
-    db.session.add(ChatMessage(user_id=current_user.id, role="ai", content=answer["answer"]))
+    if conversation is None:
+        conversation = create_conversation(current_user)
+    if use_agent:
+        actor = current_user._get_current_object()
+        human = begin_turn(actor, conversation, question)
+        permission_stamp = actor_scope_stamp(actor)
+        human_id = human.id
+        run_id = uuid4().hex
+        answer = None
+        for event in respond_events(actor, question, conversation=conversation,
+                                    message_id=human_id):
+            if event.get("type") == "result":
+                answer = event["result"]
+                break
+        if answer is None:
+            raise DomainError("AI chưa hoàn tất câu trả lời. Hãy kiểm tra lịch sử trước khi gửi lại.", 503)
+        reply = finish_turn(actor, conversation, answer, human_id, run_id,
+                            permission_stamp=permission_stamp)
+        answer.update(conversation_id=conversation.id, message_id=reply.id, run_id=run_id)
+        return jsonify(answer)
+    answer = respond(current_user, question, conversation=conversation)
+    append_exchange(current_user, conversation, question, answer["answer"])
     audit(current_user, "assistant_query", current_user, {"intent": answer["intent"]})
     db.session.commit()
+    answer["conversation_id"] = conversation.id
     return jsonify(answer)
+
+
+@api_bp.route("/assistant/conversations", methods=["GET", "POST"])
+def assistant_conversations():
+    if request.method == "POST":
+        require_csrf()
+        conversation = create_conversation(current_user, body().get("title"))
+        db.session.commit()
+        return jsonify(conversation_json(conversation)), 201
+    rows, has_next, page = conversation_list(current_user, request.args.get("page", 1),
+                                            archived=request.args.get("archived") == "1")
+    return jsonify(items=[conversation_json(row) for row in rows], page=page,
+                   page_size=20, has_next=has_next)
+
+
+@api_bp.get("/assistant/conversations/<int:conversation_id>/messages")
+def assistant_conversation_messages(conversation_id):
+    conversation = owned_conversation(current_user, conversation_id)
+    rows, older, newer = message_page(current_user, conversation,
+        before=request.args.get("before"), after=request.args.get("after"))
+    return jsonify(conversation=conversation_json(conversation), page_size=40,
+                   older_before=older, newer_after=newer,
+                   items=[{"id": row.id, "role": row.role, "content": row.content,
+                           "created_at": row.thoi_gian.isoformat()} for row in rows])
+
+
+@api_bp.patch("/assistant/conversations/<int:conversation_id>")
+def assistant_conversation_rename(conversation_id):
+    require_csrf()
+    conversation = owned_conversation(current_user, conversation_id)
+    conversation.title = checked_title(body().get("title"))
+    conversation.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(conversation_json(conversation))
+
+
+@api_bp.post("/assistant/conversations/<int:conversation_id>/archive")
+def assistant_conversation_archive(conversation_id):
+    require_csrf()
+    conversation = owned_conversation(current_user, conversation_id)
+    archived = body().get("archived", True)
+    if not isinstance(archived, bool):
+        raise DomainError("Trạng thái lưu trữ không hợp lệ.")
+    conversation.archived = archived
+    conversation.updated_at = datetime.utcnow()
+    db.session.commit()
+    return jsonify(conversation_json(conversation))
 
 
 def proposal_json(proposal):

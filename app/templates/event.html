@@ -1,23 +1,360 @@
 {% extends "base.html" %}
-{% block title %}Event{% endblock %}
+{% from "_ui.html" import icon, badge %}
+{% block title %}Sự kiện{% endblock %}
 {% block content %}
-<div class="page-header">
-    <h1>Su kien</h1>
-    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}
-    <a class="btn-primary" href="{{ url_for('event.event_new') }}">+ Tao su kien</a>
-    {% endif %}
+{% set event_status_labels = {'sap_dien_ra': 'Sắp diễn ra', 'dang_dien_ra': 'Đang diễn ra', 'da_ket_thuc': 'Đã kết thúc'} %}
+<div class="page-stack ops-preview ops-events">
+<div class="events-sources"
+     data-event-sources
+     data-feed-url="{{ url_for('event.ctftime_events') }}"
+     data-import-url="{{ url_for('event.ctftime_import') }}"
+     data-csrf-token="{{ csrf_token() }}"
+     data-board="{{ 'true' if current_user.chuc_vu in ['CN', 'PCN', 'TB'] else 'false' }}">
+    <div class="events-source-tabs" role="tablist" aria-label="Nguồn sự kiện">
+        <button type="button" class="events-source-tab active" id="events-source-tab-fia"
+                role="tab" aria-controls="events-source-panel-fia" aria-selected="true"
+                tabindex="0" data-events-source="fia">Sự kiện FIA</button>
+        <button type="button" class="events-source-tab" id="events-source-tab-ctftime"
+                role="tab" aria-controls="events-source-panel-ctftime" aria-selected="false"
+                tabindex="-1" data-events-source="ctftime">CTFtime</button>
+    </div>
+
+    <section class="events-source-panel" id="events-source-panel-fia" role="tabpanel"
+             aria-labelledby="events-source-tab-fia" data-events-panel="fia">
+        <div class="ops-event-controls card" data-fia-events>
+            <div class="card-body toolbar">
+                <div class="toolbar-left event-filter-fields">
+                    <label class="field search-field"><span class="field-label">Tìm sự kiện</span><span class="input-with-icon">{{ icon('search') }}<input class="input" type="search" data-event-search placeholder="Tên, mã hoặc địa điểm" autocomplete="off"></span></label>
+                    <label class="field"><span class="field-label">Trạng thái</span><select class="select" data-event-status><option value="all">Tất cả sự kiện</option><option value="sap_dien_ra">Sắp diễn ra</option><option value="dang_dien_ra">Đang diễn ra</option><option value="da_ket_thuc">Đã kết thúc</option></select></label>
+                </div>
+                <div class="toolbar-right">
+                    <div class="segmented" role="group" aria-label="Kiểu hiển thị"><button type="button" data-event-view="grid" class="active" aria-pressed="true">{{ icon('grid') }} Thẻ</button><button type="button" data-event-view="list" aria-pressed="false">{{ icon('file') }} Danh sách</button></div>
+                    {% if current_user.chuc_vu in ['CN', 'PCN', 'TB'] %}<a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>{% endif %}
+                </div>
+            </div>
+        </div>
+        <div class="row events-heading"><div><span class="eyebrow">LỊCH CLB</span><h3>Sự kiện của chúng ta</h3></div><span class="muted small" data-event-count>{{ events|length }} sự kiện</span></div>
+        <div class="event-grid" data-event-grid-view>
+            {% for event in events|sort(attribute='thoi_gian_bat_dau') %}
+            {% set accent = ['indigo', 'orange', 'violet', 'teal'][event.id % 4] %}
+            {% set registration_count = event.registrations|selectattr('trang_thai', 'in', ['registered', 'waitlist'])|list|length %}
+            {% set status_label = event_status_labels.get(event.trang_thai, event.trang_thai) %}
+            {% if event.trang_thai == 'dang_dien_ra' %}{% set status_tone = 'success' %}{% elif event.trang_thai == 'sap_dien_ra' %}{% set status_tone = 'indigo' %}{% else %}{% set status_tone = 'neutral' %}{% endif %}
+            <a class="event-tile" href="{{ url_for('event.event_detail', event_id=event.id) }}" data-fia-event-item data-event-status-value="{{ event.trang_thai }}" data-event-search-value="{{ (event.ten_su_kien ~ ' ' ~ event.ma_su_kien ~ ' ' ~ (event.detail.dia_diem if event.detail else ''))|lower }}">
+                <span class="event-cover cover-{{ accent }}"><span class="event-cover-label">{{ event.detail.loai if event.detail and event.detail.loai else 'Sự kiện FIA' }}</span><span class="event-cover-mark">{{ icon('calendar') }}</span><span class="event-cover-code">{{ event.ma_su_kien }}</span></span>
+                <span class="event-tile-body"><span class="row event-tile-top"><strong>{{ event.ten_su_kien }}</strong>{{ badge(status_label, status_tone) }}</span>
+                    <span class="event-tile-meta">{{ icon('calendar') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</span>
+                    <span class="event-tile-meta">{{ icon('location') }} {{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật địa điểm' }}</span>
+                    <span class="event-tile-bottom"><span class="event-attendee-count">{{ icon('users') }} {{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% else %} đăng ký{% endif %}</span>
+                        {% if event.detail and event.detail.so_nguoi_toi_da %}<span class="event-progress"><span class="progress-bar"><span style="width:{{ [100, ((registration_count * 100) // event.detail.so_nguoi_toi_da)]|min }}%"></span></span></span>{% endif %}
+                    </span>
+                </span>
+            </a>
+            {% else %}
+            <div class="empty-state"><strong>Chưa có sự kiện nào</strong><span class="small muted">Sự kiện sẽ xuất hiện ở đây sau khi được tạo hoặc nhập từ nguồn.</span></div>
+            {% endfor %}
+        </div>
+        <div class="table-wrap card events-table-card" data-event-list-view hidden>
+            <table class="data-table"><thead><tr><th>Sự kiện</th><th>Thời gian</th><th>Địa điểm</th><th>Trạng thái</th><th>Đăng ký</th></tr></thead><tbody>
+                {% for event in events|sort(attribute='thoi_gian_bat_dau') %}
+                {% set registration_count = event.registrations|selectattr('trang_thai', 'in', ['registered', 'waitlist'])|list|length %}
+                <tr data-fia-event-item data-event-status-value="{{ event.trang_thai }}" data-event-search-value="{{ (event.ten_su_kien ~ ' ' ~ event.ma_su_kien ~ ' ' ~ (event.detail.dia_diem if event.detail else ''))|lower }}">
+                    <td><a class="text-button" href="{{ url_for('event.event_detail', event_id=event.id) }}"><strong>{{ event.ten_su_kien }}</strong><span class="small muted">{{ event.ma_su_kien }} · {{ event.detail.loai if event.detail else 'Sự kiện FIA' }}</span></a></td>
+                    <td>{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật' }}</td>
+                    <td>{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge('Đã kết thúc', 'neutral') }}{% endif %}</td>
+                    <td>{{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% endif %}</td>
+                </tr>
+                {% else %}<tr><td colspan="5"><div class="empty-state"><strong>Chưa có sự kiện nào</strong></div></td></tr>{% endfor %}
+            </tbody></table>
+        </div>
+    </section>
+
+    <section class="events-source-panel events-ctf-pane" id="events-source-panel-ctftime"
+             role="tabpanel" aria-labelledby="events-source-tab-ctftime"
+             data-events-panel="ctftime" hidden>
+        <div class="events-ctf-toolbar">
+            <label class="field events-ctf-search">
+                <span class="field-label">Tìm cuộc thi</span>
+                <input class="input" type="search" data-ctf-search
+                       placeholder="Tên sự kiện CTFtime" autocomplete="off">
+            </label>
+            <button type="button" class="btn-secondary" data-ctf-retry hidden>Thử tải lại</button>
+        </div>
+        <p class="events-ctf-window" data-ctf-window></p>
+        <div class="events-ctf-status" data-ctf-status role="status" aria-live="polite"></div>
+        <div class="events-ctf-results" data-ctf-results aria-busy="false"></div>
+        <p class="events-ctf-source">Nguồn:
+            <a href="https://ctftime.org/calendar/" target="_blank" rel="noopener noreferrer">Lịch công khai CTFtime</a>.
+            Nội dung sự kiện do CTFtime cung cấp.
+        </p>
+    </section>
+</div>
 </div>
 
-<div class="event-list">
-    {% for ev in events %}
-    <a class="event-summary-card" href="{{ url_for('event.event_detail', event_id=ev.id) }}">
-        <strong>{{ ev.ten_su_kien }}</strong> <span class="tag">{{ ev.ma_su_kien }}</span>
-        <p class="muted small">{{ ev.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} &rarr; {{ ev.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p>
-        <span class="status-badge status-{{ ev.trang_thai }}">{{ ev.trang_thai }}</span>
-        <span class="muted small"> · {{ ev.registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length }} người đăng ký{% if ev.detail and ev.detail.so_nguoi_toi_da %} / {{ ev.detail.so_nguoi_toi_da }} chỗ{% endif %}</span>
-    </a>
-    {% else %}
-    <p class="muted">Chua co su kien nao.</p>
-    {% endfor %}
-</div>
+<script>
+(() => {
+    const root = document.querySelector('[data-event-sources]');
+    if (!root) return;
+
+    const tabs = Array.from(root.querySelectorAll('[data-events-source]'));
+    const panels = new Map(Array.from(root.querySelectorAll('[data-events-panel]'))
+        .map((panel) => [panel.dataset.eventsPanel, panel]));
+    const ctfPanel = panels.get('ctftime');
+    const status = ctfPanel.querySelector('[data-ctf-status]');
+    const results = ctfPanel.querySelector('[data-ctf-results]');
+    const windowLabel = ctfPanel.querySelector('[data-ctf-window]');
+    const retry = ctfPanel.querySelector('[data-ctf-retry]');
+    const search = ctfPanel.querySelector('[data-ctf-search]');
+    const formatter = new Intl.DateTimeFormat('vi-VN', {
+        timeZone: 'Asia/Bangkok', dateStyle: 'medium', timeStyle: 'short'
+    });
+    let loaded = false;
+    let loading = false;
+    let activeSource = 'fia';
+    let events = [];
+    let searchText = '';
+    let loadError = '';
+    let cacheState = { cached: false, stale: false, error: '', fetched_at: '', window: null };
+    let pendingRequest = null;
+
+    function parseDate(value) {
+        const parsed = value ? new Date(value) : null;
+        return parsed && Number.isFinite(parsed.getTime()) ? parsed : null;
+    }
+
+    function normaliseEvent(item) {
+        if (!item || typeof item !== 'object') return null;
+        const id = String(item.id ?? '');
+        const title = typeof item.title === 'string' ? item.title.trim() : '';
+        const start = parseDate(item.start);
+        const finish = parseDate(item.finish);
+        if (!/^[1-9]\d{0,11}$/.test(id) || !title || !start || !finish || finish <= start) return null;
+        return {
+            id, title, start: start.toISOString(), finish: finish.toISOString(),
+            format: typeof item.format === 'string' ? item.format.trim() : '',
+            location: typeof item.location === 'string' ? item.location.trim() : ''
+        };
+    }
+
+    function formatDate(value) {
+        const parsed = parseDate(value);
+        return parsed ? formatter.format(parsed) : '';
+    }
+
+    function setStatus(messages, stale = false) {
+        status.replaceChildren();
+        if (!messages.length) return;
+        const notice = document.createElement('div');
+        notice.className = `events-ctf-notice${stale ? ' is-stale' : ''}`;
+        for (const message of messages) {
+            const paragraph = document.createElement('p');
+            paragraph.textContent = message;
+            notice.append(paragraph);
+        }
+        status.append(notice);
+    }
+
+    function makeCard(event) {
+        const card = document.createElement('article');
+        card.className = 'events-ctf-card';
+
+        const top = document.createElement('div');
+        top.className = 'events-ctf-card-top';
+        const badge = document.createElement('span');
+        badge.className = 'badge green';
+        badge.textContent = 'CTFtime';
+        top.append(badge);
+        if (event.format) {
+            const format = document.createElement('span');
+            format.className = 'badge neutral';
+            format.textContent = event.format;
+            top.append(format);
+        }
+
+        const title = document.createElement('h3');
+        title.textContent = event.title;
+        const timeRow = document.createElement('p');
+        timeRow.className = 'events-ctf-time';
+        const time = document.createElement('time');
+        time.dateTime = event.start;
+        time.textContent = `${formatDate(event.start)} – ${formatDate(event.finish)}`;
+        const timezone = document.createElement('span');
+        timezone.textContent = 'Giờ Việt Nam · Asia/Bangkok';
+        timeRow.append(time, timezone);
+        card.append(top, title, timeRow);
+
+        if (event.location) {
+            const details = document.createElement('div');
+            details.className = 'events-ctf-details';
+            const location = document.createElement('span');
+            location.textContent = event.location;
+            details.append(location);
+            card.append(details);
+        }
+
+        const actions = document.createElement('div');
+        actions.className = 'events-ctf-card-actions';
+        const detailLink = document.createElement('a');
+        detailLink.className = 'btn-secondary';
+        detailLink.href = `https://ctftime.org/event/${event.id}/`;
+        detailLink.target = '_blank';
+        detailLink.rel = 'noopener noreferrer';
+        detailLink.textContent = 'Chi tiết tại CTFtime';
+        actions.append(detailLink);
+
+        if (root.dataset.board === 'true') {
+            const form = document.createElement('form');
+            form.method = 'post';
+            form.action = root.dataset.importUrl;
+            const csrf = document.createElement('input');
+            csrf.type = 'hidden';
+            csrf.name = 'csrf_token';
+            csrf.value = root.dataset.csrfToken;
+            const sourceId = document.createElement('input');
+            sourceId.type = 'hidden';
+            sourceId.name = 'event_id';
+            sourceId.value = event.id;
+            const button = document.createElement('button');
+            button.className = 'btn-primary';
+            button.type = 'submit';
+            button.textContent = 'Tạo sự kiện FIA';
+            form.append(csrf, sourceId, button);
+            actions.append(form);
+        }
+
+        card.append(actions);
+        return card;
+    }
+
+    function paint() {
+        const messages = [];
+        const stale = Boolean(cacheState.stale);
+        if (loading) messages.push(events.length ? 'Đang cập nhật lịch CTFtime…' : 'Đang tải lịch CTFtime…');
+        if (stale) messages.push('Đang hiển thị dữ liệu CTFtime đã lưu; lịch có thể chưa mới nhất.');
+        else if (cacheState.cached && !loading) messages.push('Dữ liệu được cung cấp từ bộ nhớ đệm gần đây.');
+        const sourceError = cacheState.error || loadError;
+        if (sourceError) messages.push(sourceError);
+        setStatus(messages, stale);
+
+        const fetchedAt = formatDate(cacheState.fetched_at);
+        const rangeStart = formatDate(cacheState.window?.start);
+        const rangeEnd = formatDate(cacheState.window?.finish);
+        windowLabel.textContent = [
+            rangeStart && rangeEnd ? `Khoảng thời gian: ${rangeStart} – ${rangeEnd} (giờ Việt Nam).` : '',
+            fetchedAt ? `Cập nhật: ${fetchedAt}.` : ''
+        ].filter(Boolean).join(' ');
+        retry.hidden = !(loadError || cacheState.error || cacheState.stale);
+        results.setAttribute('aria-busy', String(loading));
+        results.replaceChildren();
+
+        const query = searchText.trim().toLocaleLowerCase('vi');
+        const visible = events.filter((event) => !query || event.title.toLocaleLowerCase('vi').includes(query));
+        if (visible.length) {
+            const grid = document.createElement('div');
+            grid.className = 'events-ctf-grid';
+            visible.forEach((event) => grid.append(makeCard(event)));
+            results.append(grid);
+        } else {
+            const empty = document.createElement('div');
+            empty.className = 'empty-state';
+            const heading = document.createElement('strong');
+            const message = document.createElement('span');
+            message.className = 'small muted';
+            if (loading && !loaded) {
+                heading.textContent = 'Đang tải danh sách cuộc thi CTFtime…';
+                message.textContent = '';
+            } else if (sourceError && !events.length) {
+                heading.textContent = 'Chưa tải được lịch CTFtime';
+                message.textContent = 'Kiểm tra kết nối rồi thử tải lại. Lịch chính thức vẫn có thể xem tại CTFtime.';
+            } else if (events.length) {
+                heading.textContent = 'Không có kết quả phù hợp';
+                message.textContent = 'Thử đổi từ khóa tìm kiếm.';
+            } else {
+                heading.textContent = 'Không có cuộc thi trong khoảng thời gian này';
+                message.textContent = 'Lịch được đồng bộ từ nguồn công khai CTFtime.';
+            }
+            empty.append(heading);
+            if (message.textContent) empty.append(message);
+            results.append(empty);
+        }
+    }
+
+    async function loadEvents(force = false) {
+        if (loaded && !force) return;
+        if (pendingRequest) return pendingRequest;
+        loading = true;
+        loadError = '';
+        paint();
+        pendingRequest = (async () => {
+            try {
+                const response = await fetch(root.dataset.feedUrl, {
+                    method: 'GET', credentials: 'same-origin', cache: 'no-store',
+                    headers: { Accept: 'application/json' }
+                });
+                let payload;
+                try {
+                    payload = await response.json();
+                } catch {
+                    throw new Error('Máy chủ trả về dữ liệu CTFtime không đọc được.');
+                }
+                if (!response.ok) {
+                    throw new Error(typeof payload?.error === 'string'
+                        ? payload.error : `Không tải được lịch CTFtime (HTTP ${response.status}).`);
+                }
+                if (!Array.isArray(payload?.events)) throw new Error('Dữ liệu lịch CTFtime không đúng định dạng.');
+                const parsed = payload.events.map(normaliseEvent).filter(Boolean);
+                if (payload.events.length && !parsed.length) throw new Error('Không tìm thấy sự kiện hợp lệ trong dữ liệu CTFtime.');
+                events = parsed;
+                cacheState = {
+                    cached: Boolean(payload.cached), stale: Boolean(payload.stale),
+                    error: typeof payload.error === 'string' ? payload.error : '',
+                    fetched_at: typeof payload.fetched_at === 'string' ? payload.fetched_at : '',
+                    window: payload.window && typeof payload.window === 'object' ? payload.window : null
+                };
+                loaded = true;
+            } catch (error) {
+                loadError = typeof error?.message === 'string' ? error.message : 'Không thể tải lịch CTFtime lúc này.';
+            } finally {
+                loading = false;
+                pendingRequest = null;
+                paint();
+            }
+        })();
+        return pendingRequest;
+    }
+
+    function selectSource(source, focus = false) {
+        activeSource = source === 'ctftime' ? 'ctftime' : 'fia';
+        for (const tab of tabs) {
+            const selected = tab.dataset.eventsSource === activeSource;
+            tab.classList.toggle('active', selected);
+            tab.setAttribute('aria-selected', String(selected));
+            tab.tabIndex = selected ? 0 : -1;
+            if (selected && focus) tab.focus();
+        }
+        for (const [name, panel] of panels) panel.hidden = name !== activeSource;
+        if (activeSource === 'ctftime') loadEvents(false);
+    }
+
+    tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => selectSource(tab.dataset.eventsSource));
+        tab.addEventListener('keydown', (event) => {
+            let next = index;
+            if (event.key === 'ArrowRight') next = (index + 1) % tabs.length;
+            else if (event.key === 'ArrowLeft') next = (index + tabs.length - 1) % tabs.length;
+            else if (event.key === 'Home') next = 0;
+            else if (event.key === 'End') next = tabs.length - 1;
+            else return;
+            event.preventDefault();
+            selectSource(tabs[next].dataset.eventsSource, true);
+        });
+    });
+
+    search.addEventListener('input', (event) => {
+        searchText = event.currentTarget.value;
+        paint();
+    });
+    retry.addEventListener('click', () => loadEvents(true));
+})();
+</script>
 {% endblock %}
