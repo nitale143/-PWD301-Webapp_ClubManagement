@@ -5,19 +5,15 @@ an unconstrained model answer. Ambiguity produces a question, not a write.
 """
 
 import re
-from datetime import datetime, time, timedelta
+from datetime import datetime, timedelta
 
 from app import db
-from app.models import AIProposal, AssistantPending, Ban, Event, User
+from app.models import AIProposal, AssistantPending, ConversationPending, Ban, Event, User
 from .access import is_board, visible_members, require
 from .assistant import RulesProvider, _normalize
-from .common import DomainError, club_now
+from .common import DomainError
 from .proposals import create_proposal
-
-
-_ISO = re.compile(r"\b\d{4}-\d{2}-\d{2}[ T]\d{1,2}:\d{2}\b")
-_VN = re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\s+(?:lúc\s+)?\d{1,2}(?::|h)\d{0,2}\b", re.I)
-_TIME = re.compile(r"\b\d{1,2}(?::|h)\d{0,2}\b", re.I)
+from .natural_datetime import parse_natural_datetimes
 
 
 def _kind(message):
@@ -32,10 +28,38 @@ def _kind(message):
     return None
 
 
-def is_natural_proposal_command(message, actor=None):
+def _pending(actor, conversation=None):
+    if conversation is not None:
+        from .chat_conversations import owned_conversation
+        owned_conversation(actor, conversation.id, active=True)
+        return db.session.get(ConversationPending, conversation.id)
+    return db.session.get(AssistantPending, actor.id)
+
+
+def _new_pending(actor, kind, text, conversation=None):
+    if conversation is not None:
+        return ConversationPending(user_id=actor.id, conversation_id=conversation.id,
+                                   kind=kind, text=text)
+    return AssistantPending(user_id=actor.id, kind=kind, text=text)
+
+
+def is_natural_proposal_command(message, actor=None, conversation=None):
     if _kind(message):
         return True
-    return bool(actor and db.session.get(AssistantPending, actor.id))
+    return bool(actor and _pending(actor, conversation))
+
+
+def is_pending_deadline_reply(actor, message, conversation=None):
+    """Recognize an explicit deadline continuation, not a task lookup."""
+    pending = _pending(actor, conversation)
+    if (not pending or pending.kind != "task"
+            or pending.updated_at < datetime.utcnow() - timedelta(minutes=30)):
+        return False
+    return bool(re.match(
+        r"^(?:han(?:\s+cua)?(?:\s+(?:task|cong viec))?(?:\s+cua toi)?|deadline)"
+        r"(?:\s+la\b|\s*[:=]|\s+(?:toi|luc|ngay|hom nay|ngay mai|\d))",
+        _normalize(message).strip(),
+    ))
 
 
 def _entity(rows, name_attr, message, label):
@@ -106,49 +130,13 @@ def _assignee(actor, message):
 
 
 def _dates(message):
-    found = []
-    occupied = []
-    for pattern in (_ISO, _VN):
-        for hit in pattern.finditer(message):
-            if any(a <= hit.start() < b for a, b in occupied):
-                continue
-            raw = hit.group()
-            try:
-                if pattern is _ISO:
-                    when = datetime.fromisoformat(raw)
-                else:
-                    match = re.match(r"(\d{1,2})/(\d{1,2})/(\d{4})\s+(?:lúc\s+)?(\d{1,2})(?::|h)(\d{0,2})", raw, re.I)
-                    day, month, year, hour, minute = match.groups()
-                    when = datetime(int(year), int(month), int(day), int(hour), int(minute or 0))
-            except (ValueError, AttributeError):
-                raise DomainError("Ngày hoặc giờ trong yêu cầu không hợp lệ.") from None
-            found.append((hit.start(), when, raw))
-            occupied.append(hit.span())
-    if len(found) == 1:
-        base = found[0][1]
-        if "ngay mai" in _normalize(message) and base.date() != (club_now() + timedelta(days=1)).date():
-            raise DomainError("Ngày ghi trong câu khác với 'ngày mai'; hãy xác nhận lại.")
-        for hit in _TIME.finditer(message):
-            if any(a <= hit.start() < b for a, b in occupied):
-                continue
-            hour, minute = re.match(r"(\d{1,2})(?::|h)(\d{0,2})", hit.group()).groups()
-            try:
-                found.append((hit.start(), datetime.combine(base.date(), time(int(hour), int(minute or 0))), hit.group()))
-            except ValueError:
-                raise DomainError("Giờ trong yêu cầu không hợp lệ.") from None
-    if not found and "ngay mai" in _normalize(message):
-        tomorrow = (club_now() + timedelta(days=1)).date()
-        for hit in _TIME.finditer(message):
-            hour, minute = re.match(r"(\d{1,2})(?::|h)(\d{0,2})", hit.group()).groups()
-            try:
-                found.append((hit.start(), datetime.combine(tomorrow, time(int(hour), int(minute or 0))), hit.group()))
-            except ValueError:
-                raise DomainError("Giờ trong yêu cầu không hợp lệ.") from None
-    return [(when, raw) for _position, when, raw in sorted(found)]
+    return parse_natural_datetimes(message)
 
 
 def _brief(message, kind, event=None, ban=None, member=None, date_parts=()):
     text = message
+    # Remove the relationship connector, not the word 'thuộc' in a task title.
+    text = re.sub(r"(?i)\b(?:thuộc|thuoc)\s+ban\b", " ban ", text)
     text = re.sub(r"(?i)\b(?:cả\s+)?\d+\s+ban\b", " ", text)
     text = re.sub(r"(?i)\bban\s*#?\s*\d+\b", " ", text)
     for raw in date_parts:
@@ -165,8 +153,8 @@ def _brief(message, kind, event=None, ban=None, member=None, date_parts=()):
     return re.sub(r"\s+", " ", text).strip(" ,.;:-")[:2000]
 
 
-def maybe_create_natural_proposal(actor, message):
-    pending = db.session.get(AssistantPending, actor.id)
+def maybe_create_natural_proposal(actor, message, conversation=None):
+    pending = _pending(actor, conversation)
     if pending and pending.updated_at < datetime.utcnow() - timedelta(minutes=30):
         db.session.delete(pending)
         pending = None
@@ -181,23 +169,47 @@ def maybe_create_natural_proposal(actor, message):
     kind = current_kind or pending.kind
     # A full new request replaces the prior incomplete request. Short answers
     # still add missing details to the pending conversation.
-    text = pending.text + " " + message if pending and not current_kind else message
+    continuation = message
+    separator = " "
+    if pending and not current_kind and is_pending_deadline_reply(actor, message, conversation):
+        # Deadline labels are form metadata, not part of the task title.
+        continuation = re.sub(
+            r"(?i)^\s*(?:(?:hạn|han)(?:\s+(?:của|cua))?"
+            r"(?:\s+(?:task|công việc|cong viec))?(?:\s+(?:của tôi|cua toi))?|deadline)"
+            r"\s*(?:(?:là|la)\b|[:=])?\s*", "", message, count=1,
+        )
+        # Keep separate replies separate: a new clock must not pair with a
+        # previous date when the user is correcting/conflicting with a deadline.
+        separator = " ; "
+    text = pending.text + separator + continuation if pending and not current_kind else message
     if len(text) > 4000:
         raise DomainError("Yêu cầu đang quá dài. Gõ 'hủy' rồi viết lại ngắn hơn.")
     try:
         dates = _dates(text)
+        if kind == "task" and len({when for when, _raw in dates}) > 1:
+            raise DomainError("Yêu cầu nêu nhiều ngày/giờ cho một task; hãy xác nhận hạn cần dùng.")
         ban = _ban(text)
         member = _assignee(actor, text) if kind == "task" else None
         event = _event(text) if kind == "task" else None
     except DomainError as exc:
         if pending is None:
-            pending = AssistantPending(user_id=actor.id, kind=kind, text=text)
+            pending = _new_pending(actor, kind, text, conversation)
             db.session.add(pending)
         else:
             pending.kind, pending.text = kind, text
         return {"intent": "proposal_needs_details", "preview": True, "provider": "database",
                 "answer": f"Chưa tạo đề xuất. {exc} Gõ 'hủy' nếu muốn bỏ yêu cầu này."}
     brief = _brief(text, kind, event, ban, member, [raw for _when, raw in dates])
+    if pending and not current_kind and kind == "task":
+        date_parts = [raw for _when, raw in dates]
+        latest = _brief(message, kind, event, ban, member, date_parts)
+        previous = _brief(pending.text, kind, event, ban, member, date_parts)
+        # A follow-up can restate the same title (including text saved by the
+        # old parser). Collapse only exact repeated titles, never new details.
+        latest_key = _normalize(latest)
+        if latest_key and re.fullmatch(
+                rf"(?:{re.escape(latest_key)}(?:[\s,.;:-]+|$))+", _normalize(previous)):
+            brief = latest
     missing = []
     if kind == "event":
         if not brief:
@@ -219,7 +231,7 @@ def maybe_create_natural_proposal(actor, message):
             missing.append("nội dung task")
     if missing:
         if pending is None:
-            db.session.add(AssistantPending(user_id=actor.id, kind=kind, text=text))
+            db.session.add(_new_pending(actor, kind, text, conversation))
         else:
             pending.kind, pending.text = kind, text
         return {"intent": "proposal_needs_details", "preview": True, "provider": "database",
@@ -232,6 +244,11 @@ def maybe_create_natural_proposal(actor, message):
         data = {"kind": "task", "brief": brief, "event_id": event.id,
                 "ban_id": ban.id, "deadline": dates[-1][0].isoformat(),
                 "assignee_id": member.id if member else ""}
+    if kind == "event":
+        resolved = (f"Thời gian sự kiện: {dates[0][0]:%H:%M ngày %d/%m/%Y} đến "
+                    f"{dates[1][0]:%H:%M ngày %d/%m/%Y} (giờ CLB). ")
+    else:
+        resolved = f"Hạn task: {dates[-1][0]:%H:%M ngày %d/%m/%Y} (giờ CLB). "
     existing = (AIProposal.query.filter_by(created_by_id=actor.id, kind=kind,
                                             request_text=brief, status="pending")
                 .filter(AIProposal.created_at >= datetime.utcnow() - timedelta(minutes=30))
@@ -251,11 +268,12 @@ def maybe_create_natural_proposal(actor, message):
                 db.session.delete(pending)
             return {"intent": "ai_proposal", "preview": True, "provider": "database",
                     "proposal_id": row.id,
-                    "answer": f"Đề xuất #{row.id} đã tồn tại và đang chờ duyệt; chưa tạo thêm bản trùng."}
+                    "answer": f"Đề xuất #{row.id} đã tồn tại và đang chờ duyệt; chưa tạo thêm bản trùng. "
+                    + resolved}
     proposal = create_proposal(actor, data, provider=RulesProvider())
     if pending is not None:
         db.session.delete(pending)
     return {"intent": "ai_proposal", "preview": True, "provider": "database",
             "proposal_id": proposal.id,
-            "answer": f"Đã tạo đề xuất #{proposal.id} từ câu tự nhiên; chưa áp dụng. "
-            "BDH hãy xem đúng sự kiện, ban, người nhận và thời hạn rồi bấm Duyệt và áp dụng."}
+            "answer": f"Đã tạo đề xuất #{proposal.id} từ câu tự nhiên; chưa áp dụng. " + resolved
+            + "BDH hãy xem đúng sự kiện, ban, người nhận và thời hạn rồi bấm Duyệt và áp dụng."}

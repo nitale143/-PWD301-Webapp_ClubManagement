@@ -25,6 +25,10 @@ def _member(actor, message):
     members = visible_members(actor).order_by(User.id).all()
     codes = [row for row in members if re.search(
         r"(?<!\w)" + re.escape(_normalize(row.mssv)) + r"(?!\w)", text)]
+    raw_codes = set(re.findall(r"\b[a-z]{1,8}\d+[a-z0-9]*\b", text))
+    if raw_codes and raw_codes != {_normalize(row.mssv) for row in codes}:
+        # Do not ignore a second unknown/invisible code and answer for the first.
+        return None
     names = [row for row in members if len(_normalize(row.ho_ten)) >= 4 and re.search(
         r"(?<!\w)" + re.escape(_normalize(row.ho_ten)) + r"(?!\w)", text)]
     accented = [row for row in names if row.ho_ten.casefold() in message.casefold()
@@ -32,7 +36,12 @@ def _member(actor, message):
     if len(codes) > 1 or (codes and names and any(row.id != codes[0].id for row in names)):
         return None
     matches = codes or accented or names
-    if not matches and re.search(r"\b(?:toi|minh)\b", text):
+    explicit_code = re.search(r"\b[a-z]{1,8}\d+[a-z0-9]*\b|\b(?:mssv|msv)\s*[:#-]?\s*\d+", text)
+    asks_self = re.search(
+        r"\b(?:cua (?:toi|minh|tui)|ban than toi|chinh toi)\b|"
+        r"\b(?:ho so|thong tin|du lieu|task|cong viec) (?:toi|minh|tui)\b|"
+        r"\b(?:toi|minh|tui)(?:\s+(?:dang|co|lam)){1,2}\s+(?:task|cong viec)\b", text)
+    if not matches and asks_self and not explicit_code:
         matches = [row for row in members if row.id == actor.id]
     if len(matches) != 1:
         return None

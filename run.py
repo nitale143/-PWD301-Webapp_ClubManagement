@@ -7,10 +7,24 @@ from datetime import date
 from dotenv import load_dotenv
 from app import create_app, db
 from app.models import User, Ban
-from app.migrations import migrate_email_recipients, migrate_legacy_money
+from app.migrations import (
+    migrate_chat_conversations,
+    migrate_email_recipients,
+    migrate_legacy_money,
+)
 
 load_dotenv()
 app = create_app()
+
+
+@app.cli.command("migrate-chats")
+def migrate_chats():
+    """Idempotently check/upgrade SQLite AI chat conversations."""
+    if db.engine.url.get_backend_name() != "sqlite":
+        raise RuntimeError("Lệnh này chỉ hỗ trợ SQLite.")
+    backup = migrate_chat_conversations(db.engine.url.database or ":memory:")
+    print(f"Đã cập nhật hội thoại AI. Bản sao lưu: {backup}" if backup else
+          "Cấu trúc hội thoại AI đã đúng; không cần cập nhật.")
 
 
 @app.cli.command("migrate-money")

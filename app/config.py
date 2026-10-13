@@ -73,6 +73,10 @@ class Config:
     AI_CHAT_MESSAGES_PER_MINUTE = int(os.environ.get("AI_CHAT_MESSAGES_PER_MINUTE", 20))
     # Verified chat reads use deterministic queries; model text remains a draft.
     AI_STRICT_FACTS = os.environ.get("AI_STRICT_FACTS", "true").lower() == "true"
+    # Bounded model/tool loop; facts still come from permission-scoped services.
+    AI_AGENT_ENABLED = os.environ.get("AI_AGENT_ENABLED", "true").lower() == "true"
+    AI_AGENT_MAX_STEPS = int(os.environ.get("AI_AGENT_MAX_STEPS", 3))
+    AI_AGENT_MAX_SECONDS = int(os.environ.get("AI_AGENT_MAX_SECONDS", 90))
 
     # --- Upload avatar (luu truc tiep tren server, phuc vu demo) ---
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "app", "static", "uploads", "avatars")

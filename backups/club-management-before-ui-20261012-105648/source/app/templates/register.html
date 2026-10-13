@@ -1,0 +1,47 @@
+{% extends "base.html" %}
+{% block title %}Dang ky thanh vien{% endblock %}
+{% block content %}
+<div class="auth-box wide">
+    <h1>Dang ky thanh vien moi</h1>
+    <form method="post">
+        <label>Ho va Ten</label>
+        <input type="text" name="ho_ten" value="{{ form.get('ho_ten','') }}" required>
+        {% if errors.ho_ten %}<p class="field-error">{{ errors.ho_ten }}</p>{% endif %}
+
+        <label>MSSV</label>
+        <input type="text" name="mssv" value="{{ form.get('mssv','') }}" required>
+        {% if errors.mssv %}<p class="field-error">{{ errors.mssv }}</p>{% endif %}
+
+        <label>Ngay sinh</label>
+        <input type="date" name="ngay_sinh" value="{{ form.get('ngay_sinh','') }}" required>
+        {% if errors.ngay_sinh %}<p class="field-error">{{ errors.ngay_sinh }}</p>{% endif %}
+
+        <label>Ban hoat dong (co the chon nhieu)</label>
+        <select name="ban_hoat_dong" multiple required>
+            {% for ban in bans %}
+            <option value="{{ ban.id }}">{{ ban.ten_ban }}</option>
+            {% endfor %}
+        </select>
+        {% if errors.ban_hoat_dong %}<p class="field-error">{{ errors.ban_hoat_dong }}</p>{% endif %}
+
+        <label>So dien thoai</label>
+        <input type="text" name="sdt" value="{{ form.get('sdt','') }}" required>
+        {% if errors.sdt %}<p class="field-error">{{ errors.sdt }}</p>{% endif %}
+
+        <label>Email</label>
+        <input type="email" name="email" value="{{ form.get('email','') }}" required>
+        {% if errors.email %}<p class="field-error">{{ errors.email }}</p>{% endif %}
+
+        <label>Link Facebook</label>
+        <input type="text" name="facebook_link" value="{{ form.get('facebook_link','') }}" placeholder="https://facebook.com/..." required>
+        {% if errors.facebook_link %}<p class="field-error">{{ errors.facebook_link }}</p>{% endif %}
+
+        <label>Mat khau</label>
+        <input type="password" name="password" required>
+        {% if errors.password %}<p class="field-error">{{ errors.password }}</p>{% endif %}
+
+        <button type="submit">Dang ky</button>
+    </form>
+    <p class="muted">Da co tai khoan? <a href="{{ url_for('auth.login') }}">Dang nhap</a></p>
+</div>
+{% endblock %}

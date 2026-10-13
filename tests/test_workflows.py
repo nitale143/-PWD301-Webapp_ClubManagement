@@ -11,7 +11,7 @@ from flask import g
 from PIL import Image
 
 from app import create_app, db
-from app.models import AIProposal, AIReportSnapshot, AIUsageLog, AssistantPending, Attendance, Ban, ChatMessage, EmailProposal, EmailTemplate, Event, EventRegistration, EventTargetBan, FundCollection, FundDue, FundPayment, FundPeriod, MemberPlanningProfile, MemberRecord, Task, User, UserBan
+from app.models import AIProposal, AIReportSnapshot, AIUsageLog, ConversationPending, Attendance, Ban, ChatMessage, EmailProposal, EmailTemplate, Event, EventRegistration, EventTargetBan, FundCollection, FundDue, FundPayment, FundPeriod, MemberPlanningProfile, MemberRecord, Task, User, UserBan
 from app.migrations import migrate_email_recipients, migrate_legacy_money
 from app.services.common import DomainError, club_now, parse_datetime
 from app.services.briefings import daily_digest, report_data, report_text
@@ -1195,7 +1195,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(incomplete.status_code, 200, incomplete.json)
         self.assertEqual(incomplete.json["intent"], "proposal_needs_details")
         self.assertEqual(Event.query.count(), 0)
-        self.assertIsNotNone(db.session.get(AssistantPending, 1))
+        self.assertIsNotNone(db.session.get(ConversationPending, incomplete.json["conversation_id"]))
         start = (club_now() + timedelta(days=3)).replace(second=0, microsecond=0)
         answer = f"Bắt đầu {start:%d/%m/%Y %H:%M} và kết thúc {start + timedelta(hours=2):%d/%m/%Y %H:%M}"
         created = self.client.post("/api/v1/assistant", json={"question": answer},
@@ -1203,7 +1203,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(created.status_code, 200, created.json)
         self.assertEqual(created.json["intent"], "ai_proposal")
         self.assertEqual(Event.query.count(), 0)
-        self.assertIsNone(db.session.get(AssistantPending, 1))
+        self.assertIsNone(db.session.get(ConversationPending, created.json["conversation_id"]))
         proposal = AIProposal.query.one()
         self.assertEqual(proposal.kind, "event")
         self.assertIn("Workshop bảo mật", proposal.payload["name"])
@@ -1228,7 +1228,7 @@ class WorkflowTests(unittest.TestCase):
         again = self.client.post("/api/v1/assistant", json={"question": valid},
                                  headers={"X-CSRF-Token": token})
         self.assertEqual(first.json["intent"], "ai_proposal")
-        self.assertIsNone(db.session.get(AssistantPending, 1))
+        self.assertIsNone(db.session.get(ConversationPending, first.json["conversation_id"]))
         self.assertEqual(again.json["proposal_id"], first.json["proposal_id"])
         self.assertEqual(AIProposal.query.count(), 1)
 
@@ -1261,7 +1261,7 @@ class WorkflowTests(unittest.TestCase):
         cancelled = self.client.post("/api/v1/assistant", json={"question": "hủy"},
                                      headers={"X-CSRF-Token": token})
         self.assertEqual(cancelled.json["intent"], "proposal_cancelled")
-        self.assertIsNone(db.session.get(AssistantPending, 1))
+        self.assertIsNone(db.session.get(ConversationPending, cancelled.json["conversation_id"]))
 
     def test_natural_task_does_not_substitute_unknown_named_assignee(self):
         self.app.config.update(AI_PROVIDER="rules")
