@@ -10,31 +10,85 @@ def approved(user):
     return record is None or (record.luu_tru_luc is None and record.tinh_trang != "left")
 
 
+ADMIN_ROLES = frozenset({"CN", "PCN", "TB", "THUKY_THUQUY"})
+MEMBER_ROLE = "THANH_VIEN"
+
+
 def is_admin(user):
-    return approved(user) and user.chuc_vu == "CN"
+    return approved(user) and user.chuc_vu in ADMIN_ROLES
 
 
 def is_board(user):
-    return approved(user) and user.chuc_vu in {"CN", "PCN", "TB"}
+    return is_admin(user)
 
 
 def is_treasurer(user):
-    return approved(user) and user.chuc_vu in {"CN", "THUKY_THUQUY"}
+    return is_admin(user)
 
 
 def can_view_all_members(user):
-    return approved(user) and user.chuc_vu in {"CN", "PCN", "THUKY_THUQUY"}
+    return is_admin(user)
 
 
 def can_manage_member(actor, target):
-    if not approved(actor) or not target or actor.id == target.id:
+    return bool(is_admin(actor) and target and actor.id != target.id)
+
+
+def _active_admin_count():
+    return (db.session.query(db.func.count(User.id))
+            .outerjoin(MemberRecord, User.id == MemberRecord.user_id)
+            .filter(User.status == "approved", User.chuc_vu.in_(ADMIN_ROLES),
+                    db.or_(MemberRecord.user_id.is_(None), db.and_(
+                        MemberRecord.luu_tru_luc.is_(None),
+                        MemberRecord.tinh_trang != "left")))
+            .scalar_subquery())
+
+
+def _active_member_row(user_id):
+    active = (db.session.query(MemberRecord.user_id)
+              .filter(MemberRecord.user_id == user_id,
+                      MemberRecord.luu_tru_luc.is_(None),
+                      MemberRecord.tinh_trang != "left").exists())
+    missing = ~db.session.query(MemberRecord.user_id).filter(
+        MemberRecord.user_id == user_id).exists()
+    return db.or_(active, missing)
+
+
+def set_member_role_safely(target, new_role):
+    """Atomically update a role without removing the last active admin."""
+    old_role = target.chuc_vu
+    conditions = [User.id == target.id, User.status == "approved",
+                  User.chuc_vu == old_role, _active_member_row(User.id)]
+    if old_role in ADMIN_ROLES and new_role not in ADMIN_ROLES:
+        conditions.append(_active_admin_count() > 1)
+    result = db.session.execute(
+        db.update(User).where(*conditions).values(chuc_vu=new_role)
+    )
+    if result.rowcount != 1:
         return False
-    if actor.chuc_vu in {"CN", "PCN"}:
-        return True
-    if actor.chuc_vu == "TB":
-        managed = set(actor.quan_ly_ban_ids())
-        return bool(managed.intersection(link.ban_id for link in target.ban_links))
-    return False
+    db.session.expire(target, ["chuc_vu"])
+    return True
+
+
+def set_member_left_safely(target, record, archived_at=None):
+    """Mark a member left while atomically preserving one active admin."""
+    values = {"tinh_trang": "left"}
+    if archived_at is not None:
+        values["luu_tru_luc"] = archived_at
+    conditions = [MemberRecord.user_id == target.id]
+    active_admin_in_database = db.session.query(User.id).filter(
+        User.id == target.id, User.status == "approved", User.chuc_vu.in_(ADMIN_ROLES),
+        _active_member_row(User.id)).exists()
+    conditions.append(db.or_(~active_admin_in_database, _active_admin_count() > 1))
+    result = db.session.execute(
+        db.update(MemberRecord).where(*conditions).values(**values)
+    )
+    if result.rowcount != 1:
+        return False
+    record.tinh_trang = "left"
+    if archived_at is not None:
+        record.luu_tru_luc = archived_at
+    return True
 
 
 def can_view_member(actor, target):
@@ -59,10 +113,7 @@ def require_current_approval(actor):
 
 
 def actor_scope_stamp(actor):
-    managed = (tuple(row[0] for row in db.session.query(UserBan.ban_id).filter_by(
-        user_id=actor.id, is_truong_ban=True).distinct().order_by(UserBan.ban_id))
-        if actor.chuc_vu == "TB" else ())
-    return actor.chuc_vu, managed
+    return actor.chuc_vu
 
 
 def require_unchanged_scope(actor, stamp):
@@ -74,7 +125,4 @@ def visible_members(actor):
     query = User.query.filter_by(status="approved").outerjoin(MemberRecord, User.id == MemberRecord.user_id).filter(MemberRecord.luu_tru_luc.is_(None))
     if can_view_all_members(actor):
         return query
-    if approved(actor) and actor.chuc_vu == "TB":
-        ban_ids = actor.quan_ly_ban_ids()
-        return query.filter(db.or_(User.id == actor.id, User.id.in_(db.session.query(UserBan.user_id).filter(UserBan.ban_id.in_(ban_ids)))))
     return query.filter(User.id == getattr(actor, "id", -1))

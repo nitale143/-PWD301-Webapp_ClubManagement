@@ -50,14 +50,43 @@ class WorkflowTests(unittest.TestCase):
         g.pop("_login_user", None)
 
     def csrf(self):
+        self.client.get("/login")
+        with self.client.session_transaction() as session:
+            token = session.get("_csrf_token")
+        if token:
+            return token
         self.client.get("/ai")
         with self.client.session_transaction() as session:
             return session["_csrf_token"]
 
+    def csrf_request(self, method, path, *args, **kwargs):
+        """Send a browser-style unsafe request with the current session token."""
+        token = self.csrf()
+        if "json" in kwargs:
+            headers = dict(kwargs.get("headers") or {})
+            headers.setdefault("X-CSRF-Token", token)
+            kwargs["headers"] = headers
+        else:
+            data = args[0] if args else kwargs.get("data")
+            if data is None:
+                data = {}
+            if isinstance(data, dict):
+                data = dict(data)
+                data.setdefault("csrf_token", token)
+                if args:
+                    args = (data, *args[1:])
+                else:
+                    kwargs["data"] = data
+            else:
+                headers = dict(kwargs.get("headers") or {})
+                headers.setdefault("X-CSRF-Token", token)
+                kwargs["headers"] = headers
+        return self.client.open(path, *args, method=method, **kwargs)
+
     def create_fund(self, amount="100.00", due=None):
         self.login(2)
         today = date.today()
-        response = self.client.post("/api/v1/funds", json={
+        response = self.csrf_request("POST", "/api/v1/funds", json={
             "name": "Quy thang", "type": "monthly", "amount": amount,
             "start_date": (today - timedelta(days=30)).isoformat(),
             "due_date": (due or today + timedelta(days=2)).isoformat(),
@@ -68,7 +97,7 @@ class WorkflowTests(unittest.TestCase):
     def create_event(self, capacity=1):
         self.login(1)
         start = datetime.utcnow() + timedelta(days=1)
-        response = self.client.post("/api/v1/events", json={
+        response = self.csrf_request("POST", "/api/v1/events", json={
             "name": "Workshop", "code": f"WS{Event.query.count() + 1}",
             "start_at": start.isoformat(), "end_at": (start + timedelta(hours=2)).isoformat(),
             "registration_deadline": (start - timedelta(hours=1)).isoformat(),
@@ -80,33 +109,33 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v1/dashboard").status_code, 401)
         fund_id = self.create_fund(due=date.today() - timedelta(days=1))
         self.login(3)
-        forbidden = self.client.post("/api/v1/funds", json={})
+        forbidden = self.csrf_request("POST", "/api/v1/funds", json={})
         self.assertEqual(forbidden.status_code, 403)
-        first = self.client.post(f"/api/v1/funds/{fund_id}/payments",
+        first = self.csrf_request("POST", f"/api/v1/funds/{fund_id}/payments",
                                  json={"amount": "40.00", "method": "transfer"})
         self.assertEqual(first.status_code, 201, first.json)
         image = BytesIO()
         Image.new("RGB", (2, 2), "white").save(image, format="PNG")
         image.seek(0)
-        evidence = self.client.post(f"/api/v1/payments/{first.json['id']}/evidence",
+        evidence = self.csrf_request("POST", f"/api/v1/payments/{first.json['id']}/evidence",
                                     data={"file": (image, "receipt.png")})
         self.assertEqual(evidence.status_code, 201, evidence.json)
         self.assertTrue(self.client.get(f"/api/v1/payments/evidence/{evidence.json['id']}").data.startswith(b"\x89PNG"))
-        duplicate_pending = self.client.post(f"/api/v1/funds/{fund_id}/payments",
+        duplicate_pending = self.csrf_request("POST", f"/api/v1/funds/{fund_id}/payments",
                                              json={"amount": "70.00", "method": "transfer"})
         self.assertEqual(duplicate_pending.status_code, 400)
         self.login(2)
-        confirmed = self.client.post(f"/api/v1/payments/{first.json['id']}/review",
+        confirmed = self.csrf_request("POST", f"/api/v1/payments/{first.json['id']}/review",
                                      json={"decision": "confirmed"})
         self.assertEqual(confirmed.status_code, 200, confirmed.json)
-        self.assertEqual(self.client.post(f"/api/v1/payments/{first.json['id']}/review",
+        self.assertEqual(self.csrf_request("POST", f"/api/v1/payments/{first.json['id']}/review",
                                           json={"decision": "confirmed"}).status_code, 400)
         row = self.client.get(f"/api/v1/funds/{fund_id}/balances").json["items"]
         member = next(item for item in row if item["member"]["id"] == 3)
         self.assertEqual(member["balance"]["paid"], "40.00")
         self.assertEqual(member["balance"]["remaining"], "60.00")
         self.assertEqual(member["balance"]["status"], "overdue")
-        adjusted = self.client.put(f"/api/v1/funds/{fund_id}/adjustments/3",
+        adjusted = self.csrf_request("PUT", f"/api/v1/funds/{fund_id}/adjustments/3",
                                    json={"type": "reduce", "amount": "20.00", "reason": "Ho tro"})
         self.assertEqual(adjusted.status_code, 200, adjusted.json)
         member = next(item for item in self.client.get(f"/api/v1/funds/{fund_id}/balances").json["items"]
@@ -119,13 +148,13 @@ class WorkflowTests(unittest.TestCase):
     def test_event_waitlist_promotion_qr_and_activity(self):
         event_id = self.create_event()
         self.login(3)
-        first = self.client.post(f"/api/v1/events/{event_id}/registrations", json={})
+        first = self.csrf_request("POST", f"/api/v1/events/{event_id}/registrations", json={})
         self.assertEqual(first.json["status"], "registered")
         self.login(4)
-        second = self.client.post(f"/api/v1/events/{event_id}/registrations", json={})
+        second = self.csrf_request("POST", f"/api/v1/events/{event_id}/registrations", json={})
         self.assertEqual(second.json["status"], "waitlist")
         self.login(3)
-        cancelled = self.client.post(f"/api/v1/registrations/{first.json['id']}/cancel")
+        cancelled = self.csrf_request("POST", f"/api/v1/registrations/{first.json['id']}/cancel")
         self.assertEqual(cancelled.json["promoted_id"], second.json["id"])
         event = db.session.get(Event, event_id)
         event.thoi_gian_bat_dau = club_now() - timedelta(minutes=10)
@@ -137,45 +166,45 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(png.status_code, 200)
         self.assertTrue(png.data.startswith(b"\x89PNG"))
         self.login(4)
-        checkin = self.client.post("/api/v1/attendance/checkin", json={"token": token})
+        checkin = self.csrf_request("POST", "/api/v1/attendance/checkin", json={"token": token})
         self.assertEqual(checkin.status_code, 200, checkin.json)
-        duplicate = self.client.post("/api/v1/attendance/checkin", json={"token": token})
+        duplicate = self.csrf_request("POST", "/api/v1/attendance/checkin", json={"token": token})
         self.assertEqual(duplicate.status_code, 400, duplicate.json)
         self.assertEqual(self.client.get("/api/v1/members/4/activity").json["points"], 6)
 
     def test_assistant_scope_and_member_archive(self):
         fund_id = self.create_fund()
         self.login(3)
-        answer = self.client.post("/api/v1/assistant", json={"question": "Ai chưa đóng quỹ tháng này?"})
+        answer = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Ai chưa đóng quỹ tháng này?"})
         self.assertEqual(answer.status_code, 200, answer.json)
         self.assertNotIn("Member 4", answer.json["answer"])
-        self.assertEqual(self.client.post("/api/v1/assistant", json={"question": "Soạn thông báo nhắc đóng quỹ"}).status_code, 403)
+        self.assertEqual(self.csrf_request("POST", "/api/v1/assistant", json={"question": "Soạn thông báo nhắc đóng quỹ"}).status_code, 403)
         self.assertEqual(self.client.get("/api/v1/members/4").status_code, 403)
         self.login(2)
-        preview = self.client.post("/api/v1/assistant", json={"question": "Soạn thông báo nhắc đóng quỹ"})
+        preview = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Soạn thông báo nhắc đóng quỹ"})
         self.assertEqual(preview.status_code, 200)
         self.assertTrue(preview.json["preview"])
         self.login(1)
-        archived = self.client.post("/api/v1/members/4/archive")
+        archived = self.csrf_request("POST", "/api/v1/members/4/archive")
         self.assertEqual(archived.status_code, 200, archived.json)
         self.login(4)
         self.assertEqual(self.client.get("/api/v1/dashboard").status_code, 403)
 
     def test_event_edit_copy_cancel_and_activity_setting(self):
         event_id = self.create_event(capacity=2)
-        updated = self.client.patch(f"/api/v1/events/{event_id}", json={"location": "Phong A", "capacity": 3})
+        updated = self.csrf_request("PATCH", f"/api/v1/events/{event_id}", json={"location": "Phong A", "capacity": 3})
         self.assertEqual(updated.status_code, 200, updated.json)
         self.assertEqual(updated.json["location"], "Phong A")
         start = datetime.utcnow() + timedelta(days=3)
-        copied = self.client.post(f"/api/v1/events/{event_id}/copy", json={
+        copied = self.csrf_request("POST", f"/api/v1/events/{event_id}/copy", json={
             "code": "COPY1", "start_at": start.isoformat(),
             "end_at": (start + timedelta(hours=1)).isoformat()})
         self.assertEqual(copied.status_code, 201, copied.json)
         self.assertEqual(copied.json["location"], "Phong A")
-        cancelled = self.client.post(f"/api/v1/events/{event_id}/cancel")
+        cancelled = self.csrf_request("POST", f"/api/v1/events/{event_id}/cancel")
         self.assertEqual(cancelled.json["status"], "cancelled")
         self.login(3)
-        denied = self.client.put("/api/v1/settings/activity", json={"points": {}})
+        denied = self.csrf_request("PUT", "/api/v1/settings/activity", json={"points": {}})
         self.assertEqual(denied.status_code, 403)
 
     def test_existing_pages_still_render(self):
@@ -189,11 +218,11 @@ class WorkflowTests(unittest.TestCase):
         header = "code,name,birth_date,email,phone,department_ids,password\n"
         good = "CSV001,New Member,2003-01-01,new1@example.test,0123456789,1,secret123\n"
         invalid = "bad!,Bad Member,2003-01-01,new2@example.test,0123456789,1,secret123\n"
-        rejected = self.client.post("/api/v1/members/import", data={
+        rejected = self.csrf_request("POST", "/api/v1/members/import", data={
             "file": (BytesIO((header + good + invalid).encode()), "members.csv")})
         self.assertEqual(rejected.status_code, 400, rejected.json)
         self.assertIsNone(User.query.filter_by(mssv="CSV001").first())
-        accepted = self.client.post("/api/v1/members/import", data={
+        accepted = self.csrf_request("POST", "/api/v1/members/import", data={
             "file": (BytesIO((header + good).encode()), "members.csv")})
         self.assertEqual(accepted.status_code, 201, accepted.json)
         self.assertEqual(accepted.json["imported"], 1)
@@ -205,7 +234,7 @@ class WorkflowTests(unittest.TestCase):
             {"type": "text", "text": "Đây là câu trả lời từ mô hình."}
         ]}).encode())
         with patch("app.services.assistant.urlopen", return_value=mock_response) as mocked:
-            response = self.client.post("/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
+            response = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
         self.assertEqual(response.status_code, 200, response.json)
         self.assertEqual(response.json["provider"], "anthropic")
         req = mocked.call_args.args[0]
@@ -221,7 +250,7 @@ class WorkflowTests(unittest.TestCase):
         fake = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": "Thông tin đã được kiểm chứng."}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake) as mocked:
-            response = self.client.post("/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
+            response = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
         self.assertEqual(response.status_code, 200, response.json)
         self.assertEqual(response.json["provider"], "gemini")
         req = mocked.call_args.args[0]
@@ -233,7 +262,7 @@ class WorkflowTests(unittest.TestCase):
         fake_web = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": "Trả lời trên trang AI."}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake_web):
-            web = self.client.post("/ai", data={"message": "Hướng dẫn sử dụng CLB",
+            web = self.csrf_request("POST", "/ai", data={"message": "Hướng dẫn sử dụng CLB",
                                                 "csrf_token": self.csrf()},
                                    follow_redirects=True)
         self.assertEqual(web.status_code, 200)
@@ -247,7 +276,7 @@ class WorkflowTests(unittest.TestCase):
         fake = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": model_json}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake):
-            created = self.client.post("/api/v1/assistant/proposals", json={
+            created = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
                 "kind": "event", "brief": "Tổ chức workshop",
                 "start_at": start.isoformat(),
                 "end_at": (start + timedelta(hours=2)).isoformat(),
@@ -255,7 +284,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(created.status_code, 201, created.json)
         self.assertEqual(created.json["provider"], "gemini")
         self.assertEqual(Event.query.count(), 0)
-        reviewed = self.client.post(f"/api/v1/assistant/proposals/{created.json['id']}/review",
+        reviewed = self.csrf_request("POST", f"/api/v1/assistant/proposals/{created.json['id']}/review",
                                     json={"decision": "approved"}, headers={"X-CSRF-Token": token})
         self.assertEqual(reviewed.status_code, 200, reviewed.json)
         self.assertEqual(Event.query.one().ten_su_kien, "Workshop Gemini")
@@ -273,7 +302,7 @@ class WorkflowTests(unittest.TestCase):
             {"text": "Dữ liệu quỹ đã kiểm chứng."}]}}]}).encode())
         with patch("app.services.assistant.urlopen", side_effect=[http_error(503), success]) as call, \
              patch("app.services.assistant.sleep") as pause:
-            retried = self.client.post("/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
+            retried = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
         self.assertEqual(retried.status_code, 200, retried.json)
         self.assertEqual(retried.json["provider"], "gemini")
         self.assertEqual(call.call_count, 2)
@@ -281,7 +310,7 @@ class WorkflowTests(unittest.TestCase):
 
         with patch("app.services.assistant.urlopen", side_effect=[http_error(503), http_error(503)]) as call, \
              patch("app.services.assistant.sleep"):
-            fallback = self.client.post("/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
+            fallback = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
         self.assertEqual(fallback.status_code, 200, fallback.json)
         self.assertEqual(fallback.json["provider"], "rules_fallback")
         self.assertEqual(fallback.json["verification"], "unsupported")
@@ -289,7 +318,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(call.call_count, 2)
 
         with patch("app.services.assistant.urlopen", side_effect=http_error(400)) as call:
-            invalid = self.client.post("/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
+            invalid = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Hướng dẫn sử dụng CLB"})
         self.assertEqual(invalid.status_code, 503, invalid.json)
         self.assertIn("Kiểm tra tên model", invalid.json["error"])
         self.assertEqual(call.call_count, 1)
@@ -307,7 +336,7 @@ class WorkflowTests(unittest.TestCase):
             "usageMetadata": {"promptTokenCount": 37, "candidatesTokenCount": 18,
                               "totalTokenCount": 60}}).encode())
         with patch("app.services.assistant.urlopen", return_value=reply) as model:
-            created = self.client.post("/api/v1/assistant/proposals", json={
+            created = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
                 "kind": "event", "brief": "Workshop học tập",
                 "start_at": start.isoformat(),
                 "end_at": (start + timedelta(hours=2)).isoformat()},
@@ -321,7 +350,7 @@ class WorkflowTests(unittest.TestCase):
                          ("proposal", 37, 18))
         self.assertEqual(usage.total_tokens, 60)
         with patch("app.services.assistant.urlopen") as model:
-            limited = self.client.post("/api/v1/assistant", json={"question": "Tóm tắt hoạt động"})
+            limited = self.csrf_request("POST", "/api/v1/assistant", json={"question": "Tóm tắt hoạt động"})
         self.assertEqual(limited.status_code, 429, limited.json)
         model.assert_not_called()
 
@@ -333,7 +362,7 @@ class WorkflowTests(unittest.TestCase):
         bad = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": "not-json"}]}}], "usageMetadata": {"totalTokenCount": 42}}).encode())
         with patch("app.services.assistant.urlopen", return_value=bad):
-            response = self.client.post("/api/v1/assistant/proposals", json={
+            response = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
                 "kind": "event", "brief": "Workshop",
                 "start_at": start.isoformat(),
                 "end_at": (start + timedelta(hours=2)).isoformat()},
@@ -348,13 +377,13 @@ class WorkflowTests(unittest.TestCase):
         fake_one = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": "Thông tin Member 3."}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake_one):
-            first = self.client.post("/api/v1/assistant", json={
+            first = self.csrf_request("POST", "/api/v1/assistant", json={
                 "question": "Cho tôi biết về Member 3"})
         self.assertEqual(first.status_code, 200, first.json)
         fake_two = BytesIO(json.dumps({"candidates": [{"content": {"parts": [
             {"text": "Chưa có task."}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake_two) as model:
-            second = self.client.post("/api/v1/assistant", json={
+            second = self.csrf_request("POST", "/api/v1/assistant", json={
                 "question": "Còn người đó có kỹ năng gì?"})
         self.assertEqual(second.status_code, 200, second.json)
         sent = json.loads(model.call_args.args[0].data)
@@ -363,7 +392,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("recent_conversation", context)
         self.assertNotIn("Member 4", context)
         with patch("app.services.assistant.urlopen") as model:
-            money = self.client.post("/api/v1/assistant", json={"question": "tổng đã thu"})
+            money = self.csrf_request("POST", "/api/v1/assistant", json={"question": "tổng đã thu"})
         self.assertEqual(money.status_code, 200, money.json)
         self.assertEqual(money.json["provider"], "database")
         self.assertIn("0 đ", money.json["answer"])
@@ -372,9 +401,9 @@ class WorkflowTests(unittest.TestCase):
     def test_chat_request_limit_applies_to_api(self):
         self.app.config.update(AI_PROVIDER="rules", AI_CHAT_MESSAGES_PER_MINUTE=1)
         self.login(3)
-        first = self.client.post("/api/v1/assistant", json={"question": "hello"})
+        first = self.csrf_request("POST", "/api/v1/assistant", json={"question": "hello"})
         self.assertEqual(first.status_code, 200, first.json)
-        second = self.client.post("/api/v1/assistant", json={"question": "hello again"})
+        second = self.csrf_request("POST", "/api/v1/assistant", json={"question": "hello again"})
         self.assertEqual(second.status_code, 429, second.json)
 
     def test_chat_reports_legacy_period_and_does_not_send_email(self):
@@ -391,10 +420,10 @@ class WorkflowTests(unittest.TestCase):
         self.login(1)
         with patch("app.services.assistant.urlopen") as model, \
              patch("app.mail.smtplib.SMTP") as smtp:
-            overview = self.client.post("/api/v1/assistant", json={"question": "kiểm tra quỹ"})
-            unpaid = self.client.post("/api/v1/assistant", json={
+            overview = self.csrf_request("POST", "/api/v1/assistant", json={"question": "kiểm tra quỹ"})
+            unpaid = self.csrf_request("POST", "/api/v1/assistant", json={
                 "question": "còn ai chưa đóng quỹ kỳ Fall 2027"})
-            mail = self.client.post("/api/v1/assistant", json={
+            mail = self.csrf_request("POST", "/api/v1/assistant", json={
                 "question": "gửi mail cho Member 4"})
         self.assertEqual(overview.status_code, 200, overview.json)
         self.assertIn("Fall 2027: đã đóng 2/3", overview.json["answer"])
@@ -408,11 +437,11 @@ class WorkflowTests(unittest.TestCase):
         smtp.assert_not_called()
 
         self.login(3)
-        scoped = self.client.post("/api/v1/assistant", json={
+        scoped = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "còn ai chưa đóng quỹ kỳ Fall 2027"})
         self.assertNotIn("Member 4", scoped.json["answer"])
 
-    def test_email_chat_creates_draft_and_only_bdh_review_sends(self):
+    def test_email_chat_creates_draft_and_requires_board_review(self):
         self.app.config.update(AI_PROVIDER="rules", MAIL_ENABLED=True)
         recipient = db.session.get(User, 3)
         recipient.email = "member3@club.org"
@@ -421,13 +450,13 @@ class WorkflowTests(unittest.TestCase):
         token = self.csrf()
         self.assertEqual(self.client.post("/ai", data={
             "message": "gửi mail cho Member 3"}).status_code, 400)
-        needs_details = self.client.post("/ai", data={
+        needs_details = self.csrf_request("POST", "/ai", data={
             "message": "gửi mail cho Member 3", "csrf_token": token}, follow_redirects=True)
         self.assertIn("Tôi chưa gửi email".encode(), needs_details.data)
         self.assertEqual(EmailProposal.query.count(), 0)
 
         with patch("app.services.email_proposals.send_email", return_value=True) as send:
-            created = self.client.post("/ai", data={
+            created = self.csrf_request("POST", "/ai", data={
                 "message": "gửi mail cho Member 3: nhắc hoàn thành hồ sơ CLB",
                 "csrf_token": token}, follow_redirects=True)
             self.assertEqual(created.status_code, 200)
@@ -439,16 +468,16 @@ class WorkflowTests(unittest.TestCase):
             send.assert_not_called()
 
             self.login(3)
-            denied = self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            denied = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                                       data={"csrf_token": token})
             self.assertEqual(denied.status_code, 403)
-            self.login(1)
-            sent = self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            self.login(2)
+            sent = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                                     data={"csrf_token": token}, follow_redirects=True)
             self.assertEqual(sent.status_code, 200)
             self.assertEqual(db.session.get(EmailProposal, draft.id).status, "sent")
             send.assert_called_once_with("member3@club.org", draft.subject, draft.body)
-            self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                              data={"csrf_token": token})
             self.assertEqual(send.call_count, 1)
 
@@ -461,7 +490,7 @@ class WorkflowTests(unittest.TestCase):
         form = {"name": "Nhắc đóng quỹ", "subject": "Nhắc quỹ cho {{ten}}",
                 "body": "Chào {{ten}} ({{mssv}}), vui lòng kiểm tra quỹ. Email: {{email}}."}
         self.assertEqual(self.client.post("/ai/email-templates", data=form).status_code, 400)
-        saved = self.client.post("/ai/email-templates", data={**form, "csrf_token": token})
+        saved = self.csrf_request("POST", "/ai/email-templates", data={**form, "csrf_token": token})
         self.assertEqual(saved.status_code, 302)
         template = EmailTemplate.query.one()
         self.assertIn("Nhắc đóng quỹ", self.client.get("/ai").get_data(as_text=True))
@@ -469,7 +498,7 @@ class WorkflowTests(unittest.TestCase):
         command = "Dùng mẫu nhắc đóng quỹ gửi cho Member 3 nhé"
         self.assertEqual(self.client.post("/api/v1/assistant", json={"question": command}).status_code, 400)
         with patch("app.services.email_proposals.send_email") as mail:
-            created = self.client.post("/api/v1/assistant", json={"question": command},
+            created = self.csrf_request("POST", "/api/v1/assistant", json={"question": command},
                                        headers={"X-CSRF-Token": token})
             self.assertEqual(created.status_code, 200, created.json)
             self.assertEqual(created.json["intent"], "email_draft")
@@ -481,13 +510,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Member 3 (SV3)", draft.body)
         self.assertIn("member3@club.org", draft.body)
 
-        updated = self.client.post(f"/ai/email-templates/{template.id}/update", data={
+        updated = self.csrf_request("POST", f"/ai/email-templates/{template.id}/update", data={
             "name": "Nhắc đóng quỹ", "subject": "Tiêu đề mới", "body": "Nội dung mới",
             "csrf_token": token})
         self.assertEqual(updated.status_code, 302)
         self.assertEqual(db.session.get(EmailProposal, draft.id).subject, "Nhắc quỹ cho Member 3")
         with patch("app.services.email_proposals.send_email", return_value=True) as mail:
-            approved = self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            approved = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                                         data={"csrf_token": token})
         self.assertEqual(approved.status_code, 302)
         mail.assert_called_once_with("member3@club.org", draft.subject, draft.body)
@@ -496,36 +525,36 @@ class WorkflowTests(unittest.TestCase):
         self.app.config.update(AI_PROVIDER="rules")
         self.login(1)
         token = self.csrf()
-        invalid = self.client.post("/ai/email-templates", data={
+        invalid = self.csrf_request("POST", "/ai/email-templates", data={
             "name": "Mẫu lỗi", "subject": "Chào {{user.password}}", "body": "Nội dung",
             "csrf_token": token}, follow_redirects=True)
         self.assertIn("Chỉ dùng biến".encode(), invalid.data)
         self.assertEqual(EmailTemplate.query.count(), 0)
-        self.client.post("/ai/email-templates", data={
+        self.csrf_request("POST", "/ai/email-templates", data={
             "name": "Họp CLB", "subject": "Mời họp", "body": "Chào {{ten}}, mời bạn dự họp.",
             "csrf_token": token})
         template = EmailTemplate.query.one()
 
         self.login(3)
-        self.assertEqual(self.client.post("/ai/email-templates", data={
+        self.assertEqual(self.csrf_request("POST", "/ai/email-templates", data={
             "name": "Khác", "subject": "A", "body": "B", "csrf_token": token}).status_code, 403)
         self.login(1)
-        missing = self.client.post("/api/v1/assistant", json={
+        missing = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Gửi mail mẫu họp CLB giúp tôi"}, headers={"X-CSRF-Token": token})
         self.assertEqual(missing.status_code, 200, missing.json)
         self.assertEqual(missing.json["intent"], "email_needs_recipient")
         self.assertEqual(EmailProposal.query.count(), 0)
-        unknown = self.client.post("/api/v1/assistant", json={
+        unknown = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Dùng mẫu không tồn tại gửi cho Member 3"})
         self.assertEqual(unknown.status_code, 200, unknown.json)
         self.assertEqual(unknown.json["intent"], "email_template_needed")
         self.assertEqual(EmailProposal.query.count(), 0)
         self.assertEqual(self.client.post(f"/ai/email-templates/{template.id}/active",
                                           data={"active": "no"}).status_code, 400)
-        self.client.post(f"/ai/email-templates/{template.id}/active",
+        self.csrf_request("POST", f"/ai/email-templates/{template.id}/active",
                          data={"active": "no", "csrf_token": token})
         self.assertFalse(db.session.get(EmailTemplate, template.id).active)
-        result = self.client.post("/api/v1/assistant", json={
+        result = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Gửi mail mẫu họp CLB cho Member 3"})
         self.assertEqual(result.json["intent"], "email_template_needed")
         self.assertEqual(EmailProposal.query.count(), 0)
@@ -534,18 +563,18 @@ class WorkflowTests(unittest.TestCase):
         self.app.config.update(AI_PROVIDER="rules")
         self.login(1)
         token = self.csrf()
-        self.client.post("/ai/email-templates", data={
+        self.csrf_request("POST", "/ai/email-templates", data={
             "name": "Nhắc họp", "subject": "Nhắc họp", "body": "Chào {{ten}}",
             "csrf_token": token})
         db.session.get(User, 3).ho_ten = "Phan Thiện Quáng"
         db.session.get(User, 4).ho_ten = "Phan Thien Quang"
         db.session.commit()
-        ambiguous = self.client.post("/api/v1/assistant", json={
+        ambiguous = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Gửi mail nhắc họp cho Phan Thien Quang"},
             headers={"X-CSRF-Token": token})
         self.assertEqual(ambiguous.status_code, 400, ambiguous.json)
         self.assertEqual(EmailProposal.query.count(), 0)
-        exact = self.client.post("/api/v1/assistant", json={
+        exact = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Gửi mail nhắc họp cho Phan Thiện Quáng"},
             headers={"X-CSRF-Token": token})
         self.assertEqual(exact.status_code, 200, exact.json)
@@ -555,12 +584,12 @@ class WorkflowTests(unittest.TestCase):
         self.app.config.update(AI_PROVIDER="rules")
         self.login(1)
         token = self.csrf()
-        self.client.post("/ai/email-templates", data={
+        self.csrf_request("POST", "/ai/email-templates", data={
             "name": "Nhắc đóng quỹ", "subject": "Nhắc quỹ", "body": "Chào {{ten}}",
             "csrf_token": token})
         message = "AI ơi, gửi mail nhắc quỹ cho Member 3 giúp tôi"
         with patch("app.services.email_proposals.send_email") as send:
-            result = self.client.post("/api/v1/assistant", json={"question": message},
+            result = self.csrf_request("POST", "/api/v1/assistant", json={"question": message},
                                       headers={"X-CSRF-Token": token})
             send.assert_not_called()
         self.assertEqual(result.status_code, 200, result.json)
@@ -573,29 +602,29 @@ class WorkflowTests(unittest.TestCase):
         db.session.commit()
         self.login(1)
         token = self.csrf()
-        self.client.post("/ai", data={"message": "gửi mail cho Member 3: nhắc cập nhật hồ sơ",
+        self.csrf_request("POST", "/ai", data={"message": "gửi mail cho Member 3: nhắc cập nhật hồ sơ",
                                       "csrf_token": token})
         draft = EmailProposal.query.one()
         with patch("app.services.email_proposals.send_email", return_value=False):
-            failed = self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            failed = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                                       data={"csrf_token": token}, follow_redirects=True)
         self.assertEqual(db.session.get(EmailProposal, draft.id).status, "failed")
         self.assertIn("Thử gửi lại".encode(), failed.data)
         with patch("app.services.email_proposals.send_email", return_value=True) as send:
-            blocked = self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            blocked = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                                        data={"csrf_token": token}, follow_redirects=True)
             self.assertIn("kiểm tra hộp thư".encode(), blocked.data)
             send.assert_not_called()
-            self.client.post(f"/ai/email-proposals/{draft.id}/approved",
+            self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/approved",
                              data={"csrf_token": token, "confirm_retry": "yes"})
         self.assertEqual(db.session.get(EmailProposal, draft.id).status, "sent")
         send.assert_called_once()
 
-        self.client.post("/ai", data={"message": "gửi mail cho Member 3: họp câu lạc bộ",
+        self.csrf_request("POST", "/ai", data={"message": "gửi mail cho Member 3: họp câu lạc bộ",
                                       "csrf_token": token})
         other = EmailProposal.query.filter_by(status="pending").one()
         with patch("app.services.email_proposals.send_email") as send:
-            self.client.post(f"/ai/email-proposals/{other.id}/rejected",
+            self.csrf_request("POST", f"/ai/email-proposals/{other.id}/rejected",
                              data={"csrf_token": token})
         self.assertEqual(db.session.get(EmailProposal, other.id).status, "rejected")
         send.assert_not_called()
@@ -620,7 +649,7 @@ class WorkflowTests(unittest.TestCase):
             {"text": draft_json}]}}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=response) as model, \
              patch("app.services.email_proposals.send_email") as send:
-            created = self.client.post("/ai", data={
+            created = self.csrf_request("POST", "/ai", data={
                 "message": "gửi mail cho SV3: mời họp CLB", "csrf_token": token})
         self.assertEqual(created.status_code, 302)
         draft = EmailProposal.query.one()
@@ -634,7 +663,7 @@ class WorkflowTests(unittest.TestCase):
         self.login(1)
         token = self.csrf()
         with patch("app.services.email_proposals.send_email", return_value=True) as send:
-            created = self.client.post("/ai", data={
+            created = self.csrf_request("POST", "/ai", data={
                 "message": "Gửi mail external@partner.org: Liên hệ book phòng",
                 "csrf_token": token}, follow_redirects=True)
             self.assertEqual(created.status_code, 200)
@@ -649,22 +678,22 @@ class WorkflowTests(unittest.TestCase):
             self.assertEqual(self.client.post(
                 f"/ai/email-proposals/{draft.id}/approved").status_code, 400)
             self.login(3)
-            self.assertEqual(self.client.post(
+            self.assertEqual(self.csrf_request("POST",
                 f"/ai/email-proposals/{draft.id}/approved",
                 data={"csrf_token": token}).status_code, 403)
             self.login(1)
-            approved_response = self.client.post(
+            approved_response = self.csrf_request("POST",
                 f"/ai/email-proposals/{draft.id}/approved",
                 data={"csrf_token": token})
             self.assertEqual(approved_response.status_code, 302)
             self.assertEqual(db.session.get(EmailProposal, draft.id).status, "sent")
             send.assert_called_once_with("external@partner.org", draft.subject, draft.body)
 
-    def test_external_email_rejects_invalid_address_and_truong_ban(self):
+    def test_external_email_rejects_invalid_address_and_allows_truong_ban_draft(self):
         self.app.config.update(AI_PROVIDER="rules")
         self.login(1)
         token = self.csrf()
-        invalid = self.client.post("/ai", data={
+        invalid = self.csrf_request("POST", "/ai", data={
             "message": "Gửi mail bad@@partner.org: Liên hệ book phòng",
             "csrf_token": token}, follow_redirects=True)
         self.assertIn("Địa chỉ email người nhận không hợp lệ".encode(), invalid.data)
@@ -674,11 +703,13 @@ class WorkflowTests(unittest.TestCase):
         member.ban_links[0].is_truong_ban = True
         db.session.commit()
         self.login(3)
-        denied = self.client.post("/ai", data={
+        drafted = self.csrf_request("POST", "/ai", data={
             "message": "Gửi mail external@partner.org: Liên hệ book phòng",
             "csrf_token": token}, follow_redirects=True)
-        self.assertIn("Chỉ Chủ nhiệm hoặc Phó chủ nhiệm".encode(), denied.data)
-        self.assertEqual(EmailProposal.query.count(), 0)
+        self.assertEqual(drafted.status_code, 200, drafted.data)
+        proposal = EmailProposal.query.one()
+        self.assertEqual(proposal.status, "pending")
+        self.assertEqual(proposal.recipient_email, "external@partner.org")
 
     def test_browser_and_api_share_email_draft_and_chat_history(self):
         self.app.config.update(AI_PROVIDER="rules")
@@ -688,7 +719,7 @@ class WorkflowTests(unittest.TestCase):
         missing = self.client.post("/api/v1/assistant", json={"question": command})
         self.assertEqual(missing.status_code, 400)
         self.assertEqual(EmailProposal.query.count(), 0)
-        result = self.client.post("/api/v1/assistant", json={"question": command},
+        result = self.csrf_request("POST", "/api/v1/assistant", json={"question": command},
                                   headers={"X-CSRF-Token": token})
         self.assertEqual(result.status_code, 200, result.json)
         self.assertEqual(result.json["intent"], "email_draft")
@@ -705,25 +736,25 @@ class WorkflowTests(unittest.TestCase):
                    f"{start + timedelta(hours=2):%Y-%m-%d %H:%M}")
         denied = self.client.post("/api/v1/assistant", json={"question": command})
         self.assertEqual(denied.status_code, 400)
-        created = self.client.post("/api/v1/assistant", json={"question": command},
+        created = self.csrf_request("POST", "/api/v1/assistant", json={"question": command},
                                    headers={"X-CSRF-Token": token})
         self.assertEqual(created.status_code, 200, created.json)
         self.assertEqual(created.json["intent"], "ai_proposal")
         self.assertEqual(Event.query.count(), 0)
         proposal = AIProposal.query.one()
         self.assertIn("Loại: other", self.client.get("/ai").get_data(as_text=True))
-        self.client.post(f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
+        self.csrf_request("POST", f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
         self.assertEqual(Event.query.count(), 1)
         event = Event.query.one()
         task_command = (f"Chia task: {event.id} | 1 | "
                         f"{start + timedelta(hours=1):%Y-%m-%d %H:%M} | "
                         "Chuẩn bị tài liệu; Kiểm tra thiết bị | python")
-        task_draft = self.client.post("/api/v1/assistant", json={"question": task_command},
+        task_draft = self.csrf_request("POST", "/api/v1/assistant", json={"question": task_command},
                                       headers={"X-CSRF-Token": token})
         self.assertEqual(task_draft.status_code, 200, task_draft.json)
         self.assertEqual(Task.query.count(), 0)
         task_proposal = AIProposal.query.filter_by(kind="task").one()
-        self.client.post(f"/ai/proposals/{task_proposal.id}/approved",
+        self.csrf_request("POST", f"/ai/proposals/{task_proposal.id}/approved",
                          data={"csrf_token": token})
         self.assertEqual(Task.query.count(), 2)
 
@@ -731,7 +762,7 @@ class WorkflowTests(unittest.TestCase):
         self.app.config.update(AI_PROVIDER="rules")
         self.login(3)
         token = self.csrf()
-        saved = self.client.post("/profile/task-preferences", data={
+        saved = self.csrf_request("POST", "/profile/task-preferences", data={
             "skills": "python, bảo mật", "max_active_tasks": "1", "csrf_token": token})
         self.assertEqual(saved.status_code, 302)
         self.assertEqual(db.session.get(MemberPlanningProfile, 3).skills,
@@ -744,7 +775,7 @@ class WorkflowTests(unittest.TestCase):
         db.session.commit()
         self.login(1)
         event = Event.query.one()
-        proposed = self.client.post("/api/v1/assistant/proposals", json={
+        proposed = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "task", "event_id": event.id, "ban_id": 1,
             "deadline": (start + timedelta(hours=1)).isoformat(),
             "brief": "Viết script Python; Chuẩn bị poster", "required_skills": "python"},
@@ -754,7 +785,7 @@ class WorkflowTests(unittest.TestCase):
         assignees = [row["assignee_id"] for row in proposal.payload["tasks"]]
         self.assertEqual(assignees[0], 3)
         self.assertNotEqual(assignees[1], 3)
-        self.client.post(f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
+        self.csrf_request("POST", f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
         self.assertEqual(Task.query.count(), 2)
 
     def test_task_review_rechecks_member_capacity_and_unavailability(self):
@@ -778,7 +809,7 @@ class WorkflowTests(unittest.TestCase):
         db.session.add(MemberPlanningProfile(user_id=3, max_active_tasks=1,
                                              skills=["python"]))
         db.session.commit()
-        proposed = self.client.post("/api/v1/assistant/proposals", json={
+        proposed = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "task", "event_id": event.id, "ban_id": 1,
             "deadline": (start + timedelta(hours=1)).isoformat(),
             "brief": "Viết script Python", "required_skills": "python"},
@@ -787,13 +818,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(AIProposal.query.one().payload["tasks"][0]["assignee_id"], 3)
         db.session.get(MemberPlanningProfile, 3).unavailable_until = start.date()
         db.session.commit()
-        rejected = self.client.post(f"/api/v1/assistant/proposals/{AIProposal.query.one().id}/review",
+        rejected = self.csrf_request("POST", f"/api/v1/assistant/proposals/{AIProposal.query.one().id}/review",
                                     json={"decision": "approved"},
                                     headers={"X-CSRF-Token": token})
         self.assertEqual(rejected.status_code, 400, rejected.json)
         self.assertEqual(Task.query.count(), 0)
 
-    def test_monthly_report_is_scoped_to_truong_ban(self):
+    def test_monthly_report_is_global_for_truong_ban(self):
         self.app.config.update(AI_PROVIDER="rules")
         db.session.add(Ban(id=2, ten_ban="Nhân sự"))
         leader = db.session.get(User, 3)
@@ -815,18 +846,18 @@ class WorkflowTests(unittest.TestCase):
                                   checkin_luc=datetime.utcnow() - timedelta(days=1)))
         db.session.commit()
         self.login(3)
-        result = self.client.post("/api/v1/assistant", json={"question": "báo cáo tháng này"})
+        result = self.csrf_request("POST", "/api/v1/assistant", json={"question": "báo cáo tháng này"})
         self.assertEqual(result.status_code, 200, result.json)
-        self.assertIn("0 sự kiện, 0 lượt có mặt", result.json["answer"])
+        self.assertIn("1 sự kiện, 1 lượt có mặt", result.json["answer"])
 
     def test_email_edit_and_uncertain_send_need_manual_reconciliation(self):
         self.app.config.update(AI_PROVIDER="rules", MAIL_ENABLED=True)
         self.login(1)
         token = self.csrf()
-        self.client.post("/ai", data={"message": "Gửi mail contact@partner.org: book phòng",
+        self.csrf_request("POST", "/ai", data={"message": "Gửi mail contact@partner.org: book phòng",
                                       "csrf_token": token})
         draft = EmailProposal.query.one()
-        edited = self.client.post(f"/ai/email-proposals/{draft.id}/edit", data={
+        edited = self.csrf_request("POST", f"/ai/email-proposals/{draft.id}/edit", data={
             "subject": "Liên hệ đặt phòng", "body": "Chào bạn,\nXin đặt phòng cho CLB.",
             "csrf_token": token})
         self.assertEqual(edited.status_code, 302)
@@ -835,7 +866,7 @@ class WorkflowTests(unittest.TestCase):
         draft.reviewed_at = datetime.utcnow() - timedelta(minutes=3)
         db.session.commit()
         with patch("app.services.email_proposals.send_email") as send:
-            reconciled = self.client.post(
+            reconciled = self.csrf_request("POST",
                 f"/ai/email-proposals/{draft.id}/reconcile/failed",
                 data={"csrf_token": token})
             self.assertEqual(reconciled.status_code, 302)
@@ -853,7 +884,7 @@ class WorkflowTests(unittest.TestCase):
         db.session.add(UserBan(user_id=pending.id, ban_id=1))
         db.session.commit()
         self.login(3)
-        self.assertEqual(self.client.post(f"/admin/approve/{pending.id}",
+        self.assertEqual(self.csrf_request("POST", f"/admin/approve/{pending.id}",
                                           data={"action": "accept"}).status_code, 403)
         self.login(1)
         page = self.client.get("/admin/approve")
@@ -861,7 +892,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.post(f"/admin/approve/{pending.id}",
                                           data={"action": "accept"}).status_code, 400)
         with patch("app.routes.admin.send_email", return_value=True) as mail:
-            response = self.client.post(f"/admin/approve/{pending.id}",
+            response = self.csrf_request("POST", f"/admin/approve/{pending.id}",
                                         data={"action": "accept", "csrf_token": self.csrf()},
                                         follow_redirects=True)
         self.assertEqual(response.status_code, 200)
@@ -873,7 +904,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(mail.call_args.args[0], "new@example.test")
         self.assertIn("duyet", mail.call_args.args[2])
         with patch("app.routes.admin.send_email") as mail_again:
-            self.assertEqual(self.client.post(f"/admin/approve/{pending.id}",
+            self.assertEqual(self.csrf_request("POST", f"/admin/approve/{pending.id}",
                                               data={"action": "accept", "csrf_token": self.csrf()}).status_code, 400)
             mail_again.assert_not_called()
 
@@ -886,7 +917,7 @@ class WorkflowTests(unittest.TestCase):
         db.session.commit()
         self.login(1)
         with patch("app.routes.admin.send_email", return_value=False) as mail:
-            response = self.client.post(f"/admin/approve/{pending.id}",
+            response = self.csrf_request("POST", f"/admin/approve/{pending.id}",
                                         data={"action": "reject", "csrf_token": self.csrf()},
                                         follow_redirects=True)
         self.assertEqual(response.status_code, 200)
@@ -909,7 +940,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(message["To"], "member@example.test")
         self.assertEqual(message["From"], "club@example.test")
 
-    def test_truong_ban_cannot_approve_outside_managed_ban(self):
+    def test_truong_ban_can_approve_outside_managed_ban(self):
         db.session.add(Ban(id=2, ten_ban="Nhan su"))
         leader = User(mssv="TB001", ho_ten="Leader", ngay_sinh=date(2003, 1, 1),
                       sdt="0123456789", email="leader@example.test", status="approved",
@@ -926,19 +957,19 @@ class WorkflowTests(unittest.TestCase):
         db.session.commit()
         self.login(leader.id)
         page = self.client.get("/admin/approve")
-        self.assertNotIn(b"Outside", page.data)
+        self.assertIn(b"Outside", page.data)
         with patch("app.routes.admin.send_email") as mail:
-            response = self.client.post(f"/admin/approve/{outsider.id}",
+            response = self.csrf_request("POST", f"/admin/approve/{outsider.id}",
                                         data={"action": "accept", "csrf_token": self.csrf()})
-        self.assertEqual(response.status_code, 403)
-        self.assertEqual(db.session.get(User, outsider.id).status, "pending")
-        mail.assert_not_called()
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(db.session.get(User, outsider.id).status, "approved")
+        mail.assert_called_once()
 
     def test_ai_proposal_requires_approval_then_creates_event_and_tasks(self):
         self.login(1)
         token = self.csrf()
         start = datetime.utcnow() + timedelta(days=3)
-        created = self.client.post("/api/v1/assistant/proposals", json={
+        created = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "event", "brief": "Workshop an toàn thông tin",
             "start_at": start.isoformat(),
             "end_at": (start + timedelta(hours=2)).isoformat(), "ban_id": 1},
@@ -948,23 +979,23 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(created.json["status"], "pending")
         self.assertEqual(Event.query.count(), 0)
         self.login(3)
-        self.assertEqual(self.client.post(f"/api/v1/assistant/proposals/{proposal_id}/review",
+        self.assertEqual(self.csrf_request("POST", f"/api/v1/assistant/proposals/{proposal_id}/review",
                                           json={"decision": "approved"}, headers={"X-CSRF-Token": token}).status_code, 403)
         self.login(1)
-        approved = self.client.post(f"/api/v1/assistant/proposals/{proposal_id}/review",
+        approved = self.csrf_request("POST", f"/api/v1/assistant/proposals/{proposal_id}/review",
                                     json={"decision": "approved"}, headers={"X-CSRF-Token": token})
         self.assertEqual(approved.status_code, 200, approved.json)
         event_id = approved.json["result_ids"][0]
         self.assertEqual(Event.query.count(), 1)
-        self.assertEqual(self.client.post(f"/api/v1/assistant/proposals/{proposal_id}/review",
+        self.assertEqual(self.csrf_request("POST", f"/api/v1/assistant/proposals/{proposal_id}/review",
                                           json={"decision": "approved"}, headers={"X-CSRF-Token": token}).status_code, 400)
-        task_proposal = self.client.post("/api/v1/assistant/proposals", json={
+        task_proposal = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "task", "brief": "Chuẩn bị tài liệu; Kiểm tra thiết bị",
             "event_id": event_id, "ban_id": 1,
             "deadline": (start + timedelta(hours=1)).isoformat()}, headers={"X-CSRF-Token": token})
         self.assertEqual(task_proposal.status_code, 201, task_proposal.json)
         self.assertEqual(Task.query.count(), 0)
-        task_approved = self.client.post(
+        task_approved = self.csrf_request("POST",
             f"/api/v1/assistant/proposals/{task_proposal.json['id']}/review",
             json={"decision": "approved"}, headers={"X-CSRF-Token": token})
         self.assertEqual(task_approved.status_code, 200, task_approved.json)
@@ -979,7 +1010,7 @@ class WorkflowTests(unittest.TestCase):
                                  "type": "workshop", "location": "Phòng A", "capacity": 25})
         fake = BytesIO(json.dumps({"content": [{"type": "text", "text": model_json}]}).encode())
         with patch("app.services.assistant.urlopen", return_value=fake):
-            created = self.client.post("/ai/proposals/new", data={
+            created = self.csrf_request("POST", "/ai/proposals/new", data={
                 "kind": "event", "brief": "Tổ chức workshop cho CLB",
                 "start_at": start.strftime("%Y-%m-%dT%H:%M"),
                 "end_at": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
@@ -991,7 +1022,7 @@ class WorkflowTests(unittest.TestCase):
         page = self.client.get("/ai")
         self.assertEqual(page.status_code, 200)
         self.assertIn(b"Workshop Claude", page.data)
-        rejected = self.client.post(f"/ai/proposals/{proposal.id}/rejected", data={"csrf_token": token})
+        rejected = self.csrf_request("POST", f"/ai/proposals/{proposal.id}/rejected", data={"csrf_token": token})
         self.assertEqual(rejected.status_code, 302)
         self.assertEqual(Event.query.count(), 0)
         self.assertEqual(db.session.get(AIProposal, proposal.id).status, "rejected")
@@ -1001,7 +1032,7 @@ class WorkflowTests(unittest.TestCase):
         role_page = self.client.get("/admin/roles")
         self.assertEqual(role_page.status_code, 200)
         self.assertNotIn(b"onclick=", role_page.data)
-        response = self.client.post("/admin/roles/nhuong-quyen", data={"target_id": "3", "csrf_token": self.csrf()})
+        response = self.csrf_request("POST", "/admin/roles/nhuong-quyen", data={"target_id": "3", "csrf_token": self.csrf()})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get(response.location).status_code, 200)
         self.assertEqual(db.session.get(User, 1).chuc_vu, "THANH_VIEN")
@@ -1010,7 +1041,7 @@ class WorkflowTests(unittest.TestCase):
     def test_treasurer_can_transfer_own_role(self):
         self.login(2)
         self.assertEqual(self.client.get("/admin/roles").status_code, 200)
-        response = self.client.post("/admin/roles/nhuong-quyen", data={"target_id": "4", "csrf_token": self.csrf()})
+        response = self.csrf_request("POST", "/admin/roles/nhuong-quyen", data={"target_id": "4", "csrf_token": self.csrf()})
         self.assertEqual(response.status_code, 302)
         self.assertEqual(self.client.get(response.location).status_code, 200)
         self.assertEqual(db.session.get(User, 2).chuc_vu, "THANH_VIEN")
@@ -1030,7 +1061,7 @@ class WorkflowTests(unittest.TestCase):
         self.login(2)
         token = self.csrf()
         today = club_now().date()
-        response = self.client.post("/funds/collections/new", data={
+        response = self.csrf_request("POST", "/funds/collections/new", data={
             "csrf_token": token, "name": "Quỹ tháng", "type": "monthly", "amount": "100.00",
             "start_date": today.isoformat(), "due_date": (today + timedelta(days=10)).isoformat(),
         })
@@ -1041,14 +1072,14 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Quỹ tháng".encode(), page.data)
         self.assertEqual(self.client.post(f"/funds/collections/{fund.id}/payments", data={
             "amount": "100.00", "method": "transfer"}).status_code, 400)
-        paid = self.client.post(f"/funds/collections/{fund.id}/payments", data={
+        paid = self.csrf_request("POST", f"/funds/collections/{fund.id}/payments", data={
             "csrf_token": token, "amount": "100.00", "method": "transfer", "transaction_code": "TX123"})
         self.assertEqual(paid.status_code, 302)
         payment = FundPayment.query.one()
         self.assertEqual(payment.trang_thai, "pending")
         self.login(2)
         self.assertIn(b"TX123", self.client.get("/funds").data)
-        reviewed = self.client.post(f"/funds/payments/{payment.id}/review", data={
+        reviewed = self.csrf_request("POST", f"/funds/payments/{payment.id}/review", data={
             "csrf_token": token, "decision": "confirmed"})
         self.assertEqual(reviewed.status_code, 302)
         self.assertEqual(db.session.get(FundPayment, payment.id).trang_thai, "confirmed")
@@ -1059,7 +1090,7 @@ class WorkflowTests(unittest.TestCase):
         self.login(1)
         token = self.csrf()
         start = club_now() + timedelta(days=1)
-        created = self.client.post("/event/new", data={
+        created = self.csrf_request("POST", "/event/new", data={
             "csrf_token": token, "ten_su_kien": "Ngày hội", "ma_su_kien": "NH01",
             "thoi_gian_bat_dau": start.strftime("%Y-%m-%dT%H:%M"),
             "thoi_gian_ket_thuc": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
@@ -1068,7 +1099,7 @@ class WorkflowTests(unittest.TestCase):
         event = Event.query.one()
         self.login(3)
         self.assertIn("Đăng ký tham gia".encode(), self.client.get(f"/event/{event.id}").data)
-        registered = self.client.post(f"/event/{event.id}/register", data={"csrf_token": token})
+        registered = self.csrf_request("POST", f"/event/{event.id}/register", data={"csrf_token": token})
         self.assertEqual(registered.status_code, 302)
         self.assertEqual(EventRegistration.query.one().trang_thai, "registered")
         event.thoi_gian_bat_dau = club_now() - timedelta(minutes=5)
@@ -1080,12 +1111,12 @@ class WorkflowTests(unittest.TestCase):
         self.login(3)
         path = f"/event/{event.id}/checkin/{qr.json['token']}"
         self.assertEqual(self.client.get(path).status_code, 200)
-        self.assertEqual(self.client.post(path, data={"csrf_token": token}).status_code, 302)
+        self.assertEqual(self.csrf_request("POST", path, data={"csrf_token": token}).status_code, 302)
         self.assertEqual(Attendance.query.one().trang_thai, "late")
         self.login(1)
-        self.assertEqual(self.client.post(f"/event/{event.id}/ket-thuc").status_code, 302)
+        self.assertEqual(self.csrf_request("POST", f"/event/{event.id}/ket-thuc").status_code, 302)
         self.login(3)
-        self.assertEqual(self.client.post(f"/event/{event.id}/feedback", data={
+        self.assertEqual(self.csrf_request("POST", f"/event/{event.id}/feedback", data={
             "csrf_token": token, "rating": "5", "comment": "Tốt"}).status_code, 302)
         self.assertIn("Tốt".encode(), self.client.get(f"/event/{event.id}").data)
 
@@ -1111,7 +1142,7 @@ class WorkflowTests(unittest.TestCase):
         for change, message in cases:
             with self.subTest(message=message):
                 form = {**base, **change}
-                response = self.client.post("/event/new", data=form)
+                response = self.csrf_request("POST", "/event/new", data=form)
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(message.encode(), response.data)
                 for field in ("thoi_gian_bat_dau", "thoi_gian_ket_thuc", "so_nguoi_toi_da"):
@@ -1190,7 +1221,7 @@ class WorkflowTests(unittest.TestCase):
         question = "Tạo sự kiện Workshop bảo mật"
         self.assertEqual(self.client.post("/api/v1/assistant", json={
             "question": question}).status_code, 400)
-        incomplete = self.client.post("/api/v1/assistant", json={"question": question},
+        incomplete = self.csrf_request("POST", "/api/v1/assistant", json={"question": question},
                                       headers={"X-CSRF-Token": token})
         self.assertEqual(incomplete.status_code, 200, incomplete.json)
         self.assertEqual(incomplete.json["intent"], "proposal_needs_details")
@@ -1198,7 +1229,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNotNone(db.session.get(ConversationPending, incomplete.json["conversation_id"]))
         start = (club_now() + timedelta(days=3)).replace(second=0, microsecond=0)
         answer = f"Bắt đầu {start:%d/%m/%Y %H:%M} và kết thúc {start + timedelta(hours=2):%d/%m/%Y %H:%M}"
-        created = self.client.post("/api/v1/assistant", json={"question": answer},
+        created = self.csrf_request("POST", "/api/v1/assistant", json={"question": answer},
                                    headers={"X-CSRF-Token": token})
         self.assertEqual(created.status_code, 200, created.json)
         self.assertEqual(created.json["intent"], "ai_proposal")
@@ -1207,7 +1238,7 @@ class WorkflowTests(unittest.TestCase):
         proposal = AIProposal.query.one()
         self.assertEqual(proposal.kind, "event")
         self.assertIn("Workshop bảo mật", proposal.payload["name"])
-        self.client.post(f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
+        self.csrf_request("POST", f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
         self.assertEqual(Event.query.count(), 1)
 
     def test_natural_event_does_not_broaden_unknown_ban_and_reuses_pending_proposal(self):
@@ -1217,15 +1248,15 @@ class WorkflowTests(unittest.TestCase):
         start = (club_now() + timedelta(days=3)).replace(second=0, microsecond=0)
         question = (f"Tạo sự kiện Demo ban #999 từ {start:%d/%m/%Y %H:%M} "
                     f"đến {start + timedelta(hours=2):%d/%m/%Y %H:%M}")
-        unknown = self.client.post("/api/v1/assistant", json={"question": question},
+        unknown = self.csrf_request("POST", "/api/v1/assistant", json={"question": question},
                                    headers={"X-CSRF-Token": token})
         self.assertEqual(unknown.json["intent"], "proposal_needs_details")
         self.assertIn("Không có ban #999", unknown.json["answer"])
         self.assertEqual(AIProposal.query.count(), 0)
         valid = question.replace("#999", "#1")
-        first = self.client.post("/api/v1/assistant", json={"question": valid},
+        first = self.csrf_request("POST", "/api/v1/assistant", json={"question": valid},
                                  headers={"X-CSRF-Token": token})
-        again = self.client.post("/api/v1/assistant", json={"question": valid},
+        again = self.csrf_request("POST", "/api/v1/assistant", json={"question": valid},
                                  headers={"X-CSRF-Token": token})
         self.assertEqual(first.json["intent"], "ai_proposal")
         self.assertIsNone(db.session.get(ConversationPending, first.json["conversation_id"]))
@@ -1241,24 +1272,24 @@ class WorkflowTests(unittest.TestCase):
         deadline = event.thoi_gian_bat_dau + timedelta(hours=1)
         question = ("Giao task thiết kế poster cho Member 3 trong sự kiện "
                     f"Workshop ban Ky thuat hạn {deadline:%d/%m/%Y %H:%M}")
-        created = self.client.post("/api/v1/assistant", json={"question": question},
+        created = self.csrf_request("POST", "/api/v1/assistant", json={"question": question},
                                    headers={"X-CSRF-Token": token})
         self.assertEqual(created.status_code, 200, created.json)
         self.assertEqual(created.json["intent"], "ai_proposal")
         proposal = AIProposal.query.filter_by(kind="task").one()
         self.assertEqual(proposal.payload["tasks"][0]["assignee_id"], 3)
         self.assertEqual(Task.query.count(), 0)
-        self.client.post(f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
+        self.csrf_request("POST", f"/ai/proposals/{proposal.id}/approved", data={"csrf_token": token})
         self.assertEqual(Task.query.one().assignee_id, 3)
 
-        ambiguous = self.client.post("/api/v1/assistant", json={
+        ambiguous = self.csrf_request("POST", "/api/v1/assistant", json={
             "question": "Chia task Tuyển NY cho Member 3 cho 3 ban"},
             headers={"X-CSRF-Token": token})
         self.assertEqual(ambiguous.status_code, 200, ambiguous.json)
         self.assertEqual(ambiguous.json["intent"], "proposal_needs_details")
         self.assertIn("Một task chỉ thuộc một ban", ambiguous.json["answer"])
         self.assertEqual(AIProposal.query.count(), 1)
-        cancelled = self.client.post("/api/v1/assistant", json={"question": "hủy"},
+        cancelled = self.csrf_request("POST", "/api/v1/assistant", json={"question": "hủy"},
                                      headers={"X-CSRF-Token": token})
         self.assertEqual(cancelled.json["intent"], "proposal_cancelled")
         self.assertIsNone(db.session.get(ConversationPending, cancelled.json["conversation_id"]))
@@ -1272,7 +1303,7 @@ class WorkflowTests(unittest.TestCase):
         deadline = event.thoi_gian_bat_dau + timedelta(hours=1)
         question = ("Giao task thiết kế poster cho Người Không Tồn Tại trong sự kiện "
                     f"Workshop ban Ky thuat hạn {deadline:%d/%m/%Y %H:%M}")
-        response = self.client.post("/api/v1/assistant", json={"question": question},
+        response = self.csrf_request("POST", "/api/v1/assistant", json={"question": question},
                                     headers={"X-CSRF-Token": token})
         self.assertEqual(response.json["intent"], "proposal_needs_details")
         self.assertIn("Không tìm thấy người", response.json["answer"])
@@ -1283,13 +1314,13 @@ class WorkflowTests(unittest.TestCase):
         event = db.session.get(Event, event_id)
         self.login(1)
         token = self.csrf()
-        proposal = self.client.post("/api/v1/assistant/proposals", json={
+        proposal = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "task", "brief": "Việc A; Việc B; Việc C",
             "event_id": event_id, "ban_id": 1, "assignee_id": 3,
             "deadline": (event.thoi_gian_bat_dau + timedelta(hours=1)).isoformat(),
         }, headers={"X-CSRF-Token": token})
         self.assertEqual(proposal.status_code, 201, proposal.json)
-        reviewed = self.client.post(f"/api/v1/assistant/proposals/{proposal.json['id']}/review",
+        reviewed = self.csrf_request("POST", f"/api/v1/assistant/proposals/{proposal.json['id']}/review",
                                     json={"decision": "approved"},
                                     headers={"X-CSRF-Token": token})
         self.assertEqual(reviewed.status_code, 200, reviewed.json)
@@ -1309,7 +1340,7 @@ class WorkflowTests(unittest.TestCase):
         db.session.commit()
         self.login(1)
         token = self.csrf()
-        proposal = self.client.post("/api/v1/assistant/proposals", json={
+        proposal = self.csrf_request("POST", "/api/v1/assistant/proposals", json={
             "kind": "task", "brief": "Giao cho thành viên cuối", "event_id": event_id,
             "ban_id": 1, "assignee_id": 34,
             "deadline": (event.thoi_gian_bat_dau + timedelta(hours=1)).isoformat(),
@@ -1355,7 +1386,7 @@ class WorkflowTests(unittest.TestCase):
         digest = daily_digest(actor)
         self.assertEqual(digest, daily_digest(actor))
         self.assertIn("Nguồn: task, event", digest)
-        answer = self.client.post("/api/v1/assistant", json={"question": "báo cáo tuần này"})
+        answer = self.csrf_request("POST", "/api/v1/assistant", json={"question": "báo cáo tuần này"})
         self.assertEqual(answer.status_code, 200, answer.json)
         self.assertEqual(answer.json["provider"], "database")
         self.assertIn(f"event ID: {event.id}", answer.json["answer"])
@@ -1373,10 +1404,10 @@ class WorkflowTests(unittest.TestCase):
         self.login(1)
         token = self.csrf()
         self.assertEqual(self.client.post("/ai/reports/week/save").status_code, 400)
-        self.assertEqual(self.client.post("/ai/reports/week/save",
+        self.assertEqual(self.csrf_request("POST", "/ai/reports/week/save",
                                           data={"csrf_token": token}).status_code, 302)
         snapshot = AIReportSnapshot.query.one()
-        self.assertEqual(self.client.post("/ai/reports/week/save",
+        self.assertEqual(self.csrf_request("POST", "/ai/reports/week/save",
                                           data={"csrf_token": token}).status_code, 302)
         self.assertEqual(AIReportSnapshot.query.count(), 1)
         event.ten_su_kien = "Báo cáo mới"
@@ -1388,7 +1419,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertNotIn("Báo cáo mới", snapshot.payload["events"][0]["name"])
         self.assertEqual(self.client.post(f"/ai/reports/{snapshot.id}/email-draft").status_code, 400)
         with patch("app.services.email_proposals.send_email") as send:
-            drafted = self.client.post(f"/ai/reports/{snapshot.id}/email-draft",
+            drafted = self.csrf_request("POST", f"/ai/reports/{snapshot.id}/email-draft",
                                        data={"csrf_token": token})
             send.assert_not_called()
         self.assertEqual(drafted.status_code, 302)
@@ -1400,11 +1431,11 @@ class WorkflowTests(unittest.TestCase):
         self.login(1)
         db.session.get(User, 1).chuc_vu = "TB"
         db.session.commit()
-        self.assertEqual(self.client.get(f"/ai/reports/{snapshot.id}.xlsx").status_code, 403)
-        self.assertEqual(self.client.post(f"/ai/reports/{snapshot.id}/email-draft",
-                                          data={"csrf_token": token}).status_code, 403)
+        self.assertEqual(self.client.get(f"/ai/reports/{snapshot.id}.xlsx").status_code, 200)
+        self.assertEqual(self.csrf_request("POST", f"/ai/reports/{snapshot.id}/email-draft",
+                                          data={"csrf_token": token}).status_code, 302)
 
-    def test_truong_ban_report_excludes_other_ban_sources(self):
+    def test_truong_ban_report_includes_other_ban_sources(self):
         self.app.config.update(AI_PROVIDER="rules")
         db.session.add(Ban(id=2, ten_ban="Nhan su"))
         leader = User(id=5, mssv="TB005", ho_ten="Truong ban ky thuat",
@@ -1448,9 +1479,9 @@ class WorkflowTests(unittest.TestCase):
         ])
         db.session.commit()
         payload = report_data(leader, "week")
-        self.assertEqual([row["id"] for row in payload["events"]], [first.id])
-        self.assertEqual([row["member_id"] for row in payload["payments"]], [3])
-        self.assertEqual(payload["scope_ban_ids"], [1])
+        self.assertEqual([row["id"] for row in payload["events"]], [first.id, second.id])
+        self.assertEqual([row["member_id"] for row in payload["payments"]], [3, 6])
+        self.assertEqual(payload["scope_ban_ids"], [])
 
 
 if __name__ == "__main__":

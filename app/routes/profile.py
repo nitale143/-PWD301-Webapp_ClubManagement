@@ -1,22 +1,62 @@
+import io
 import os
+import tempfile
+import warnings
 from datetime import date
-from flask import Blueprint, render_template, request, redirect, url_for, flash, current_app
+from flask import Blueprint, abort, render_template, request, redirect, url_for, flash, current_app
 from flask_login import login_required, current_user
-from werkzeug.utils import secure_filename
+from PIL import Image, ImageOps
 
 from app import db
 from app.models import User, MemberActivity, FundDue, MemberPlanningProfile
 from app.permissions import approved_required
 from app.services.access import can_view_member, can_view_all_members
 from app.security import require_csrf
-from flask import abort
 
 profile_bp = Blueprint("profile", __name__)
 
 
 def _allowed_avatar(filename):
+    if not isinstance(filename, str) or not filename:
+        return False
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
     return ext in current_app.config["ALLOWED_AVATAR_EXTENSIONS"]
+
+
+def _sanitize_avatar(file, extension):
+    max_bytes = int(current_app.config.get("MAX_AVATAR_SIZE", 2 * 1024 * 1024))
+    max_pixels = int(current_app.config.get("MAX_AVATAR_PIXELS", 4_000_000))
+    raw = file.stream.read(max_bytes + 1)
+    if len(raw) > max_bytes:
+        raise ValueError("too large")
+
+    expected_formats = {"jpg": "JPEG", "jpeg": "JPEG", "png": "PNG", "gif": "GIF", "webp": "WEBP"}
+    expected_format = expected_formats.get(extension)
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", Image.DecompressionBombWarning)
+        with Image.open(io.BytesIO(raw)) as image:
+            if image.format != expected_format or image.width * image.height > max_pixels:
+                raise ValueError("invalid image")
+            image.verify()
+
+        with Image.open(io.BytesIO(raw)) as image:
+            image.load()
+            image = ImageOps.exif_transpose(image)
+            image.thumbnail((2048, 2048), Image.Resampling.LANCZOS)
+            has_alpha = "A" in image.getbands() or "transparency" in image.info
+            if expected_format in {"PNG", "WEBP"}:
+                mode = "RGBA" if has_alpha else "RGB"
+                clean = Image.frombytes(mode, image.size, image.convert(mode).tobytes())
+            else:
+                rgba = image.convert("RGBA")
+                background = Image.new("RGB", rgba.size, "white")
+                background.paste(rgba, mask=rgba.getchannel("A"))
+                clean = Image.frombytes("RGB", background.size, background.tobytes())
+
+            output = io.BytesIO()
+            save_options = {"quality": 90, "optimize": True} if expected_format in {"JPEG", "WEBP"} else {}
+            clean.save(output, format=expected_format, **save_options)
+            return output.getvalue()
 
 
 @profile_bp.route("/profile")
@@ -91,7 +131,7 @@ def task_preferences():
 def upload_avatar():
     """Upload anh dai dien, luu truc tiep vao server (phuc vu demo)."""
     file = request.files.get("avatar")
-    if not file or file.filename == "":
+    if not file or not isinstance(file.filename, str) or not file.filename:
         flash("Vui long chon mot file anh.", "error")
         return redirect(url_for("profile.view_profile"))
 
@@ -99,11 +139,27 @@ def upload_avatar():
         flash("Chi chap nhan file anh (png, jpg, jpeg, gif, webp).", "error")
         return redirect(url_for("profile.view_profile"))
 
-    os.makedirs(current_app.config["UPLOAD_FOLDER"], exist_ok=True)
     ext = file.filename.rsplit(".", 1)[-1].lower()
-    filename = secure_filename(f"user_{current_user.id}.{ext}")
-    filepath = os.path.join(current_app.config["UPLOAD_FOLDER"], filename)
-    file.save(filepath)
+    try:
+        image_bytes = _sanitize_avatar(file, ext)
+    except (OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning):
+        flash("Ảnh không hợp lệ hoặc vượt quá giới hạn tải lên.", "error")
+        return redirect(url_for("profile.view_profile"))
+
+    upload_folder = os.path.realpath(current_app.config["UPLOAD_FOLDER"])
+    os.makedirs(upload_folder, exist_ok=True)
+    filename = f"user_{current_user.id}.{ext}"
+    filepath = os.path.join(upload_folder, filename)
+    temporary_path = None
+    try:
+        with tempfile.NamedTemporaryFile(dir=upload_folder, prefix=f".user_{current_user.id}.",
+                                         suffix=".tmp", delete=False) as temporary:
+            temporary_path = temporary.name
+            temporary.write(image_bytes)
+        os.replace(temporary_path, filepath)
+    finally:
+        if temporary_path and os.path.exists(temporary_path):
+            os.unlink(temporary_path)
 
     current_user.avatar_url = f"/static/uploads/avatars/{filename}"
     db.session.commit()

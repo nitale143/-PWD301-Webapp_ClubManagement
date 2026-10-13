@@ -17,15 +17,23 @@ from .common import DomainError, audit, club_now
 QR_TTL_SECONDS = 15 * 60
 REGISTRATION_STATES = {"registered", "waitlist", "cancelled"}
 ATTENDANCE_STATES = {"on_time", "late", "excused", "absent", "pending"}
+TERMINAL_EVENT_STATES = frozenset({"da_ket_thuc", "cancelled"})
 
 
 def _serializer():
     return URLSafeTimedSerializer(current_app.secret_key, salt="event-checkin")
 
 
+def event_is_terminal(event):
+    return bool(event and event.trang_thai in TERMINAL_EVENT_STATES)
+
+
 def registration_open(event, detail, now=None):
     now = now or club_now()
-    return event.trang_thai in {"sap_dien_ra", "open"} and now < event.thoi_gian_bat_dau and (not detail or not detail.han_dang_ky or now <= detail.han_dang_ky)
+    return (not event_is_terminal(event)
+            and event.trang_thai in {"sap_dien_ra", "open"}
+            and now < event.thoi_gian_bat_dau
+            and (not detail or not detail.han_dang_ky or now <= detail.han_dang_ky))
 
 
 def eligible(event, member):
@@ -104,7 +112,7 @@ def qr_checkin(actor, token, now=None, expected_event_id=None):
     if expected_event_id is not None and event.id != expected_event_id:
         raise DomainError("Mã QR không thuộc sự kiện này.")
     now = now or club_now()
-    if event.trang_thai in {"cancelled", "da_ket_thuc"} or not (event.thoi_gian_bat_dau - timedelta(minutes=30) <= now <= event.thoi_gian_ket_thuc):
+    if event_is_terminal(event) or not (event.thoi_gian_bat_dau - timedelta(minutes=30) <= now <= event.thoi_gian_ket_thuc):
         raise DomainError("Chỉ được điểm danh trong thời gian diễn ra sự kiện.")
     registration = EventRegistration.query.filter_by(event_id=event.id, user_id=actor.id, trang_thai="registered").first()
     if not registration:

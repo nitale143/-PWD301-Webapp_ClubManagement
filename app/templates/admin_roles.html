@@ -45,7 +45,7 @@
                     <td>{{ m.mssv }}</td>
                     <td>{{ team_names or '—' }}</td>
                     <td>{{ badge(role_label(m.chuc_vu), 'neutral' if m.chuc_vu == 'THANH_VIEN' else 'indigo') }}</td>
-                    <td>{% if current_user.chuc_vu in ['CN', 'PCN'] and current_user.outranks(m) %}<button class="btn btn-secondary btn-sm" type="button" data-dialog-open="role-assign-{{ m.id }}">{{ icon('edit') }} Gán chức vụ</button>{% endif %}</td>
+                    <td>{% if current_user.is_bdh() and m.id != current_user.id %}<button class="btn btn-secondary btn-sm" type="button" data-dialog-open="role-assign-{{ m.id }}">{{ icon('edit') }} Gán chức vụ</button>{% endif %}</td>
                 </tr>
                 {% endfor %}
                 </tbody>
@@ -58,7 +58,7 @@
 
     <p class="small muted">{{ icon('shield') }} Các thay đổi chức vụ chỉ được lưu sau khi bạn xác nhận biểu mẫu.</p>
 
-    {% for m in members if current_user.chuc_vu in ['CN', 'PCN'] and current_user.outranks(m) %}
+    {% for m in members if current_user.is_bdh() and m.id != current_user.id %}
     {% set current_team_lead = m.ban_links|selectattr('is_truong_ban', 'equalto', true)|first %}
     <dialog class="dialog parity-finance-dialog" id="role-assign-{{ m.id }}" aria-labelledby="role-assign-title-{{ m.id }}">
         <div class="dialog-heading"><div><p class="eyebrow">BAN ĐIỀU HÀNH · PHÂN QUYỀN</p><h2 id="role-assign-title-{{ m.id }}">Gán chức vụ · {{ m.ho_ten }}</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
@@ -67,9 +67,7 @@
             <div class="field"><span class="field-label">Thành viên</span><div class="input parity-readonly-field">{{ m.ho_ten }} · {{ m.mssv }}</div></div>
             <label class="field"><span class="field-label">Chức vụ mới</span>
                 <select class="select" name="chuc_vu" required data-role-select>
-                    {% if current_user.chuc_vu == 'CN' %}
                     <option value="PCN"{% if m.chuc_vu == 'PCN' %} selected{% endif %}>Phó Chủ nhiệm</option>
-                    {% endif %}
                     <option value="TB"{% if m.chuc_vu == 'TB' %} selected{% endif %}>Trưởng ban</option>
                     <option value="THUKY_THUQUY"{% if m.chuc_vu == 'THUKY_THUQUY' %} selected{% endif %}>Thư ký / Thủ quỹ</option>
                     <option value="THANH_VIEN"{% if m.chuc_vu == 'THANH_VIEN' %} selected{% endif %}>Thành viên</option>

@@ -16,7 +16,7 @@ from flask import current_app, has_request_context
 from flask_login import current_user
 
 from app import db
-from app.models import AIUsageLog, Attendance, ChatMessage, Event, EventRegistration, EventTargetBan, FundCollection, FundDue, FundPayment, FundPeriod, Task, User, UserBan
+from app.models import AIUsageLog, Attendance, ChatMessage, Event, EventRegistration, FundCollection, FundDue, FundPayment, FundPeriod, Task, User
 from .access import can_view_all_members, is_board, is_treasurer, require, visible_members
 from .activities import activity_stats
 from .common import DomainError, club_now
@@ -300,9 +300,6 @@ class RulesProvider(AssistantProvider):
                 .join(Attendance, Attendance.registration_id == EventRegistration.id)
                 .filter(Attendance.trang_thai == "absent")
             )
-            if actor.chuc_vu == "TB":
-                query = query.join(UserBan, UserBan.user_id == EventRegistration.user_id).filter(
-                    UserBan.ban_id.in_(actor.quan_ly_ban_ids()))
             rows = query.group_by(Event.id).order_by(db.desc("absent"), Event.id.asc()).first()
             return {"intent": "highest_absence", "answer": f"Sự kiện vắng không phép nhiều nhất: {rows.ten_su_kien} ({rows.absent} lượt)." if rows else "Chưa có dữ liệu điểm danh."}
 
@@ -312,13 +309,6 @@ class RulesProvider(AssistantProvider):
             event_query = Event.query.filter(Event.thoi_gian_bat_dau >= since,
                                              Event.thoi_gian_bat_dau <= club_now(),
                                              Event.trang_thai.notin_(["cancelled", "draft"]))
-            if actor.chuc_vu == "TB":
-                event_query = event_query.filter(db.or_(
-                    Event.id.in_(db.session.query(EventTargetBan.event_id).filter(
-                        EventTargetBan.ban_id.in_(actor.quan_ly_ban_ids()))),
-                    Event.id.in_(db.session.query(EventRegistration.event_id).filter(
-                        EventRegistration.user_id.in_(visible_ids))),
-                ))
             events = event_query.count()
             attendance_query = (Attendance.query.join(EventRegistration)
                                 .filter(Attendance.checkin_luc >= datetime.utcnow() - timedelta(days=30),
@@ -407,11 +397,6 @@ class AnthropicProvider(AssistantProvider):
         member_ids = {member.id for member in matched}
         task_query = Task.query.filter(Task.assignee_id.in_(member_ids),
                                        Task.trang_thai != "huy")
-        if actor.chuc_vu == "TB":
-            task_query = task_query.filter(db.or_(
-                Task.ban_id.in_(actor.quan_ly_ban_ids()),
-                Task.assignee_id == actor.id,
-            ))
         context = {
             "verified_answer": facts["answer"],
             "club_time": club_now().isoformat(),

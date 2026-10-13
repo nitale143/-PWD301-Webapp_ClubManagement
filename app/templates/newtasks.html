@@ -6,21 +6,21 @@
 {% set status_tones = {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'} %}
 {% set status_order = ['dang_lam', 'cho_duyet', 'lam_lai', 'hoan_thanh', 'huy'] %}
 {% macro task_card(task, compact=false) %}
-{% set can_manage_task = current_user.chuc_vu in ['CN', 'PCN'] or (current_user.chuc_vu == 'TB' and task.ban_id in current_user.quan_ly_ban_ids()) %}
+{% set can_manage_task = current_user.is_bdh() %}
 <article class="task-card {{ 'task-card-compact' if compact else '' }}">
     <div class="row task-card-title"><strong>{{ task.ten_task }}</strong><a class="btn btn-ghost btn-sm task-more" href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}" aria-label="Mở nhiệm vụ trong sự kiện">{{ icon('more') }}</a></div>
     <p class="small muted"><a href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}">{{ task.event.ten_su_kien }}</a></p>
     <div class="task-card-tags">{% if task.ban %}{{ badge(task.ban.ten_ban, 'neutral') }}{% endif %}{{ badge(status_labels.get(task.trang_thai, task.trang_thai), status_tones.get(task.trang_thai, 'neutral')) }}</div>
     <div class="row task-card-footer"><span class="task-assignee">{{ avatar(task.assignee.ho_ten, 'indigo') }}<span class="small">{{ task.assignee.ho_ten }}</span></span><span class="small muted">{{ icon('clock') }} {{ task.deadline.strftime('%d/%m/%Y') }}</span></div>
-    {% if (task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai != 'da_ket_thuc') or (can_manage_task and task.event.trang_thai != 'da_ket_thuc' and task.trang_thai not in ['hoan_thanh', 'huy']) %}
+    {% if (task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai not in ['da_ket_thuc', 'cancelled']) or (can_manage_task and task.event.trang_thai not in ['da_ket_thuc', 'cancelled'] and task.trang_thai not in ['hoan_thanh', 'huy']) %}
     <details class="task-card-action"><summary class="btn btn-ghost btn-sm">Cập nhật nhiệm vụ {{ icon('arrow') }}</summary>
-        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai != 'da_ket_thuc' %}
+        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and task.event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
         <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}" class="task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Sản phẩm / liên kết</span><textarea class="textarea" name="noi_dung_nop" maxlength="10000" placeholder="Dán liên kết hoặc mô tả sản phẩm">{{ task.noi_dung_nop or '' }}</textarea></label><button type="submit" class="btn btn-primary btn-sm">Nộp sản phẩm</button></form>
         {% endif %}
-        {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and task.event.trang_thai != 'da_ket_thuc' %}
+        {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and task.event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
         <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">MSSV người phụ trách mới</span><input class="input" name="assignee_mssv" maxlength="20" placeholder="Thành viên trong ban"></label><button type="submit" class="btn btn-secondary btn-sm">Chỉ định lại</button></form>
         {% endif %}
-        {% if can_manage_task and task.trang_thai == 'cho_duyet' and task.event.trang_thai != 'da_ket_thuc' %}
+        {% if can_manage_task and task.trang_thai == 'cho_duyet' and task.event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
         <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-action-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><label class="field"><span class="field-label">Nhận xét khi yêu cầu làm lại</span><input class="input" name="nhan_xet_bdh" maxlength="2000"></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
         {% endif %}
     </details>

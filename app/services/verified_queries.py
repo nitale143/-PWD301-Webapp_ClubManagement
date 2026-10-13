@@ -103,8 +103,6 @@ def maybe_answer_member_query(actor, message):
     else:
         states, label = ["dang_lam", "cho_duyet", "lam_lai"], "chưa hoàn thành"
     query = Task.query.filter(Task.assignee_id == member.id, Task.trang_thai.in_(states))
-    if actor.chuc_vu == "TB" and member.id != actor.id:
-        query = query.filter(Task.ban_id.in_(actor.quan_ly_ban_ids()))
     total = query.count()
     tasks = query.order_by(Task.deadline, Task.id).limit(100).all()
     sources["task"] = [row.id for row in tasks]

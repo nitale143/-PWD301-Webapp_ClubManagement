@@ -13,6 +13,7 @@ from app.models import (
 from .access import approved, is_board, require
 from .assistant import AnthropicProvider, _normalize, get_provider
 from .common import DomainError, audit, club_now, parse_datetime
+from .events import event_is_terminal
 
 
 def _integer(value, label):
@@ -71,8 +72,6 @@ def _event_payload(actor, data, brief, provider):
     ban_id = _integer(data["ban_id"], "Mã ban") if data.get("ban_id") else None
     if ban_id and not db.session.get(Ban, ban_id):
         raise DomainError("Ban không tồn tại.")
-    if actor.chuc_vu == "TB" and (not ban_id or ban_id not in actor.quan_ly_ban_ids()):
-        raise DomainError("Trưởng ban chỉ được đề xuất sự kiện cho ban mình quản lý.", 403)
     suggestion = (
         _model_suggestion(provider, "event", brief, {"start_at": start.isoformat(),
             "end_at": end.isoformat(), "ban_id": ban_id})
@@ -101,12 +100,10 @@ def _task_payload(actor, data, brief, provider):
     event_id = _integer(data.get("event_id"), "Mã sự kiện")
     ban_id = _integer(data.get("ban_id"), "Mã ban")
     event = db.session.get(Event, event_id)
-    if not event or event.trang_thai in {"da_ket_thuc", "cancelled"}:
+    if not event or event_is_terminal(event):
         raise DomainError("Sự kiện không tồn tại hoặc đã kết thúc.")
     if not db.session.get(Ban, ban_id):
         raise DomainError("Ban không tồn tại.")
-    if actor.chuc_vu == "TB" and ban_id not in actor.quan_ly_ban_ids():
-        raise DomainError("Trưởng ban chỉ được chia task cho ban mình quản lý.", 403)
     deadline = parse_datetime(data.get("deadline"), "Hạn task")
     if deadline <= club_now() or deadline > event.thoi_gian_ket_thuc:
         raise DomainError("Hạn task phải còn hiệu lực và không sau khi sự kiện kết thúc.")
@@ -222,11 +219,7 @@ def proposal_preview(proposal):
 
 
 def can_review(actor, proposal):
-    if not is_board(actor):
-        return False
-    if actor.chuc_vu in {"CN", "PCN"}:
-        return True
-    return actor.id == proposal.created_by_id and proposal.payload.get("ban_id") in actor.quan_ly_ban_ids()
+    return is_board(actor)
 
 
 def review_proposal(actor, proposal, decision):
@@ -269,7 +262,7 @@ def review_proposal(actor, proposal, decision):
         else:
             event = db.session.get(Event, payload["event_id"])
             deadline = parse_datetime(payload["deadline"], "Hạn task")
-            if not event or event.trang_thai in {"da_ket_thuc", "cancelled"} or deadline <= club_now() or deadline > event.thoi_gian_ket_thuc:
+            if not event or event_is_terminal(event) or deadline <= club_now() or deadline > event.thoi_gian_ket_thuc:
                 raise DomainError("Sự kiện hoặc hạn task không còn hợp lệ.")
             for item in payload["tasks"]:
                 member = db.session.get(User, item["assignee_id"])

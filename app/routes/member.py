@@ -94,7 +94,8 @@ def export_excel():
         row = [m.ho_ten, m.mssv, m.chuc_vu, ban_names]
         if can_view_all_members(current_user):
             row += [m.sdt, m.email, m.hoat_dong_status]
-        ws.append(row)
+        from app.services.export_security import safe_excel_row
+        ws.append(safe_excel_row(row))
 
     buf = io.BytesIO()
     wb.save(buf)

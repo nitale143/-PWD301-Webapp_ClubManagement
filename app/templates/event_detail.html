@@ -4,6 +4,7 @@
 {% block content %}
 {% set event_status_labels = {'sap_dien_ra': 'Sắp diễn ra', 'dang_dien_ra': 'Đang diễn ra', 'da_ket_thuc': 'Đã kết thúc'} %}
 {% set accent = ['indigo', 'orange', 'violet', 'teal'][event.id % 4] %}
+{% set visible_tasks = event.tasks if current_user.is_bdh() else event.tasks|selectattr('assignee_id', 'equalto', current_user.id)|list %}
 {% set registered_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length %}
 {% set waitlist_count = registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length %}
 {% set attended_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|selectattr('attendance.trang_thai', 'in', ['on_time', 'late'])|list|length %}
@@ -13,7 +14,7 @@
 <div class="page-stack ops-preview ops-event-detail">
     <div class="toolbar detail-back-toolbar">
         <div class="toolbar-left"><a class="btn btn-ghost btn-sm" href="{{ url_for('event.event_list') }}">{{ icon('arrow') }} Tất cả sự kiện</a><span class="muted small">/ {{ event.ma_su_kien }}</span></div>
-        <div class="toolbar-right">{% if is_bdh and event.trang_thai != 'da_ket_thuc' %}<form method="post" action="{{ url_for('event.event_end', event_id=event.id) }}" onsubmit="return confirm('Đánh dấu sự kiện đã kết thúc? Tình trạng hoạt động liên quan sẽ được cập nhật.');"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-secondary btn-sm">{{ icon('check') }} Kết thúc sự kiện</button></form>{% endif %}</div>
+        <div class="toolbar-right">{% if is_bdh and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}<form method="post" action="{{ url_for('event.event_end', event_id=event.id) }}" data-confirm="Đánh dấu sự kiện đã kết thúc? Tình trạng hoạt động liên quan sẽ được cập nhật."><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button type="submit" class="btn btn-secondary btn-sm">{{ icon('check') }} Kết thúc sự kiện</button></form>{% endif %}</div>
     </div>
 
     <section class="event-detail-hero cover-{{ accent }}">
@@ -57,7 +58,7 @@
 
     <div class="tabs" role="tablist" aria-label="Thông tin sự kiện">
         <button id="event-tab-attendance" type="button" role="tab" data-event-tab="attendance" aria-controls="event-panel-attendance" aria-selected="{{ 'true' if event_tab == 'attendance' else 'false' }}" class="{{ 'active' if event_tab == 'attendance' else '' }}">{{ icon('users') }} Người tham gia <span>{{ registered_count }}</span></button>
-        <button id="event-tab-tasks" type="button" role="tab" data-event-tab="tasks" aria-controls="event-panel-tasks" aria-selected="{{ 'true' if event_tab == 'tasks' else 'false' }}" class="{{ 'active' if event_tab == 'tasks' else '' }}">{{ icon('check') }} Nhiệm vụ <span>{{ event.tasks|length }}</span></button>
+        <button id="event-tab-tasks" type="button" role="tab" data-event-tab="tasks" aria-controls="event-panel-tasks" aria-selected="{{ 'true' if event_tab == 'tasks' else 'false' }}" class="{{ 'active' if event_tab == 'tasks' else '' }}">{{ icon('check') }} Nhiệm vụ <span>{{ visible_tasks|length }}</span></button>
         <button id="event-tab-details" type="button" role="tab" data-event-tab="details" aria-controls="event-panel-details" aria-selected="{{ 'true' if event_tab == 'details' else 'false' }}" class="{{ 'active' if event_tab == 'details' else '' }}">{{ icon('file') }} Chi tiết</button>
     </div>
 
@@ -94,7 +95,7 @@
                 <label class="field"><span class="field-label">Mô tả</span><textarea class="textarea" name="mo_ta" maxlength="4000"></textarea></label>
                 <div class="grid-12 form-grid">
                     <div class="span-6"><label class="field"><span class="field-label">Hạn hoàn thành</span><input class="input" type="datetime-local" name="deadline" required></label></div>
-                    <div class="span-6"><label class="field"><span class="field-label">Ban phụ trách</span><select class="select" name="ban_id" required>{% for ban in bans %}{% if current_user.chuc_vu != 'TB' or ban.id in current_user.quan_ly_ban_ids() %}<option value="{{ ban.id }}">{{ ban.ten_ban }}</option>{% endif %}{% endfor %}</select></label></div>
+                    <div class="span-6"><label class="field"><span class="field-label">Ban phụ trách</span><select class="select" name="ban_id" required>{% for ban in bans %}<option value="{{ ban.id }}">{{ ban.ten_ban }}</option>{% endfor %}</select></label></div>
                 </div>
                 <label class="field"><span class="field-label">MSSV người phụ trách</span><input class="input" type="text" name="assignee_mssv" maxlength="20" required><span class="small muted">Người được giao phải là thành viên đã duyệt trong ban phụ trách.</span></label>
                 <button type="submit" class="btn btn-primary">{{ icon('plus') }} Giao nhiệm vụ</button>
@@ -103,24 +104,24 @@
         {% endif %}
 
         <div class="task-list">
-            {% for task in event.tasks %}
+            {% for task in visible_tasks %}
             {% set task_status_labels = {'dang_lam': 'Đang làm', 'cho_duyet': 'Chờ duyệt', 'lam_lai': 'Cần làm lại', 'hoan_thanh': 'Hoàn thành', 'huy': 'Đã hủy'} %}
-            {% set can_manage_task = current_user.chuc_vu in ['CN', 'PCN'] or (current_user.chuc_vu == 'TB' and task.ban_id in current_user.quan_ly_ban_ids()) %}
+            {% set can_manage_task = current_user.is_bdh() %}
             <details class="task-card detail-task-card">
                 <summary class="row task-card-title"><span class="grow"><strong>{{ task.ten_task }}</strong><span class="small muted">{{ task.ban.ten_ban if task.ban else 'Chưa gắn ban' }} · {{ task.assignee.ho_ten }}</span></span>{{ badge(task_status_labels.get(task.trang_thai, task.trang_thai), {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'}.get(task.trang_thai, 'neutral')) }}</summary>
                 <div class="detail-task-body">
                     {% if task.mo_ta %}<p>{{ task.mo_ta }}</p>{% endif %}
                     <p class="small muted"><strong>Người phụ trách:</strong> {{ task.assignee.ho_ten }} ({{ task.assignee.mssv }}, {{ task.assignee.sdt }})</p>
                     <div class="row task-card-footer"><span class="small muted">{{ icon('clock') }} Hạn {{ task.deadline.strftime('%d/%m/%Y %H:%M') }}</span>{% if task.ban %}{{ badge(task.ban.ten_ban, 'neutral') }}{% endif %}</div>
-                    {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and event.trang_thai != 'da_ket_thuc' %}
+                    {% if can_manage_task and task.trang_thai not in ['hoan_thanh', 'huy'] and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
                     <form method="post" action="{{ url_for('event.task_reassign', task_id=task.id) }}" class="inline-form task-reassign-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">MSSV người phụ trách mới</span><input class="input" type="text" name="assignee_mssv" placeholder="MSSV thành viên trong ban"></label><button class="btn btn-secondary btn-sm" type="submit">Chỉ định lại</button></form>
                     {% endif %}
                     <div class="submission-box"><h4>Sản phẩm / nhận xét</h4>
-                        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and event.trang_thai != 'da_ket_thuc' %}
+                        {% if task.assignee_id == current_user.id and task.trang_thai in ['dang_lam', 'lam_lai'] and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
                         <form method="post" action="{{ url_for('event.task_submit', task_id=task.id) }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Nội dung sản phẩm</span><textarea class="textarea" name="noi_dung_nop" maxlength="10000" placeholder="Dán liên kết hoặc mô tả sản phẩm">{{ task.noi_dung_nop or '' }}</textarea></label><button type="submit" class="btn btn-primary btn-sm">Nộp sản phẩm</button></form>
                         {% elif task.noi_dung_nop %}<p class="small">{{ task.noi_dung_nop }}</p>{% else %}<p class="small muted">Chưa có sản phẩm được nộp.</p>{% endif %}
                         {% if task.nhan_xet_bdh %}<p class="small"><strong>Nhận xét Ban điều hành:</strong> {{ task.nhan_xet_bdh }}</p>{% endif %}
-                        {% if can_manage_task and task.trang_thai == 'cho_duyet' and event.trang_thai != 'da_ket_thuc' %}
+                        {% if can_manage_task and task.trang_thai == 'cho_duyet' and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
                         <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-review-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><label class="field"><span class="field-label">Nhận xét (bắt buộc khi yêu cầu làm lại)</span><input class="input" type="text" name="nhan_xet_bdh" maxlength="2000"></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
                         {% endif %}
                     </div>

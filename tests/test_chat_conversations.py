@@ -165,8 +165,8 @@ class ChatConversationTests(unittest.TestCase):
         html_restore = self.client.post(f"/ai/conversations/{created}/restore")
         self.assertEqual(html_restore.status_code, 400)
 
-        # Ordinary API chat remains compatible with older clients without a token.
-        ordinary_chat = self.client.post("/api/v1/assistant", json={
+        # Ordinary API chat also requires the global CSRF token.
+        ordinary_chat = self.api("POST", "/api/v1/assistant", json={
             "question": "Hướng dẫn sử dụng CLB", "conversation_id": created,
         })
         self.assertEqual(ordinary_chat.status_code, 200, ordinary_chat.json)

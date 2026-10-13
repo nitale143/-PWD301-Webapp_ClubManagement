@@ -4,7 +4,7 @@ import re
 
 from app import db
 from app.models import EmailTemplate
-from .access import require
+from .access import require, is_admin
 from .assistant import _normalize
 from .common import DomainError, audit
 
@@ -29,7 +29,7 @@ def _validate_text(subject, body):
 
 
 def save_template(actor, name, subject, body, template=None):
-    require(actor.chuc_vu in {"CN", "PCN"},
+    require(is_admin(actor),
             "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được quản lý mail mẫu.")
     name = str(name or "").strip()
     if not 2 <= len(name) <= 100 or "\n" in name or "\r" in name:
@@ -56,7 +56,7 @@ def save_template(actor, name, subject, body, template=None):
 
 
 def set_template_active(actor, template, active):
-    require(actor.chuc_vu in {"CN", "PCN"},
+    require(is_admin(actor),
             "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được quản lý mail mẫu.")
     template.active = bool(active)
     audit(actor, "email_template_activated" if active else "email_template_disabled", template)

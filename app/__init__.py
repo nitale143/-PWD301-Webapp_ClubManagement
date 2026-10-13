@@ -16,6 +16,8 @@ def create_app(config_override=None):
         app.config.update(config_override)
 
     os.makedirs(app.instance_path, exist_ok=True)
+    from app.hardening import configure_security
+    configure_security(app)
 
     db.init_app(app)
     login_manager.init_app(app)
@@ -46,6 +48,11 @@ def create_app(config_override=None):
     app.register_blueprint(admin_bp)
     app.register_blueprint(profile_bp)
     app.register_blueprint(api_bp)
+
+    from app.hardening import install_hardening
+    install_hardening(app)
+    from app.security import install_csrf
+    install_csrf(app)
 
     with app.app_context():
         if db.engine.url.get_backend_name() == "sqlite":

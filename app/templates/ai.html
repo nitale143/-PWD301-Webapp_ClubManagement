@@ -135,7 +135,7 @@
         </div>
     </div>
 </section>
-<script>
+<script nonce="{{ csp_nonce }}">
     (() => {
         const chatHistory = document.getElementById('chat-history');
         if (chatHistory && chatHistory.dataset.latest === 'true') {
@@ -557,7 +557,7 @@
         });
     })();
 </script>
-{% if current_user.chuc_vu in ('CN', 'PCN', 'TB') %}
+{% if current_user.is_bdh() %}
 <p class="small muted">AI trong 24 giờ: {{ usage_summary.calls }} lượt model, {{ usage_summary.tokens }} token, thời gian phản hồi trung bình {{ usage_summary.average_ms }} ms. Đây không phải số tiền tính phí.</p>
 <details class="new-task-box">
     <summary>Tóm tắt hôm nay và báo cáo có nguồn</summary>
@@ -588,7 +588,7 @@
 <details class="new-task-box">
     <summary>Mail mẫu dùng chung</summary>
     <p class="small muted">Ví dụ, nói với AI: “Gửi mail mẫu nhắc đóng quỹ cho Nguyễn Văn A”. AI chỉ tạo bản nháp; BDH vẫn phải duyệt gửi. Có thể dùng {{ '{{ten}}' }}, {{ '{{mssv}}' }}, {{ '{{email}}' }} để điền thông tin người nhận.</p>
-    {% if current_user.chuc_vu in ('CN', 'PCN') %}
+    {% if current_user.is_bdh() %}
     <form method="post" action="{{ url_for('ai.email_template_create') }}">
         <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label>Tên mẫu</label><input name="name" maxlength="100" required placeholder="Nhắc đóng quỹ">
@@ -603,7 +603,7 @@
         <pre style="white-space: pre-wrap">Tiêu đề: {{ template.subject }}
 
 {{ template.body }}</pre>
-        {% if current_user.chuc_vu in ('CN', 'PCN') %}
+        {% if current_user.is_bdh() %}
         <form method="post" action="{{ url_for('ai.email_template_update', template_id=template.id) }}">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label>Tên mẫu</label><input name="name" value="{{ template.name }}" maxlength="100" required>

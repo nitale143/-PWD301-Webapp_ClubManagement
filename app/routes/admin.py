@@ -7,7 +7,9 @@ from app.permissions import bdh_required, can_assign_role, role_required
 from app.mail import send_email
 from app.security import require_csrf
 from app.services.common import member_record
-from app.services.access import can_manage_member, approved
+from app.services.access import (
+    MEMBER_ROLE, approved, can_manage_member, set_member_role_safely,
+)
 from app.services.common import audit
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
@@ -18,9 +20,6 @@ admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 @bdh_required
 def approve_list():
     pending_users = User.query.filter_by(status="pending").all()
-    if current_user.chuc_vu == "TB":
-        managed = set(current_user.quan_ly_ban_ids())
-        pending_users = [user for user in pending_users if managed.intersection(link.ban_id for link in user.ban_links)]
     return render_template("admin_approve.html", pending_users=pending_users)
 
 
@@ -32,8 +31,6 @@ def approve_user(user_id):
     user = User.query.get_or_404(user_id)
     if user.status != "pending":
         abort(400)
-    if current_user.chuc_vu == "TB" and not set(current_user.quan_ly_ban_ids()).intersection(link.ban_id for link in user.ban_links):
-        abort(403)
     action = request.form.get("action")  # 'accept' | 'reject'
     if action == "accept":
         user.status = "approved"
@@ -77,12 +74,12 @@ def approve_user(user_id):
 @role_required("CN", "PCN", "TB", "THUKY_THUQUY")
 def role_list():
     members = User.query.filter_by(status="approved").order_by(User.ho_ten).all()
-    if current_user.chuc_vu == "TB":
-        members = [member for member in members if can_manage_member(current_user, member) or member.id == current_user.id]
     bans = Ban.query.all()
 
     counts = {}
     for m in members:
+        if not approved(m):
+            continue
         counts[m.chuc_vu] = counts.get(m.chuc_vu, 0) + 1
 
     return render_template(
@@ -101,6 +98,8 @@ def assign_role(user_id):
 
     counts = {}
     for m in User.query.filter_by(status="approved").all():
+        if not approved(m):
+            continue
         counts[m.chuc_vu] = counts.get(m.chuc_vu, 0) + 1
     # tru di 1 neu target dang giu dung chuc vu do (khong tinh trung lap khi giu nguyen)
     if target.chuc_vu == new_role:
@@ -115,11 +114,14 @@ def assign_role(user_id):
         if not ban_id or not Ban.query.get(ban_id):
             flash("Vui long chon ban ma Truong ban nay se quan ly.", "error")
             return redirect(url_for("admin.role_list"))
+
+    if not set_member_role_safely(target, new_role):
+        flash("Không thể thay đổi vai trò quản trị viên cuối cùng hoặc dữ liệu vừa thay đổi.", "error")
+        return redirect(url_for("admin.role_list"))
     # Xoa quyen truong ban khi chuyen sang chuc vu khac.
     UserBan.query.filter_by(user_id=target.id, is_truong_ban=True).update(
         {"is_truong_ban": False}
     )
-    target.chuc_vu = new_role
     target.chi_dinh_boi_id = current_user.id
 
     if new_role == "TB":
@@ -151,8 +153,7 @@ def nhuong_quyen():
         abort(400)
     target = User.query.get_or_404(user_id)
     old_role = current_user.chuc_vu
-    can_transfer = (can_manage_member(current_user, target) or
-                    (old_role == "THUKY_THUQUY" and target.chuc_vu == "THANH_VIEN"))
+    can_transfer = can_manage_member(current_user, target)
     if target.id == current_user.id or not approved(target) or not current_user.outranks(target) or not can_transfer:
         abort(400)
 
@@ -165,7 +166,9 @@ def nhuong_quyen():
         {"is_truong_ban": False}
     )
 
-    target.chuc_vu = old_role
+    if not set_member_role_safely(target, old_role):
+        db.session.rollback()
+        abort(409, "Vai trò của thành viên vừa thay đổi. Hãy tải lại trang.")
     target.chi_dinh_boi_id = current_user.id
 
     if old_role == "TB":
@@ -175,7 +178,9 @@ def nhuong_quyen():
             db.session.add(link)
         link.is_truong_ban = True
 
-    current_user.chuc_vu = "THANH_VIEN"
+    if not set_member_role_safely(current_user, MEMBER_ROLE):
+        db.session.rollback()
+        abort(409, "Không thể hạ quyền quản trị viên cuối cùng.")
     UserBan.query.filter_by(user_id=current_user.id, is_truong_ban=True).update(
         {"is_truong_ban": False}
     )

@@ -15,7 +15,7 @@ const base = process.env.FIA_TEST_URL || 'http://127.0.0.1:5090';
     assert.match(page.url(), /\/login/);
     await page.locator('[name=mssv]').fill('QA002');
     await page.locator('[name=password]').fill('ui-test-password');
-    await Promise.all([page.waitForURL('**/home'), page.locator('button[type=submit]').click()]);
+    await Promise.all([page.waitForURL('**/ai'), page.locator('button[type=submit]').click()]);
     assert.equal(await page.locator('.fia-admin-nav').count(), 0);
     await page.goto(base + '/ai');
     assert.equal(await page.locator('#ai-chat-form').count(), 1);
@@ -34,8 +34,7 @@ const base = process.env.FIA_TEST_URL || 'http://127.0.0.1:5090';
       await page.goto(base + route);
       assert.ok(!await page.locator('body').innerText().then(text => /Internal Server Error/.test(text)), route);
     }
-    await page.goto(base + '/logout');
-    await page.goto(base + '/login');
+    await Promise.all([page.waitForURL('**/login'), page.locator('form.live-logout-form button[type=submit]').click()]);
     await page.locator('[name=mssv]').fill('QA001');
     await page.locator('[name=password]').fill('ui-test-password');
     await Promise.all([page.waitForURL('**/home'), page.locator('button[type=submit]').click()]);

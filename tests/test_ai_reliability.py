@@ -93,7 +93,15 @@ class AIAssistantReliabilityTests(unittest.TestCase):
             session["_fresh"] = True
 
     def _ask(self, question):
-        return self.client.post("/api/v1/assistant", json={"question": question})
+        self.client.get("/login")
+        with self.client.session_transaction() as session:
+            token = session.get("_csrf_token")
+        if not token:
+            self.client.get("/ai")
+            with self.client.session_transaction() as session:
+                token = session["_csrf_token"]
+        return self.client.post("/api/v1/assistant", json={"question": question},
+                                headers={"X-CSRF-Token": token})
 
     def _event(self, event_id, name):
         start = datetime.utcnow() + timedelta(days=event_id)
@@ -260,21 +268,23 @@ class AIAssistantReliabilityTests(unittest.TestCase):
             if name != "Doing item":
                 self.assertNotIn(name, all_doing.json["answer"])
 
-    def test_unmatched_duplicate_and_out_of_scope_members_require_clarification(self):
+    def test_duplicate_members_require_clarification_and_board_role_sees_other_members(self):
         self._login(2)
 
         duplicate = self._ask("Cho tôi hồ sơ của Alex Duplicate")
         external = self._ask("Liệt kê task của SV005")
 
-        for response in (duplicate, external):
-            self.assertEqual(response.status_code, 200, response.json)
-            self.assertEqual(response.json["verification"], "clarification")
-            self.assertEqual(response.json["intent"], "member_needs_details")
-            self.assertNotIn("sources", response.json)
-        self.assertNotIn("Riley External", external.json["answer"])
+        self.assertEqual(duplicate.status_code, 200, duplicate.json)
+        self.assertEqual(duplicate.json["verification"], "clarification")
+        self.assertEqual(duplicate.json["intent"], "member_needs_details")
         self.assertNotIn("Alex Duplicate", duplicate.json["answer"])
+        self.assertEqual(external.status_code, 200, external.json)
+        self.assertEqual(external.json["verification"], "database")
+        self.assertEqual(external.json["intent"], "member_tasks")
+        self.assertEqual(external.json["sources"]["user"], [5])
+        self.assertIn("Riley External", external.json["answer"])
 
-    def test_nonstrict_model_context_scopes_team_lead_tasks_and_excludes_ai_history(self):
+    def test_nonstrict_model_context_includes_all_board_tasks_and_excludes_ai_history(self):
         self.app.config["AI_STRICT_FACTS"] = False
         self._login(2)
         self._link(4, 2)
@@ -326,14 +336,14 @@ class AIAssistantReliabilityTests(unittest.TestCase):
             task_names = {task["name"] for task in context["matched_member_tasks"]}
             self.assertIn("MANAGED_TASK_MARKER", task_names)
             self.assertIn("OWN_OTHER_BAN_TASK_MARKER", task_names)
-            self.assertNotIn("UNMANAGED_TASK_MARKER", task_names)
+            self.assertIn("UNMANAGED_TASK_MARKER", task_names)
             self.assertTrue(all(message["role"] == "user"
                                 for message in context["recent_conversation"]))
             self.assertNotIn("OLD_UNVERIFIED_ASSISTANT_MARKER", str(context))
             self.assertNotIn("MODEL_UNVERIFIED_OUTPUT_ONE", str(context))
         self.assertNotIn("UNMANAGED_TASK_MARKER", first.json["answer"])
 
-    def test_team_lead_sees_only_managed_ban_tasks_but_all_own_tasks(self):
+    def test_board_role_sees_managed_and_unmanaged_tasks_and_all_own_tasks(self):
         self._login(2)
         db.session.flush()
         self._link(4, 2)
@@ -359,16 +369,19 @@ class AIAssistantReliabilityTests(unittest.TestCase):
         self.assertEqual(managed.status_code, 200, managed.json)
         self.assertEqual(own.status_code, 200, own.json)
         self.assertIn("Managed ban task", managed.json["answer"])
-        self.assertNotIn("Unmanaged ban task", managed.json["answer"])
-        self.assertEqual(managed.json["sources"]["task"], [target_in_scope.id])
+        self.assertIn("Unmanaged ban task", managed.json["answer"])
+        self.assertEqual(managed.json["sources"]["task"], [target_in_scope.id, target_outside.id])
         self.assertIn("Lead self task", own.json["answer"])
         self.assertEqual(own.json["sources"]["task"], [own_outside.id])
 
-    def test_read_query_does_not_consume_pending_clarification_or_require_csrf(self):
+    def test_read_query_requires_csrf_and_does_not_consume_pending_clarification(self):
         self._login(1)
         pending = AssistantPending(user_id=1, kind="task", text="incomplete task proposal")
         db.session.add(pending)
         db.session.commit()
+
+        no_token = self.client.post("/api/v1/assistant", json={"question": "Cho tôi hồ sơ của tôi"})
+        self.assertEqual(no_token.status_code, 400)
 
         response = self._ask("Cho tôi hồ sơ của tôi")
 

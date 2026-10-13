@@ -72,6 +72,7 @@
             <div class="card-header"><div><h2>Ảnh đại diện</h2><p class="small muted">Tải ảnh mới để cập nhật hồ sơ của bạn.</p></div>{{ icon('edit') }}</div>
             <div class="card-body">
                 <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data" class="profile-avatar-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                     <span class="profile-avatar-form-preview">
                         {{ avatar(member.ho_ten, 'indigo') }}
                         <img data-avatar-image src="{{ member.avatar_url }}" alt="" aria-hidden="true">

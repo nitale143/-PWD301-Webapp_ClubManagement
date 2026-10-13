@@ -18,6 +18,7 @@
             <p class="muted">Điền thông tin để gửi đơn đăng ký vào FIA.</p>
             {{ badge('Ban Điều hành sẽ xem xét hồ sơ', 'neutral') }}
             <form method="post" action="{{ url_for('auth.register') }}" class="page-stack" autocomplete="on">
+                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
                 <div class="form-grid">
                     <div class="field">
                         <label class="field-label" for="register-ho-ten">Họ và tên</label>
@@ -62,7 +63,7 @@
                 </div>
                 <div class="field">
                     <label class="field-label" for="register-password">Mật khẩu</label>
-                    <input class="input" id="register-password" type="password" name="password" required minlength="6" autocomplete="new-password" placeholder="Tối thiểu 6 ký tự">
+                    <input class="input" id="register-password" type="password" name="password" required minlength="8" maxlength="128" autocomplete="new-password" placeholder="Từ 8 đến 128 ký tự">
                     {% if errors.password %}<p class="field-error" role="alert">{{ errors.password }}</p>{% endif %}
                 </div>
                 <button class="btn btn-primary" type="submit">Gửi đăng ký {{ icon('arrow') }}</button>
