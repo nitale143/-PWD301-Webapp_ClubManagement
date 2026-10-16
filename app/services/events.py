@@ -32,12 +32,16 @@ def event_is_terminal(event):
 
 
 def registration_open(event, detail, now=None):
-    """Sự kiện còn mở đăng ký: chưa bắt đầu, chưa quá hạn đăng ký, chưa kết thúc/hủy."""
+    """Sự kiện còn mở đăng ký: chưa kết thúc/hủy và chưa quá hạn đăng ký.
+
+    Thời gian sự kiện gồm cả setup và báo cáo, nên vẫn đăng ký được sau giờ bắt đầu.
+    Không đặt hạn đăng ký thì mở đến khi sự kiện kết thúc.
+    """
     now = now or club_now()
+    deadline = detail.han_dang_ky if detail and detail.han_dang_ky else event.thoi_gian_ket_thuc
     return (not event_is_terminal(event)
-            and event.trang_thai in {"sap_dien_ra", "open"}
-            and now < event.thoi_gian_bat_dau
-            and (not detail or not detail.han_dang_ky or now <= detail.han_dang_ky))
+            and event.trang_thai in {"sap_dien_ra", "dang_dien_ra", "open"}
+            and now <= deadline)
 
 
 def eligible(event, member):
@@ -50,8 +54,8 @@ def eligible(event, member):
 
 
 def register(actor, event, member=None):
-    """Đăng ký tham gia (cho mình, hoặc người quản lý sự kiện đăng ký hộ); hết chỗ thì vào danh
-    sách chờ.
+    """Đăng ký tham gia (cho mình, hoặc người quản lý sự kiện đăng ký hộ). Sự kiện không giới hạn
+    số người nên luôn vào trạng thái registered.
     """
     member = member or actor
     require(approved(actor) and (actor.id == member.id or can_manage_events(actor)))
@@ -65,9 +69,7 @@ def register(actor, event, member=None):
     registration = EventRegistration.query.filter_by(event_id=event.id, user_id=member.id).first()
     if registration and registration.trang_thai != "cancelled":
         return registration, False
-    count = EventRegistration.query.filter_by(event_id=event.id, trang_thai="registered").count()
-    capacity = detail.so_nguoi_toi_da if detail else None
-    state = "waitlist" if capacity and count >= capacity else "registered"
+    state = "registered"  # Sự kiện không giới hạn số người
     if registration is None:
         registration = EventRegistration(event_id=event.id, user_id=member.id)
         db.session.add(registration)
@@ -81,7 +83,9 @@ def register(actor, event, member=None):
 
 
 def cancel_registration(actor, registration):
-    """Hủy đăng ký (không cho hủy sau khi đã điểm danh) và đôn người đầu danh sách chờ."""
+    """Hủy đăng ký (không cho hủy sau khi đã điểm danh); dữ liệu waitlist cũ (nếu có) vẫn được đôn
+    lên.
+    """
     require(approved(actor) and (actor.id == registration.user_id or can_manage_events(actor)))
     if registration.trang_thai == "cancelled":
         return None

@@ -14,11 +14,11 @@ from datetime import date
 from flask_wtf import FlaskForm
 from flask_wtf.file import FileAllowed, FileField, FileRequired
 from wtforms import (
-    BooleanField, DateField, DateTimeLocalField, HiddenField, IntegerField, PasswordField,
+    BooleanField, DateField, DateTimeLocalField, HiddenField, PasswordField,
     SelectMultipleField, StringField, SubmitField, TextAreaField,
 )
 from wtforms.validators import (
-    DataRequired, Email, EqualTo, InputRequired, Length, NumberRange, Optional, Regexp,
+    DataRequired, Email, EqualTo, InputRequired, Length, Optional, Regexp,
     ValidationError,
 )
 
@@ -208,8 +208,8 @@ class ResendConfirmationForm(BaseForm):
 # Sự kiện (Ch8)
 # --------------------------------------------------------------------------
 class EventForm(BaseForm):
-    """Form tạo sự kiện: tên, mã, thời gian bắt đầu/kết thúc, địa điểm, nội dung, hạn đăng ký, số
-    người tối đa.
+    """Form tạo sự kiện: tên, mã, thời gian bắt đầu/kết thúc, địa điểm, nội dung, hạn đăng ký (nằm
+    trong khoảng bắt đầu – kết thúc). Sự kiện không giới hạn số người.
     """
     ten_su_kien = StringField("Tên sự kiện", filters=[_strip],
                               validators=[DataRequired(message="Vui lòng nhập tên sự kiện."),
@@ -224,8 +224,6 @@ class EventForm(BaseForm):
     dia_diem = StringField("Địa điểm", filters=[_strip], validators=[Optional(), Length(max=300), NoControlChars()])
     noi_dung = TextAreaField("Nội dung", filters=[_strip], validators=[Optional(), Length(max=10000)])
     han_dang_ky = DateTimeLocalField("Hạn đăng ký (nếu có)", format="%Y-%m-%dT%H:%M", validators=[Optional()])
-    so_nguoi_toi_da = IntegerField("Số người tối đa (nếu có)", validators=[
-        Optional(), NumberRange(min=1, max=100000, message="Số người tối đa phải lớn hơn 0.")])
     submit = SubmitField("Tạo sự kiện")
 
     def validate_thoi_gian_ket_thuc(self, field):
@@ -234,9 +232,12 @@ class EventForm(BaseForm):
             raise ValidationError("Thời gian kết thúc phải sau thời gian bắt đầu.")
 
     def validate_han_dang_ky(self, field):
-        """Hạn đăng ký (nếu có) không được sau thời gian bắt đầu."""
-        if self.thoi_gian_bat_dau.data and field.data and field.data > self.thoi_gian_bat_dau.data:
-            raise ValidationError("Hạn đăng ký không được sau thời gian bắt đầu.")
+        """Hạn đăng ký (nếu có) phải nằm trong khoảng [bắt đầu, kết thúc] vì thời gian sự kiện đã
+        gồm cả setup và báo cáo sau sự kiện.
+        """
+        start, end = self.thoi_gian_bat_dau.data, self.thoi_gian_ket_thuc.data
+        if field.data and start and end and not start <= field.data <= end:
+            raise ValidationError("Hạn đăng ký phải nằm trong khoảng thời gian bắt đầu – kết thúc sự kiện.")
 
     def validate_ma_su_kien(self, field):
         """Mã sự kiện không được trùng sự kiện đã có."""

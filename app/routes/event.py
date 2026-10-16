@@ -155,7 +155,6 @@ def event_new():
                                    noi_dung=form.noi_dung.data or "",
                                    dia_diem=form.dia_diem.data or "",
                                    han_dang_ky=form.han_dang_ky.data,
-                                   so_nguoi_toi_da=form.so_nguoi_toi_da.data,
                                    phu_trach_id=current_user.id, tat_ca_thanh_vien=True))
         db.session.commit()
         flash("Đã tạo sự kiện. Tiếp tục thêm task con.", "success")

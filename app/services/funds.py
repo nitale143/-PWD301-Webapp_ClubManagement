@@ -10,7 +10,9 @@ from .common import DomainError, audit, club_now, parse_date, parse_money
 from app.timeutil import utcnow
 
 
-COLLECTION_TYPES = {"monthly", "semester", "yearly", "event", "voluntary", "other"}
+# Loại khoản thu được phép TẠO MỚI: quỹ theo kỳ / quỹ sự kiện / khác.
+# (Dữ liệu cũ monthly/yearly/voluntary vẫn hiển thị được, chỉ không tạo mới.)
+COLLECTION_TYPES = {"semester", "event", "other"}
 COLLECTION_STATES = {"draft", "open", "closed", "cancelled"}
 PAYMENT_METHODS = {"cash", "transfer", "other"}
 
@@ -121,15 +123,23 @@ def record_payment(actor, fund, member, data):
     method = str(data.get("method", "")).strip()
     if method not in PAYMENT_METHODS:
         raise DomainError("Phương thức thanh toán không hợp lệ.")
-    amount = parse_money(data.get("amount"))
-    if fund.loai != "voluntary":
-        current = balance(fund, member)
-        pending = FundPayment.query.filter_by(
-            fund_id=fund.id, user_id=member.id, trang_thai="pending"
-        ).all()
-        pending_total = sum((row.so_tien for row in pending), Decimal("0.00"))
-        if amount > current["remaining"] - pending_total:
-            raise DomainError("Số tiền đóng vượt số tiền còn thiếu hoặc đang chờ xác nhận.")
+    current = balance(fund, member)
+    pending = FundPayment.query.filter_by(
+        fund_id=fund.id, user_id=member.id, trang_thai="pending"
+    ).all()
+    pending_total = sum((row.so_tien for row in pending), Decimal("0.00"))
+    due_now = current["remaining"] - pending_total
+    raw_amount = str(data.get("amount") or "").strip()
+    if raw_amount:
+        # Thủ quỹ ghi hộ / API / khoản tự nguyện cũ: vẫn cho nhập số tiền cụ thể
+        amount = parse_money(raw_amount)
+    else:
+        # Thành viên chỉ bấm "Gửi xác nhận": tự lấy toàn bộ số còn phải đóng
+        if due_now <= 0:
+            raise DomainError("Bạn đã gửi xác nhận đủ số tiền, vui lòng chờ thủ quỹ xác nhận.")
+        amount = due_now
+    if fund.loai != "voluntary" and amount > due_now:
+        raise DomainError("Số tiền đóng vượt số tiền còn thiếu hoặc đang chờ xác nhận.")
     payment = FundPayment(
         fund_id=fund.id, user_id=member.id,
         so_tien=amount,

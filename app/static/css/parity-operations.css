@@ -203,3 +203,9 @@
     .ops-preview .rsvp-card .toolbar { align-items:flex-start; flex-direction:column; }
     .ops-preview .rsvp-card .toolbar-right { width:100%; justify-content:flex-start; }
 }
+
+/* --- Chỉnh 10/2026: căn ngang ô nhập + nút, thứ tự nhận xét trước quyết định, liên hệ 2 dòng --- */
+.ops-preview .task-reassign-form .field,.ops-preview .task-review-form .field { margin-bottom:0; }
+.ops-preview .task-reassign-form .btn,.ops-preview .task-review-form .btn { min-height:37px; }
+.ops-preview .task-review-form .task-review-comment { flex-basis:100%; }
+.ops-members .member-contact { display:flex; flex-direction:column; gap:2px; }

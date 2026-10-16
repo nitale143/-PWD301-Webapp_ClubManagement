@@ -118,11 +118,10 @@ class CoreFlowTests(unittest.TestCase):
         self.assertIn("Mã chỉ gồm chữ".encode(), bad.data)
         created = self.post("/event/new", {"ten_su_kien": "Workshop", "ma_su_kien": "WS-01",
                                            "thoi_gian_bat_dau": starts.strftime("%Y-%m-%dT%H:%M"),
-                                           "thoi_gian_ket_thuc": ends.strftime("%Y-%m-%dT%H:%M"),
-                                           "so_nguoi_toi_da": "30"})
+                                           "thoi_gian_ket_thuc": ends.strftime("%Y-%m-%dT%H:%M")})
         self.assertEqual(created.status_code, 302)
         event = Event.query.filter_by(ma_su_kien="WS-01").one()
-        self.assertEqual(event.detail.so_nguoi_toi_da, 30)
+        self.assertIsNone(event.detail.so_nguoi_toi_da)
 
         deadline = (now + timedelta(hours=30)).strftime("%Y-%m-%dT%H:%M")
         with patch("app.routes.event.send_email", return_value=True):

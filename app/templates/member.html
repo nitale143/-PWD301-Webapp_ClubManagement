@@ -37,8 +37,8 @@
                     </label>
                 </div>
                 <div class="toolbar-right">
-                    <button type="submit" class="btn btn-primary">{{ icon('filter') }} Lọc danh sách</button>
-                    <a class="btn btn-secondary" href="{{ url_for('member.export_excel', **request.args) }}">{{ icon('download') }} Xuất danh sách</a>
+                    <button type="submit" class="btn btn-primary">{{ icon('filter') }} Áp dụng</button>
+                    {% if is_bdh %}<a class="btn btn-secondary" href="{{ url_for('member.export_excel', **request.args) }}">{{ icon('download') }} Xuất danh sách</a>{% endif %}
                 </div>
             </form>
         </div>
@@ -67,11 +67,11 @@
                     {% set status = member.hoat_dong_status or 'hoat_dong' %}
                     {% if status in ['tich_cuc', 'hoat_dong'] %}{% set status_tone = 'success' %}{% elif status == 'it_hoat_dong' %}{% set status_tone = 'warning' %}{% elif status in ['khong_hoat_dong', 'ngung_hoat_dong'] %}{% set status_tone = 'danger' %}{% else %}{% set status_tone = 'neutral' %}{% endif %}
                     <tr>
-                        <td><a class="member-cell member-profile-link" href="{{ url_for('profile.view_profile', user_id=member.id) }}">{{ avatar(member.ho_ten, ['indigo', 'blue', 'violet', 'teal', 'rose', 'amber'][member.id % 6]) }}<span><strong>{{ member.ho_ten }}</strong><span class="small muted">{{ member.email if is_bdh else 'Hồ sơ thành viên FIA' }}</span></span></a></td>
+                        <td>{% if is_bdh or member.id == current_user.id %}<a class="member-cell member-profile-link" href="{{ url_for('profile.view_profile', user_id=member.id) }}">{% else %}<span class="member-cell">{% endif %}{{ avatar(member.ho_ten, ['indigo', 'blue', 'violet', 'teal', 'rose', 'amber'][member.id % 6]) }}<span><strong>{{ member.ho_ten }}</strong><span class="small muted">{{ member.email if is_bdh else ('Hồ sơ của bạn' if member.id == current_user.id else 'Thành viên FIA') }}</span></span>{% if is_bdh or member.id == current_user.id %}</a>{% else %}</span>{% endif %}</td>
                         <td><span class="member-id">{{ member.mssv }}</span></td>
                         <td>{{ member.ban_links|map(attribute='ban.ten_ban')|join(', ') or 'Chưa gắn ban' }}</td>
                         <td>{{ {'CN': 'Chủ nhiệm', 'PCN': 'Phó chủ nhiệm', 'TB': 'Trưởng ban', 'THUKY_THUQUY': 'Thư ký / Thủ quỹ', 'THANH_VIEN': 'Thành viên'}.get(member.chuc_vu, member.chuc_vu) }}</td>
-                        {% if is_bdh %}<td>{{ badge(status_labels.get(status, status), status_tone) }}</td><td><span class="small">{{ member.email }}</span><span class="small muted">{{ member.sdt }}</span></td>{% endif %}
+                        {% if is_bdh %}<td>{{ badge(status_labels.get(status, status), status_tone) }}</td><td><div class="member-contact"><span class="small">{{ member.sdt or '—' }}</span>{% if member.facebook_link %}<a class="small" href="{{ member.facebook_link }}" target="_blank" rel="noopener noreferrer">Facebook</a>{% endif %}</div></td>{% endif %}
                     </tr>
                     {% else %}
                     <tr><td colspan="{{ 6 if is_bdh else 4 }}"><div class="empty-state"><span class="empty-state-icon">{{ icon('search') }}</span><strong>Chưa tìm thấy thành viên</strong><span class="small muted">Thử đổi từ khóa hoặc bộ lọc của bạn.</span></div></td></tr>

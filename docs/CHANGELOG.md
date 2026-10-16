@@ -1,3 +1,19 @@
+# Chỉnh sửa theo góp ý vận hành (16/10/2026)
+
+## Backend
+- **Sự kiện không giới hạn số người**: bỏ ô "Số người tối đa" (form, API, đề xuất AI); đăng ký luôn vào trạng thái `registered`. Cột `so_nguoi_toi_da` giữ lại trong DB cho dữ liệu cũ nên không cần migration.
+- **Hạn đăng ký nằm trong khoảng bắt đầu – kết thúc** (thời gian sự kiện gồm cả setup và báo cáo). `registration_open` cho đăng ký tới hạn đăng ký, hoặc tới giờ kết thúc nếu không đặt hạn.
+- **Sửa lỗi trợ lý AI không phản hồi**: generator của `/ai/stream` chạy sau khi view return nên user/cuộc trò chuyện bị tách khỏi session DB (`InvalidRequestError`). Nay nạp lại object bên trong generator.
+- **Loại khoản thu còn 3**: Quỹ theo kỳ (`semester`), Quỹ sự kiện (`event`), Khác (`other`). Dữ liệu cũ (monthly/yearly/voluntary) vẫn hiển thị.
+- **Gửi xác nhận đóng quỹ không cần nhập số tiền**: hệ thống tự lấy toàn bộ số còn phải đóng; API/thủ quỹ vẫn nhập được số cụ thể.
+- `session_marker` tính theo micro-giây để đổi mật khẩu luôn đăng xuất phiên cũ (người dùng phải đăng nhập lại một lần sau khi cập nhật).
+
+## Frontend
+- Trang Thành viên: thành viên thường thấy danh bạ CLB (tên, MSSV, ban, vai trò), chỉ mở được hồ sơ của mình; nút Xuất danh sách chỉ hiện với BĐH.
+- Cột Liên hệ (BĐH): số điện thoại ở trên, link Facebook ở dưới.
+- Nút "Lọc danh sách" đổi thành **Áp dụng**.
+- Xét duyệt task: ô MSSV và nút "Chỉ định lại" thẳng hàng; ghi **Nhận xét** trước khi chọn **Quyết định**.
+
 # Thay đổi – bản chỉnh sửa theo nội dung bài học (10/2026)
 
 Mục tiêu: bám sát kiến thức 12 chương môn Python Web Development, sửa các lỗi khi triển khai thật và bổ sung tài liệu. Toàn bộ test cũ vẫn chạy, đã bổ sung test mới (167 test, coverage ~83%).

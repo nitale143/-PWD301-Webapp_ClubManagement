@@ -105,7 +105,7 @@ Vào bằng tên của bạn ở góc dưới thanh bên trái, hoặc avatar �
 | Hoạt động theo ban/kỳ | Tỉ lệ task hoàn thành theo từng ban, từng kỳ. |
 | Tình trạng đóng quỹ | Đã đóng hoặc chưa đóng quỹ theo từng kỳ. |
 
-**Trang Thành viên**: thành viên thường chỉ thấy hồ sơ của chính mình. Người có quyền quản lý thành viên thấy toàn bộ danh sách kèm liên hệ, có thể lọc theo tên/MSSV, ban, tình trạng và bấm **Xuất danh sách** ra Excel.
+**Trang Thành viên**: mọi thành viên đều thấy danh bạ CLB với thông tin cơ bản (tên, MSSV, ban, vai trò) và chỉ mở được hồ sơ chi tiết của chính mình. Người có quyền quản lý thành viên thấy thêm tình trạng hoạt động, cột **Liên hệ** (số điện thoại ở trên, link Facebook ở dưới), mở được hồ sơ mọi người và bấm **Xuất danh sách** ra Excel. Chọn tìm kiếm / ban / sắp xếp rồi bấm **Áp dụng**.
 
 ---
 
@@ -116,8 +116,8 @@ Vào bằng tên của bạn ở góc dưới thanh bên trái, hoặc avatar �
 1. Vào **Sự kiện**. Danh sách xem được dạng **Thẻ** hoặc **Danh sách**, tìm theo tên.
 2. Tab **CTFtime** hiển thị lịch các cuộc thi CTF công khai (chỉ để tham khảo).
 3. Bấm một sự kiện → **Đăng ký tham gia**.
-   - Sự kiện đã hết chỗ thì bạn vào **danh sách chờ**. Khi có người hủy, người đầu danh sách chờ được đôn lên tự động.
-   - Chỉ đăng ký được trước giờ bắt đầu và trước hạn đăng ký (nếu có). Một số sự kiện chỉ mở cho thành viên của ban nhất định.
+   - Sự kiện không giới hạn số người tham gia.
+   - Thời gian sự kiện đã gồm cả setup và báo cáo sau sự kiện, nên đăng ký được tới **hạn đăng ký** (nằm trong khoảng bắt đầu – kết thúc); sự kiện không đặt hạn thì mở đăng ký tới khi kết thúc. Một số sự kiện chỉ mở cho thành viên của ban nhất định.
 4. Đổi ý thì bấm **Hủy đăng ký**. Không hủy được nữa khi đã điểm danh.
 
 ### 4.2. Điểm danh bằng mã QR
@@ -125,7 +125,7 @@ Vào bằng tên của bạn ở góc dưới thanh bên trái, hoặc avatar �
 1. Tại sự kiện, BĐH chiếu mã QR. Bạn quét bằng điện thoại **đang đăng nhập** FIA Workspace.
 2. Trang **Xác nhận điểm danh** mở ra → bấm xác nhận.
 3. Điều kiện:
-   - Bạn đã đăng ký chính thức (không nằm trong danh sách chờ).
+   - Bạn đã đăng ký sự kiện.
    - Đang trong khoảng từ 30 phút trước giờ bắt đầu đến giờ kết thúc.
    - Mã QR còn hạn (mỗi mã dùng được 15 phút).
 4. Quét trước giờ bắt đầu được tính **đúng giờ**, sau giờ bắt đầu được tính **đi muộn**. Mỗi người chỉ điểm danh một lần.
@@ -163,8 +163,8 @@ Tỉ lệ hoạt động = số task hoàn thành / tổng task (không tính ta
 Trang **Quỹ câu lạc bộ** gồm:
 
 - **Khoản thu**: các khoản bạn phải đóng (quỹ tháng, quỹ kỳ, phí sự kiện…), kèm số phải đóng, đã đóng, còn thiếu và trạng thái (đã đóng / đóng một phần / chưa đóng / quá hạn / được miễn).
-- **Đóng tiền**: ở khoản thu cần đóng, chọn phương thức (tiền mặt / chuyển khoản / khác), nhập số tiền, mã giao dịch (nếu chuyển khoản) → **Gửi xác nhận thanh toán**. Giao dịch ở trạng thái **chờ xác nhận** cho tới khi Thủ quỹ duyệt.
-  - Không đóng được vượt số còn thiếu (tính cả các khoản đang chờ xác nhận).
+- **Đóng tiền**: ở khoản thu cần đóng, chọn phương thức (tiền mặt / chuyển khoản / khác), mã giao dịch (nếu chuyển khoản) → **Gửi xác nhận thanh toán**. Không cần nhập số tiền: hệ thống tự lấy toàn bộ số còn phải đóng. Giao dịch ở trạng thái **chờ xác nhận** cho tới khi Thủ quỹ duyệt.
+  - Đã gửi xác nhận đủ số tiền thì không gửi thêm được cho tới khi Thủ quỹ xử lý.
 - **Danh sách đóng quỹ theo kỳ**: bạn chỉ thấy dòng của mình.
 - Nút **Xuất Excel**: thành viên chỉ nhận dữ liệu của chính mình.
 
@@ -281,8 +281,8 @@ Dùng khi bàn giao nhiệm kỳ.
    - **Thời gian bắt đầu**: phải ở tương lai theo giờ CLB.
    - **Thời gian kết thúc**: sau giờ bắt đầu.
    - **Địa điểm**, **Nội dung**.
-   - **Hạn đăng ký**: không được sau giờ bắt đầu.
-   - **Số người tối đa**: để trống nếu không giới hạn.
+   - **Hạn đăng ký** *(tùy chọn)*: phải nằm trong khoảng giờ bắt đầu – giờ kết thúc (thời gian sự kiện gồm cả setup và báo cáo). Để trống thì mở đăng ký tới khi sự kiện kết thúc.
+   - Sự kiện không giới hạn số người tham gia.
 3. Bấm **Tạo sự kiện**, sau đó thêm task con ở trang chi tiết.
 
 **Nhập từ CTFtime**: ở tab CTFtime, bấm **Tạo sự kiện FIA** trên cuộc thi muốn tham gia. Hệ thống xác minh thông tin với nguồn, đổi giờ về giờ CLB và chống tạo trùng. Lưu ý đây **không phải** đăng ký đội thi trên CTFtime.
@@ -291,7 +291,7 @@ Dùng khi bàn giao nhiệm kỳ.
 
 1. Ở trang chi tiết sự kiện → **Giao nhiệm vụ mới**. Nhập tên task (≤150 ký tự), mô tả, **MSSV người phụ trách**, **ban** (người phụ trách phải thuộc ban đó) và **hạn** (không sau giờ kết thúc sự kiện).
 2. Người phụ trách nhận email. Đổi người dùng **Chỉ định lại**.
-3. Khi task ở trạng thái **Chờ duyệt**, mở **Cập nhật** → chọn **Hoàn thành**, **Làm lại** (bắt buộc ghi nhận xét) hoặc **Hủy**.
+3. Khi task ở trạng thái **Chờ duyệt**, xem sản phẩm ở khung **Sản phẩm / nhận xét**, ghi **Nhận xét** trước (bắt buộc khi yêu cầu làm lại), rồi chọn **Quyết định**: **Hoàn thành**, **Yêu cầu làm lại** hoặc **Hủy** → **Cập nhật**.
 4. Sự kiện đã kết thúc hoặc đã hủy thì không sửa task được nữa.
 
 ### 10.3. Điểm danh
@@ -329,7 +329,7 @@ Các thao tác nằm trong nút **Thao tác** ở góc phải trang Quỹ: Mở 
 
 ### 11.2. Khoản thu và xác nhận thanh toán
 
-1. **Tạo khoản thu**: tên, loại (tháng/kỳ/năm/sự kiện/tự nguyện/khác), số tiền, ngày bắt đầu, hạn đóng, mô tả → **Mở khoản thu**.
+1. **Tạo khoản thu**: tên, loại (**Quỹ theo kỳ** / **Quỹ sự kiện** / **Khác**), số tiền, ngày bắt đầu, hạn đóng, mô tả → **Mở khoản thu**.
 2. Thành viên gửi thanh toán, giao dịch hiện ở **Giao dịch chờ xác nhận**.
 3. Kiểm tra (đối chiếu sao kê, mã giao dịch) → **Xác nhận** hoặc **Từ chối**. Nếu hai người cùng duyệt một giao dịch, chỉ lượt đầu được ghi nhận.
 4. **Xuất báo cáo khoản thu** (trong nút Thao tác): file Excel phải đóng / đã đóng / còn thiếu của từng người với từng khoản thu.

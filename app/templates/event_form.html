@@ -16,10 +16,7 @@
                 </div>
                 {{ form_field(form.dia_diem, maxlength=300) }}
                 {{ form_field(form.noi_dung, maxlength=10000) }}
-                <div class="grid-12 form-grid">
-                    <div class="span-6">{{ form_field(form.han_dang_ky) }}</div>
-                    <div class="span-6">{{ form_field(form.so_nguoi_toi_da, min=1) }}</div>
-                </div>
+                {{ form_field(form.han_dang_ky, help='Nằm trong khoảng bắt đầu – kết thúc. Để trống: mở đăng ký đến khi sự kiện kết thúc.') }}
                 <div class="toolbar"><div class="toolbar-left"><a class="btn btn-ghost" href="{{ url_for('event.event_list') }}">Hủy</a></div><div class="toolbar-right"><button type="submit" class="btn btn-primary">{{ icon('plus') }} Tạo sự kiện</button></div></div>
             </form>
         </div>

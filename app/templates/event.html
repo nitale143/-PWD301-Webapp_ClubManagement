@@ -45,8 +45,7 @@
                 <span class="event-tile-body"><span class="row event-tile-top"><strong>{{ event.ten_su_kien }}</strong>{{ badge(status_label, status_tone) }}</span>
                     <span class="event-tile-meta">{{ icon('calendar') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</span>
                     <span class="event-tile-meta">{{ icon('location') }} {{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật địa điểm' }}</span>
-                    <span class="event-tile-bottom"><span class="event-attendee-count">{{ icon('users') }} {{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% else %} đăng ký{% endif %}</span>
-                        {% if event.detail and event.detail.so_nguoi_toi_da %}<span class="event-progress"><span class="progress-bar"><span style="width:{{ [100, ((registration_count * 100) // event.detail.so_nguoi_toi_da)]|min }}%"></span></span></span>{% endif %}
+                    <span class="event-tile-bottom"><span class="event-attendee-count">{{ icon('users') }} {{ registration_count }} đăng ký</span>
                     </span>
                 </span>
             </a>
@@ -62,7 +61,7 @@
                     <td><a class="text-button" href="{{ url_for('event.event_detail', event_id=event.id) }}"><strong>{{ event.ten_su_kien }}</strong><span class="small muted">{{ event.ma_su_kien }} · {{ event.detail.loai if event.detail else 'Sự kiện FIA' }}</span></a></td>
                     <td>{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }}</td><td>{{ event.detail.dia_diem if event.detail and event.detail.dia_diem else 'Chưa cập nhật' }}</td>
                     <td>{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge('Đã kết thúc', 'neutral') }}{% endif %}</td>
-                    <td>{{ registration_count }}{% if event.detail and event.detail.so_nguoi_toi_da %} / {{ event.detail.so_nguoi_toi_da }}{% endif %}</td>
+                    <td>{{ registration_count }}</td>
                 </tr>
                 {% else %}<tr><td colspan="5"><div class="empty-state"><strong>Chưa có sự kiện nào</strong></div></td></tr>{% endfor %}
             </tbody></table>

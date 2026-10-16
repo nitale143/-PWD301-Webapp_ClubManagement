@@ -8,6 +8,7 @@ from flask_login import login_required, current_user
 
 from app import db
 from app.models import AIProposal, AIReportSnapshot, AIUsageLog, Ban, EmailProposal, EmailTemplate, Event
+from app.models import ChatConversation, User
 from app.models import Permission
 from app.permissions import approved_required, bdh_required, permission_required
 from app.security import require_csrf
@@ -56,6 +57,7 @@ def ai_stream():
         db.session.rollback()
         return jsonify(error=str(exc)), exc.status
     run_id = uuid4().hex
+    actor_id = actor.id
 
     def frame(event):
         return "data: " + json.dumps(event, ensure_ascii=False) + "\n\n"
@@ -65,6 +67,9 @@ def ai_stream():
         identifiers = {"conversation_id": conversation_id,
                        "message_id": user_message_id, "run_id": run_id}
         saved = False
+        # Generator chạy sau khi view return: session DB cũ đã đóng -> nạp lại object
+        actor = db.session.get(User, actor_id)
+        conversation = db.session.get(ChatConversation, conversation_id)
         try:
             yield frame({"type": "start", "conversation_title": conversation_title, **identifiers})
             result = None

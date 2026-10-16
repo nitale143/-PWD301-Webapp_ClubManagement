@@ -222,7 +222,7 @@ class User(UserMixin, db.Model):
     def session_marker(self):
         """Đổi mỗi khi đổi mật khẩu → mọi phiên/cookie ghi nhớ cũ tự mất hiệu lực."""
         changed = self.password_changed_at
-        return int(changed.timestamp()) if changed else 0
+        return int(changed.timestamp() * 1_000_000) if changed else 0
 
     def get_id(self):
         """Định danh lưu trong session/cookie của Flask-Login: "<id>:<session_marker>"."""
@@ -625,8 +625,8 @@ class PaymentEvidence(db.Model):
 
 
 class EventDetail(db.Model):
-    """Thông tin chi tiết của sự kiện: loại, nội dung, địa điểm, hạn đăng ký, sức chứa, người phụ
-    trách, khoản thu liên quan.
+    """Thông tin chi tiết của sự kiện: loại, nội dung, địa điểm, hạn đăng ký, người phụ
+    trách (cột so_nguoi_toi_da giữ lại cho dữ liệu cũ, không còn dùng), khoản thu liên quan.
     """
     __tablename__ = "event_detail"
     event_id = db.Column(db.Integer, db.ForeignKey("event.id"), primary_key=True)

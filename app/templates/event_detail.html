@@ -8,7 +8,6 @@
 {% set registered_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length %}
 {% set waitlist_count = registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length %}
 {% set attended_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|selectattr('attendance.trang_thai', 'in', ['on_time', 'late'])|list|length %}
-{% set capacity = detail.so_nguoi_toi_da if detail and detail.so_nguoi_toi_da else none %}
 {% set event_tab = request.args.get('tab', 'attendance') %}
 {% if event_tab not in ['attendance', 'tasks', 'details'] %}{% set event_tab = 'attendance' %}{% endif %}
 <div class="page-stack ops-preview ops-event-detail">
@@ -23,7 +22,7 @@
             <h2>{{ event.ten_su_kien }}</h2>
             <p class="detail-meta-line">{{ icon('calendar') }} {{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }} <span>·</span> {{ icon('location') }} {{ detail.dia_diem if detail and detail.dia_diem else 'Chưa cập nhật địa điểm' }}</p>
             {% if detail and detail.loai == 'ctftime' and event.ma_su_kien.startswith('CTF-') %}<p class="small"><a class="event-source-link" href="https://ctftime.org/event/{{ event.ma_su_kien[4:] }}/" target="_blank" rel="noopener noreferrer">Nguồn: CTFtime ↗</a></p>{% endif %}
-            <div class="toolbar"><div class="toolbar-left">{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge(event_status_labels.get(event.trang_thai, event.trang_thai), 'neutral') }}{% endif %}{{ badge(registered_count|string ~ ' đăng ký' ~ (' · ' ~ waitlist_count|string ~ ' chờ' if waitlist_count else '') ~ (' / ' ~ capacity|string ~ ' chỗ' if capacity else ''), 'neutral') }}</div></div>
+            <div class="toolbar"><div class="toolbar-left">{% if event.trang_thai == 'dang_dien_ra' %}{{ badge('Đang diễn ra', 'success') }}{% elif event.trang_thai == 'sap_dien_ra' %}{{ badge('Sắp diễn ra', 'indigo') }}{% else %}{{ badge(event_status_labels.get(event.trang_thai, event.trang_thai), 'neutral') }}{% endif %}{{ badge(registered_count|string ~ ' đăng ký' ~ (' · ' ~ waitlist_count|string ~ ' chờ' if waitlist_count else ''), 'neutral') }}</div></div>
         </div>
         <div class="event-detail-art" aria-hidden="true">{{ icon('calendar') }}</div>
     </section>
@@ -66,7 +65,7 @@
         <div class="grid-12 detail-stats">
             <div class="span-4">{{ stat('Đã đăng ký', registered_count, 'users', '', 'indigo') }}</div>
             <div class="span-4">{{ stat('Đã điểm danh', attended_count, 'check', '', 'green') }}</div>
-            <div class="span-4">{{ stat('Chỗ còn lại', (capacity - registered_count) if capacity else 'Chưa xác nhận', 'calendar', '', 'orange') }}</div>
+            <div class="span-4">{{ stat('Hạn đăng ký', (detail.han_dang_ky if detail and detail.han_dang_ky else event.thoi_gian_ket_thuc).strftime('%d/%m %H:%M'), 'calendar', '', 'orange') }}</div>
         </div>
         {% if is_board %}
         <section class="card">
@@ -122,7 +121,7 @@
                         {% elif task.noi_dung_nop %}<p class="small">{{ task.noi_dung_nop }}</p>{% else %}<p class="small muted">Chưa có sản phẩm được nộp.</p>{% endif %}
                         {% if task.nhan_xet_bdh %}<p class="small"><strong>Nhận xét Ban điều hành:</strong> {{ task.nhan_xet_bdh }}</p>{% endif %}
                         {% if can_manage_task and task.trang_thai == 'cho_duyet' and event.trang_thai not in ['da_ket_thuc', 'cancelled'] %}
-                        <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-review-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><label class="field"><span class="field-label">Nhận xét (bắt buộc khi yêu cầu làm lại)</span><input class="input" type="text" name="nhan_xet_bdh" maxlength="2000"></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
+                        <form method="post" action="{{ url_for('event.task_update_status', task_id=task.id) }}" class="inline-form task-review-form"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><label class="field task-review-comment"><span class="field-label">Nhận xét (bắt buộc khi yêu cầu làm lại)</span><textarea class="textarea" name="nhan_xet_bdh" maxlength="2000" rows="3" placeholder="Nhận xét về sản phẩm trước khi quyết định"></textarea></label><label class="field"><span class="field-label">Quyết định</span><select class="select" name="trang_thai"><option value="hoan_thanh">Hoàn thành</option><option value="lam_lai">Yêu cầu làm lại</option><option value="huy">Hủy nhiệm vụ</option></select></label><button type="submit" class="btn btn-secondary btn-sm">Cập nhật</button></form>
                         {% endif %}
                     </div>
                 </div>
@@ -137,7 +136,6 @@
                 <div class="list-item">{{ icon('calendar') }}<div><strong>Thời gian</strong><p class="small muted">{{ event.thoi_gian_bat_dau.strftime('%d/%m/%Y %H:%M') }} – {{ event.thoi_gian_ket_thuc.strftime('%d/%m/%Y %H:%M') }}</p></div></div>
                 <div class="list-item">{{ icon('location') }}<div><strong>Địa điểm</strong><p class="small muted">{{ detail.dia_diem if detail and detail.dia_diem else 'Chưa cập nhật địa điểm' }}</p></div></div>
                 {% if detail and detail.han_dang_ky %}<div class="list-item">{{ icon('clock') }}<div><strong>Hạn đăng ký</strong><p class="small muted">{{ detail.han_dang_ky.strftime('%d/%m/%Y %H:%M') }}</p></div></div>{% endif %}
-                {% if capacity %}<div class="list-item">{{ icon('users') }}<div><strong>Sức chứa</strong><p class="small muted">{{ capacity }} người</p></div></div>{% endif %}
                 <div class="event-description">{{ detail.noi_dung if detail and detail.noi_dung else 'Chưa có nội dung mô tả cho sự kiện này.' }}</div>
                 {% if detail and detail.loai == 'ctftime' and event.ma_su_kien.startswith('CTF-') %}<p><a class="btn btn-secondary btn-sm" href="https://ctftime.org/event/{{ event.ma_su_kien[4:] }}/" target="_blank" rel="noopener noreferrer">Mở sự kiện trên CTFtime ↗</a></p>{% endif %}
             </div>

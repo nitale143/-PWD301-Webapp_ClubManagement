@@ -36,7 +36,7 @@ Muốn thử luồng email (xác minh, quên mật khẩu) mà không cần SMTP
 | Tài khoản | Đăng ký (chờ BĐH duyệt), xác minh email, đăng nhập có ghi nhớ, quên/đặt lại/đổi mật khẩu, xác nhận lại mật khẩu cho thao tác nhạy cảm, mật khẩu tạm do BĐH cấp |
 | Phân quyền | Chủ nhiệm, Phó chủ nhiệm, Trưởng ban, Thư ký/Thủ quỹ, Thành viên. Quyền theo bit flag, gán vai trò theo cấp bậc, nhường chức vụ |
 | Thành viên | Danh sách/lọc/xuất Excel, hồ sơ, avatar, kỹ năng & khả năng nhận task, nhập danh sách CSV/XLSX qua API |
-| Sự kiện & công việc | Tạo sự kiện (kể cả nhập từ CTFtime), đăng ký/danh sách chờ, điểm danh QR hoặc thủ công, đánh giá; giao task, nộp sản phẩm, duyệt; tính % hoạt động theo ban/kỳ |
+| Sự kiện & công việc | Tạo sự kiện (kể cả nhập từ CTFtime), đăng ký (không giới hạn số người), điểm danh QR hoặc thủ công, đánh giá; giao task, nộp sản phẩm, duyệt; tính % hoạt động theo ban/kỳ |
 | Quỹ | Sổ thu chi theo kỳ và đánh dấu đóng quỹ; khoản thu theo đợt, thành viên gửi thanh toán, thủ quỹ xác nhận; miễn/giảm; báo cáo Excel |
 | Trợ lý AI | Chat có lịch sử, tra cứu số liệu đã kiểm chứng theo quyền, tóm tắt ngày, báo cáo tuần/tháng, đề xuất sự kiện/task và nháp email. Mọi hành động đều cần người có quyền duyệt |
 | Thông báo | Email khi duyệt thành viên, giao/duyệt task; nhắc deadline và kỳ quỹ bằng job định kỳ |

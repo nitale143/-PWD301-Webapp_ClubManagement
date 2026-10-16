@@ -211,7 +211,6 @@ def event_json(event):
             "location": detail.dia_diem if detail else "",
             "image": detail.anh_dai_dien if detail else "",
             "registration_deadline": detail.han_dang_ky.isoformat() if detail and detail.han_dang_ky else None,
-            "capacity": detail.so_nguoi_toi_da if detail else None,
             "manager_id": detail.phu_trach_id if detail else None,
             "fund_id": detail.fund_id if detail else None}
 
@@ -539,15 +538,12 @@ def event_create():
     start = parse_datetime(data.get("start_at"), "Giờ bắt đầu")
     end = parse_datetime(data.get("end_at"), "Giờ kết thúc")
     deadline = parse_datetime(data["registration_deadline"], "Hạn đăng ký") if data.get("registration_deadline") else None
-    if end <= start or (deadline and deadline > start):
+    if end <= start or (deadline and not start <= deadline <= end):
         raise DomainError("Thời gian sự kiện hoặc hạn đăng ký không hợp lệ.")
     try:
-        capacity = int(data["capacity"]) if data.get("capacity") is not None else None
         ban_ids = list({int(value) for value in data.get("department_ids", [])})
     except (TypeError, ValueError):
-        raise DomainError("Sức chứa hoặc mã ban không hợp lệ.") from None
-    if capacity is not None and capacity < 1:
-        raise DomainError("Sức chứa phải lớn hơn 0.")
+        raise DomainError("Mã ban không hợp lệ.") from None
     applies_all = bool(data.get("applies_to_all", True))
     if not applies_all and (not ban_ids or Ban.query.filter(Ban.id.in_(ban_ids)).count() != len(ban_ids)):
         raise DomainError("Danh sách ban tham gia không hợp lệ.")
@@ -564,7 +560,7 @@ def event_create():
     detail = EventDetail(event_id=event.id, loai=str(data.get("type", "other"))[:100],
                          noi_dung=str(data.get("content", "")), dia_diem=str(data.get("location", ""))[:300],
                          anh_dai_dien=str(data.get("image", ""))[:255], han_dang_ky=deadline,
-                         so_nguoi_toi_da=capacity, phu_trach_id=manager.id, fund_id=fund_id,
+                         phu_trach_id=manager.id, fund_id=fund_id,
                          tat_ca_thanh_vien=applies_all)
     db.session.add(detail)
     for ban_id in ([] if applies_all else ban_ids):
@@ -582,7 +578,7 @@ def event_detail(event_id):
 
 @api_bp.patch("/events/<int:event_id>")
 def event_update(event_id):
-    """PATCH /events/<id> – sửa sự kiện (sức chứa không được nhỏ hơn số đã đăng ký)."""
+    """PATCH /events/<id> – sửa sự kiện (hạn đăng ký phải nằm trong khoảng bắt đầu – kết thúc)."""
     event = db.get_or_404(Event, event_id)
     require(can_manage_event(event))
     if event_is_terminal(event):
@@ -600,7 +596,7 @@ def event_update(event_id):
     start = parse_datetime(data["start_at"], "Giờ bắt đầu") if "start_at" in data else event.thoi_gian_bat_dau
     end = parse_datetime(data["end_at"], "Giờ kết thúc") if "end_at" in data else event.thoi_gian_ket_thuc
     deadline = parse_datetime(data["registration_deadline"], "Hạn đăng ký") if data.get("registration_deadline") else detail.han_dang_ky
-    if end <= start or (deadline and deadline > start):
+    if end <= start or (deadline and not start <= deadline <= end):
         raise DomainError("Thời gian sự kiện hoặc hạn đăng ký không hợp lệ.")
     event.thoi_gian_bat_dau, event.thoi_gian_ket_thuc = start, end
     if "registration_deadline" in data:
@@ -610,15 +606,6 @@ def event_update(event_id):
         if key in data:
             value = str(data[key] or "").strip()
             setattr(detail, attribute, value[:limit] if limit else value)
-    if "capacity" in data:
-        try:
-            capacity = int(data["capacity"]) if data["capacity"] is not None else None
-        except (TypeError, ValueError):
-            raise DomainError("Sức chứa không hợp lệ.") from None
-        registered = EventRegistration.query.filter_by(event_id=event.id, trang_thai="registered").count()
-        if capacity is not None and capacity < max(1, registered):
-            raise DomainError("Sức chứa không được ít hơn số thành viên đã đăng ký.")
-        detail.so_nguoi_toi_da = capacity
     audit(current_user, "event_update", event)
     db.session.commit()
     return jsonify(event_json(event))
@@ -646,7 +633,6 @@ def event_copy(event_id):
         detail = source.detail
         db.session.add(EventDetail(event_id=copy.id, loai=detail.loai, noi_dung=detail.noi_dung,
                                    dia_diem=detail.dia_diem, anh_dai_dien=detail.anh_dai_dien,
-                                   so_nguoi_toi_da=detail.so_nguoi_toi_da,
                                    phu_trach_id=current_user.id, fund_id=detail.fund_id,
                                    tat_ca_thanh_vien=detail.tat_ca_thanh_vien))
         for target in EventTargetBan.query.filter_by(event_id=source.id):
@@ -674,7 +660,7 @@ def event_cancel(event_id):
 
 @api_bp.post("/events/<int:event_id>/registrations")
 def event_register(event_id):
-    """POST /events/<id>/registrations – đăng ký tham gia (hết chỗ thì vào danh sách chờ)."""
+    """POST /events/<id>/registrations – đăng ký tham gia (không giới hạn số người)."""
     event = db.get_or_404(Event, event_id)
     data = body()
     member = db.get_or_404(User, data["member_id"]) if data.get("member_id") else current_user

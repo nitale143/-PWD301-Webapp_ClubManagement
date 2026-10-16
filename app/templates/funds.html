@@ -4,7 +4,7 @@
 
 {% macro money(value) -%}{{ '{:,.0f}'.format(value|float).replace(',', '.') }} đ{%- endmacro %}
 {% macro collection_type(value) -%}
-    {% set labels = {'monthly': 'Hằng tháng', 'semester': 'Học kỳ', 'yearly': 'Hằng năm', 'event': 'Sự kiện', 'voluntary': 'Tự nguyện', 'other': 'Khác'} %}
+    {% set labels = {'semester': 'Quỹ theo kỳ', 'event': 'Quỹ sự kiện', 'other': 'Khác', 'monthly': 'Quỹ theo kỳ', 'yearly': 'Quỹ theo kỳ', 'voluntary': 'Khác'} %}
     {{ labels.get(value, value) }}
 {%- endmacro %}
 {% macro collection_state(value) -%}
@@ -67,11 +67,8 @@
                         <span class="field-label">Danh mục</span>
                         <select class="select" data-finance-category>
                             <option value="all">Tất cả danh mục</option>
-                            <option value="monthly">Hằng tháng</option>
-                            <option value="semester">Học kỳ</option>
-                            <option value="yearly">Hằng năm</option>
-                            <option value="event">Sự kiện</option>
-                            <option value="voluntary">Tự nguyện</option>
+                            <option value="semester">Quỹ theo kỳ</option>
+                            <option value="event">Quỹ sự kiện</option>
                             <option value="other">Khác</option>
                             <option value="income">Thu</option>
                             <option value="expense">Chi</option>
@@ -225,7 +222,7 @@
         <form method="post" action="{{ url_for('funds.collection_new') }}" class="dialog-body page-stack">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
             <label class="field"><span class="field-label">Tên khoản thu</span><input class="input" type="text" name="name" maxlength="180" required placeholder="Ví dụ: Quỹ hoạt động tháng 11"></label>
-            <label class="field"><span class="field-label">Loại khoản thu</span><select class="select" name="type" required><option value="monthly">Hằng tháng</option><option value="semester">Học kỳ</option><option value="yearly">Hằng năm</option><option value="event">Sự kiện</option><option value="voluntary">Tự nguyện</option><option value="other">Khác</option></select></label>
+            <label class="field"><span class="field-label">Loại khoản thu</span><select class="select" name="type" required><option value="semester">Quỹ theo kỳ</option><option value="event">Quỹ sự kiện</option><option value="other">Khác</option></select></label>
             <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" name="amount" min="0" step="0.01" required></label>
             <div class="form-grid"><label class="field"><span class="field-label">Ngày bắt đầu</span><input class="input" type="date" name="start_date" required></label><label class="field"><span class="field-label">Hạn đóng</span><input class="input" type="date" name="due_date" required></label></div>
             <label class="field"><span class="field-label">Mô tả</span><textarea class="textarea" name="description" maxlength="500" rows="3" placeholder="Ghi chú cho thành viên"></textarea></label>
@@ -276,7 +273,11 @@
         <div class="dialog-heading"><div><p class="eyebrow">{{ collection_type(row.fund.loai) }}</p><h2 id="fund-payment-title-{{ row.fund.id }}">Gửi xác nhận thanh toán</h2><p class="small muted">{{ row.fund.ten_khoan_thu }}</p></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
         <form method="post" action="{{ url_for('funds.collection_pay', fund_id=row.fund.id) }}" class="dialog-body page-stack">
             <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" name="amount" min="0.01" step="0.01"{% if row.fund.loai != 'voluntary' %} max="{{ row.balance.remaining }}"{% endif %} required></label>
+            {% if row.fund.loai == 'voluntary' %}
+            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" name="amount" min="0.01" step="0.01" required></label>
+            {% else %}
+            <p class="small muted">Số tiền xác nhận: <strong>{{ money(row.balance.remaining) }}</strong> (toàn bộ số còn phải đóng)</p>
+            {% endif %}
             <label class="field"><span class="field-label">Phương thức thanh toán</span><select class="select" name="method" required><option value="transfer">Chuyển khoản</option><option value="cash">Tiền mặt</option><option value="other">Khác</option></select></label>
             <label class="field"><span class="field-label">Mã giao dịch (nếu có)</span><input class="input" type="text" name="transaction_code" maxlength="100"></label>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Gửi xác nhận</button></div>

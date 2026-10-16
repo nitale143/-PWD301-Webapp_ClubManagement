@@ -210,6 +210,17 @@ def visible_members(actor):
     return query.filter(User.id == getattr(actor, "id", -1))
 
 
+def directory_members(actor):
+    """Danh bạ CLB: mọi thành viên đã duyệt đều thấy danh sách thành viên đang hoạt động.
+
+    Chỉ dùng cho thông tin CƠ BẢN (tên, MSSV, ban, vai trò). Liên hệ, tình trạng hoạt
+    động và hồ sơ chi tiết vẫn chỉ dành cho người có MANAGE_MEMBERS (visible_members).
+    """
+    if not approved(actor):
+        return active_members().filter(db.false())
+    return active_members()
+
+
 def board_members(actor):
     """Phạm vi tra cứu tên/MSSV cho AI và nháp email: mọi thành viên nếu thuộc BĐH,
     ngược lại chỉ bản thân. Không bao gồm quyền xem thông tin liên hệ."""

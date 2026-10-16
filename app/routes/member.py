@@ -4,7 +4,7 @@ from flask_login import login_required, current_user
 
 from app.models import User, Ban
 from app.permissions import approved_required
-from app.services.access import visible_members, can_view_all_members
+from app.services.access import directory_members, visible_members, can_view_all_members
 
 member_bp = Blueprint("member", __name__)
 
@@ -18,11 +18,11 @@ def _parse_filters():
     return q, ban_id, sort_by, status
 
 
-def _filtered_members():
-    """Danh sách thành viên trong phạm vi được xem, đã áp bộ lọc và sắp xếp."""
+def _filtered_members(base_query):
+    """Áp bộ lọc và sắp xếp lên `base_query` (danh bạ hoặc phạm vi xem chi tiết)."""
     q, ban_id, sort_by, status = _parse_filters()
 
-    members = visible_members(current_user)
+    members = base_query
 
     if q:
         like = f"%{q}%"
@@ -46,13 +46,13 @@ def _filtered_members():
 @login_required
 @approved_required
 def member_list():
-    """Trang Thành viên: người có MANAGE_MEMBERS thấy đầy đủ và liên hệ; thành viên khác chỉ thấy
-    chính mình.
+    """Trang Thành viên: mọi thành viên thấy danh bạ CLB (thông tin cơ bản); người có
+    MANAGE_MEMBERS thấy thêm liên hệ, tình trạng hoạt động và hồ sơ chi tiết.
     """
-    members = _filtered_members()
+    members = _filtered_members(directory_members(current_user))
     bans = Ban.query.all()
     q, ban_id, sort_by, status = _parse_filters()
-    visible = visible_members(current_user)
+    visible = directory_members(current_user)
     if ban_id:
         visible = visible.join(User.ban_links).filter_by(ban_id=ban_id)
     total_members = visible.count()
@@ -83,7 +83,7 @@ def export_excel():
     """Xuất danh sách thành viên (theo bộ lọc hiện tại) ra file Excel."""
     from openpyxl import Workbook
 
-    members = _filtered_members()
+    members = _filtered_members(visible_members(current_user))
     wb = Workbook()
     ws = wb.active
     ws.title = "Danh sách thành viên"

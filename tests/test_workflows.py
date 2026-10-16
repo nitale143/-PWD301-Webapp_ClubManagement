@@ -81,21 +81,20 @@ class WorkflowTests(unittest.TestCase):
         self.login(2)
         today = date.today()
         response = self.csrf_request("POST", "/api/v1/funds", json={
-            "name": "Quy thang", "type": "monthly", "amount": amount,
+            "name": "Quy thang", "type": "semester", "amount": amount,
             "start_date": (today - timedelta(days=30)).isoformat(),
             "due_date": (due or today + timedelta(days=2)).isoformat(),
             "applies_to_all": True, "status": "open"})
         self.assertEqual(response.status_code, 201, response.json)
         return response.json["id"]
 
-    def create_event(self, capacity=1):
+    def create_event(self):
         self.login(1)
         start = datetime.utcnow() + timedelta(days=1)
         response = self.csrf_request("POST", "/api/v1/events", json={
             "name": "Workshop", "code": f"WS{Event.query.count() + 1}",
             "start_at": start.isoformat(), "end_at": (start + timedelta(hours=2)).isoformat(),
-            "registration_deadline": (start - timedelta(hours=1)).isoformat(),
-            "capacity": capacity})
+            "registration_deadline": (start + timedelta(hours=1)).isoformat()})
         self.assertEqual(response.status_code, 201, response.json)
         return response.json["id"]
 
@@ -146,10 +145,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(first.json["status"], "registered")
         self.login(4)
         second = self.csrf_request("POST", f"/api/v1/events/{event_id}/registrations", json={})
-        self.assertEqual(second.json["status"], "waitlist")
-        self.login(3)
-        cancelled = self.csrf_request("POST", f"/api/v1/registrations/{first.json['id']}/cancel")
-        self.assertEqual(cancelled.json["promoted_id"], second.json["id"])
+        self.assertEqual(second.json["status"], "registered")   # không giới hạn số người
         event = db.session.get(Event, event_id)
         event.thoi_gian_bat_dau = club_now() - timedelta(minutes=10)
         event.thoi_gian_ket_thuc = club_now() + timedelta(hours=1)
@@ -185,8 +181,8 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(self.client.get("/api/v1/dashboard").status_code, 403)
 
     def test_event_edit_copy_cancel_and_activity_setting(self):
-        event_id = self.create_event(capacity=2)
-        updated = self.csrf_request("PATCH", f"/api/v1/events/{event_id}", json={"location": "Phong A", "capacity": 3})
+        event_id = self.create_event()
+        updated = self.csrf_request("PATCH", f"/api/v1/events/{event_id}", json={"location": "Phong A"})
         self.assertEqual(updated.status_code, 200, updated.json)
         self.assertEqual(updated.json["location"], "Phong A")
         start = datetime.utcnow() + timedelta(days=3)
@@ -1068,7 +1064,7 @@ class WorkflowTests(unittest.TestCase):
         token = self.csrf()
         today = club_now().date()
         response = self.csrf_request("POST", "/funds/collections/new", data={
-            "csrf_token": token, "name": "Quỹ tháng", "type": "monthly", "amount": "100.00",
+            "csrf_token": token, "name": "Quỹ tháng", "type": "semester", "amount": "100.00",
             "start_date": today.isoformat(), "due_date": (today + timedelta(days=10)).isoformat(),
         })
         self.assertEqual(response.status_code, 302)
@@ -1078,11 +1074,13 @@ class WorkflowTests(unittest.TestCase):
         self.assertIn("Quỹ tháng".encode(), page.data)
         self.assertEqual(self.client.post(f"/funds/collections/{fund.id}/payments", data={
             "amount": "100.00", "method": "transfer"}).status_code, 400)
+        # Thành viên gửi xác nhận KHÔNG nhập số tiền -> hệ thống lấy toàn bộ số còn phải đóng
         paid = self.csrf_request("POST", f"/funds/collections/{fund.id}/payments", data={
-            "csrf_token": token, "amount": "100.00", "method": "transfer", "transaction_code": "TX123"})
+            "csrf_token": token, "method": "transfer", "transaction_code": "TX123"})
         self.assertEqual(paid.status_code, 302)
         payment = FundPayment.query.one()
         self.assertEqual(payment.trang_thai, "pending")
+        self.assertEqual(str(payment.so_tien), "100.00")
         self.login(2)
         self.assertIn(b"TX123", self.client.get("/funds").data)
         reviewed = self.csrf_request("POST", f"/funds/payments/{payment.id}/review", data={
@@ -1100,7 +1098,7 @@ class WorkflowTests(unittest.TestCase):
             "csrf_token": token, "ten_su_kien": "Ngày hội", "ma_su_kien": "NH01",
             "thoi_gian_bat_dau": start.strftime("%Y-%m-%dT%H:%M"),
             "thoi_gian_ket_thuc": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
-            "so_nguoi_toi_da": "1", "dia_diem": "Phòng A"})
+            "dia_diem": "Phòng A"})
         self.assertEqual(created.status_code, 302)
         event = Event.query.one()
         self.login(3)
@@ -1134,16 +1132,17 @@ class WorkflowTests(unittest.TestCase):
             "csrf_token": token, "ten_su_kien": "Test1", "ma_su_kien": "T1",
             "thoi_gian_bat_dau": start.strftime("%Y-%m-%dT%H:%M"),
             "thoi_gian_ket_thuc": (start + timedelta(hours=2)).strftime("%Y-%m-%dT%H:%M"),
-            "dia_diem": "FPT University", "noi_dung": "Test1", "so_nguoi_toi_da": "20",
+            "dia_diem": "FPT University", "noi_dung": "Test1",
         }
         cases = [
             ({"thoi_gian_bat_dau": (start - timedelta(days=2)).strftime("%Y-%m-%dT%H:%M")},
              "Thời gian bắt đầu phải sau thời điểm hiện tại"),
             ({"thoi_gian_ket_thuc": (start - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")},
              "Thời gian kết thúc phải sau thời gian bắt đầu"),
-            ({"han_dang_ky": (start + timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")},
-             "Hạn đăng ký không được sau thời gian bắt đầu"),
-            ({"so_nguoi_toi_da": "0"}, "Số người tối đa phải lớn hơn 0"),
+            ({"han_dang_ky": (start - timedelta(hours=1)).strftime("%Y-%m-%dT%H:%M")},
+             "Hạn đăng ký phải nằm trong khoảng thời gian bắt đầu"),
+            ({"han_dang_ky": (start + timedelta(hours=3)).strftime("%Y-%m-%dT%H:%M")},
+             "Hạn đăng ký phải nằm trong khoảng thời gian bắt đầu"),
         ]
         for change, message in cases:
             with self.subTest(message=message):
@@ -1151,7 +1150,7 @@ class WorkflowTests(unittest.TestCase):
                 response = self.csrf_request("POST", "/event/new", data=form)
                 self.assertEqual(response.status_code, 200)
                 self.assertIn(message.encode(), response.data)
-                for field in ("thoi_gian_bat_dau", "thoi_gian_ket_thuc", "so_nguoi_toi_da"):
+                for field in ("thoi_gian_bat_dau", "thoi_gian_ket_thuc"):
                     self.assertIn(f'value="{form[field]}"'.encode(), response.data)
                 self.assertIn(b"FPT University", response.data)
         self.assertEqual(Event.query.count(), 0)

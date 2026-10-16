@@ -42,12 +42,11 @@ def _model_suggestion(provider, kind, brief, context):
     """Nhờ model gợi ý tên/mô tả/địa điểm cho đề xuất; lỗi thì trả gợi ý rỗng."""
     if kind == "event":
         schema = {"name": "Tên sự kiện", "content": "Mô tả", "type": "Loại",
-                  "location": "Địa điểm", "capacity": None}
+                  "location": "Địa điểm"}
         response_schema = {"type": "object", "properties": {
             "name": {"type": "string"}, "content": {"type": "string"},
-            "type": {"type": "string"}, "location": {"type": "string"},
-            "capacity": {"type": ["integer", "null"]}},
-            "required": ["name", "content", "type", "location", "capacity"]}
+            "type": {"type": "string"}, "location": {"type": "string"}},
+            "required": ["name", "content", "type", "location"]}
     else:
         schema = {"tasks": [{"name": "Tên task", "description": "Mô tả"}]}
         response_schema = {"type": "object", "properties": {"tasks": {
@@ -68,7 +67,7 @@ def _model_suggestion(provider, kind, brief, context):
 
 
 def _event_payload(actor, data, brief, provider):
-    """Dựng payload đề xuất sự kiện đã kiểm tra thời gian, ban, sức chứa."""
+    """Dựng payload đề xuất sự kiện đã kiểm tra thời gian và ban (sự kiện không giới hạn số người)."""
     start = parse_datetime(data.get("start_at"), "Giờ bắt đầu")
     end = parse_datetime(data.get("end_at"), "Giờ kết thúc")
     if start <= club_now() or end <= start:
@@ -81,22 +80,15 @@ def _event_payload(actor, data, brief, provider):
             "end_at": end.isoformat(), "ban_id": ban_id})
         if isinstance(provider, AnthropicProvider) else
         {"name": brief.splitlines()[0], "content": brief, "type": "other",
-         "location": "", "capacity": None}
+         "location": ""}
     )
     name = str(suggestion.get("name") or "").strip()[:150]
     if not name:
         raise DomainError("AI chưa đề xuất tên sự kiện hợp lệ.")
-    capacity = suggestion.get("capacity")
-    if capacity not in (None, ""):
-        capacity = _integer(capacity, "Sức chứa")
-        if not 1 <= capacity <= 10000:
-            raise DomainError("Sức chứa phải từ 1 đến 10000.")
-    else:
-        capacity = None
     return {"name": name, "content": str(suggestion.get("content") or brief).strip()[:3000],
             "type": str(suggestion.get("type") or "other").strip()[:100],
             "location": str(suggestion.get("location") or "").strip()[:300],
-            "capacity": capacity, "start_at": start.isoformat(), "end_at": end.isoformat(),
+            "start_at": start.isoformat(), "end_at": end.isoformat(),
             "ban_id": ban_id}
 
 
@@ -218,7 +210,7 @@ def proposal_preview(proposal):
         return (f"Sự kiện: {payload['name']}\n"
                 f"Thời gian: {payload['start_at']} → {payload['end_at']}\n"
                 f"Địa điểm: {payload['location'] or '(chưa có)'}\n"
-                f"Loại: {payload['type']}\nSức chứa: {payload['capacity'] or 'Không giới hạn'}\n"
+                f"Loại: {payload['type']}\n"
                 f"Nội dung: {payload['content']}\nBan: {payload['ban_id'] or 'Tất cả'}")
     lines = [f"Chia task cho sự kiện #{payload['event_id']}, ban #{payload['ban_id']}, "
              f"hạn {payload['deadline']}; kỹ năng: {', '.join(payload.get('required_skills', [])) or '(không yêu cầu)'}:"]
@@ -263,7 +255,7 @@ def review_proposal(actor, proposal, decision):
             db.session.flush()
             db.session.add(EventDetail(event_id=event.id, loai=payload["type"],
                                        noi_dung=payload["content"], dia_diem=payload["location"],
-                                       so_nguoi_toi_da=payload["capacity"], phu_trach_id=actor.id,
+                                       phu_trach_id=actor.id,
                                        tat_ca_thanh_vien=payload["ban_id"] is None))
             if payload["ban_id"] is not None:
                 if not db.session.get(Ban, payload["ban_id"]):
