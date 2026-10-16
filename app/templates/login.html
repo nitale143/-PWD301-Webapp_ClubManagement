@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon, badge %}
+{% from "_ui.html" import icon, badge, form_field %}
 {% block title %}Đăng nhập{% endblock %}
 {% block content %}
 <div class="auth-layout preview-auth preview-login">
@@ -19,13 +19,14 @@
             <h1>Đăng nhập</h1>
             <p class="muted">Dùng tài khoản thành viên FIA để tiếp tục.</p>
             {{ badge('Đăng nhập bằng tài khoản FIA', 'neutral') }}
-            <form method="post" action="{{ url_for('auth.login') }}" class="page-stack" autocomplete="on">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                {% if next_target %}<input type="hidden" name="next" value="{{ next_target }}">{% endif %}
-                <label class="field"><span class="field-label">MSSV</span><input class="input" type="text" name="mssv" value="{{ request.form.get('mssv', '') }}" required maxlength="15" autofocus autocomplete="username" placeholder="Nhập MSSV của bạn"></label>
-                <label class="field"><span class="field-label">Mật khẩu</span><input class="input" type="password" name="password" required maxlength="128" autocomplete="current-password" placeholder="Nhập mật khẩu"></label>
+            <form method="post" action="{{ url_for('auth.login') }}" class="page-stack" autocomplete="on" novalidate>
+                {{ form.hidden_tag() }}
+                {{ form_field(form.mssv, required=true, maxlength=20, autofocus=true, autocomplete='username', placeholder='Nhập MSSV của bạn') }}
+                {{ form_field(form.password, required=true, maxlength=128, autocomplete='current-password', placeholder='Nhập mật khẩu') }}
+                {{ form_field(form.remember) }}
                 <button class="btn btn-primary" type="submit">Đăng nhập {{ icon('arrow') }}</button>
             </form>
+            <p class="auth-switch muted"><a href="{{ url_for('auth.forgot_password') }}">Quên mật khẩu?</a></p>
             <p class="auth-switch muted">Chưa có tài khoản? <a href="{{ url_for('auth.register') }}">Đăng ký thành viên mới</a></p>
         </div>
     </section>

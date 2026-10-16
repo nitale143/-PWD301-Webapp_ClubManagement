@@ -62,6 +62,7 @@ _RANGE_GAP = re.compile(
 
 def _date_value(year, month, day, now):
     # Keeping an omitted year in this calendar year avoids guessing user intent.
+    """Tạo ngày từ (năm, tháng, ngày); thiếu năm thì dùng năm hiện tại; ngày không tồn tại → lỗi."""
     resolved_year = int(year) if year else now.year
     try:
         return datetime(resolved_year, int(month), int(day)).date()
@@ -70,6 +71,7 @@ def _date_value(year, month, day, now):
 
 
 def _extract_dates(message, now):
+    """Tìm các ngày trong câu (ISO, dd/mm[/yyyy], hôm nay, ngày mai…) kèm vị trí."""
     dates = []
     occupied = []
     for match in _ISO_DATE.finditer(message):
@@ -109,6 +111,7 @@ def _extract_dates(message, now):
 
 
 def _period_key(value):
+    """Đổi buổi trong ngày (sáng/trưa/chiều/tối/đêm) thành khóa chuẩn."""
     folded = value.casefold()
     return {
         "sáng": "morning", "sang": "morning",
@@ -120,6 +123,7 @@ def _period_key(value):
 
 
 def _resolve_hour(hour, minute, period):
+    """Đổi giờ theo buổi (vd: 7 giờ tối → 19:00), kiểm tra giờ hợp lệ."""
     if not 0 <= hour <= 23 or not 0 <= minute <= 59:
         raise DomainError("Giờ trong yêu cầu không hợp lệ.")
     if period is None:
@@ -156,6 +160,7 @@ def _resolve_hour(hour, minute, period):
 
 
 def _extract_times(message, dates):
+    """Tìm các mốc giờ trong câu kèm vị trí và buổi."""
     times = []
     iso_clock_starts = {match.start("hour") for match in _ISO_T_TIMESTAMP.finditer(message)}
 
@@ -216,6 +221,7 @@ def _extract_times(message, dates):
 
 
 def _connected(message, first, second):
+    """True nếu ngày và giờ nằm liền nhau trong câu (thuộc cùng một mốc)."""
     if first["end"] <= second["start"]:
         gap = message[first["end"]:second["start"]]
     elif second["end"] <= first["start"]:
@@ -228,6 +234,7 @@ def _connected(message, first, second):
 
 
 def _explicit_range(message, first, second):
+    """True nếu hai mốc được nối bằng từ chỉ khoảng (đến, -, tới…)."""
     if first["start"] > second["start"]:
         first, second = second, first
     gap = message[first["end"]:second["start"]]

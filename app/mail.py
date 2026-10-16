@@ -1,11 +1,20 @@
-"""Small SMTP wrapper that keeps disabled mail and transport failures private."""
+"""Gửi email qua SMTP có mã hóa (TLS/SSL), không làm lộ lỗi hoặc nội dung thư.
 
+`send_email()` trả về True/False thay vì ném lỗi, để view tự báo cho người dùng.
+Khi MAIL_ENABLED=false: không gửi. Riêng môi trường development có thể bật
+MAIL_OUTBOX=true để lưu thư thành file .eml trong instance/mail_outbox/ (dùng
+để lấy link xác minh email / đặt lại mật khẩu khi chạy thử trên máy).
+"""
+
+import os
 import re
 import smtplib
 import ssl
 from email.message import EmailMessage
 
 from flask import current_app
+
+from app.timeutil import utcnow
 
 
 _EMAIL_RE = re.compile(
@@ -15,6 +24,9 @@ _EMAIL_RE = re.compile(
 
 
 def _safe_header(value, max_length):
+    """Chuỗi header email hợp lệ: không rỗng, không quá dài, không chứa ký tự xuống dòng (chống
+    header injection).
+    """
     return (
         isinstance(value, str)
         and 0 < len(value) <= max_length
@@ -23,6 +35,7 @@ def _safe_header(value, max_length):
 
 
 def _valid_email(value):
+    """Địa chỉ email hợp lệ theo regex và độ dài cho phép."""
     return _safe_header(value, 254) and _EMAIL_RE.fullmatch(value) is not None and ".." not in value
 
 
@@ -31,6 +44,8 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     cfg = current_app.config
 
     if not cfg.get("MAIL_ENABLED"):
+        if cfg.get("MAIL_OUTBOX") and cfg.get("APP_ENV") == "development":
+            return _write_outbox(to_email, subject, body)
         return False
     if not _valid_email(to_email) or not _safe_header(subject, 255) or not isinstance(body, str):
         current_app.logger.warning("Email rejected because its address or subject was invalid")
@@ -95,3 +110,22 @@ def send_email(to_email: str, subject: str, body: str) -> bool:
     except Exception as exc:
         current_app.logger.warning("SMTP delivery failed (%s)", type(exc).__name__)
         return False
+
+
+def _write_outbox(to_email, subject, body):
+    """Chỉ dùng khi phát triển: lưu thư vào instance/mail_outbox/<thời-gian>.eml (quyền 0600)."""
+    if not _valid_email(to_email) or not _safe_header(subject, 255) or not isinstance(body, str):
+        return False
+    message = EmailMessage()
+    message["Subject"] = subject
+    message["From"] = current_app.config.get("MAIL_DEFAULT_SENDER") or "dev@localhost"
+    message["To"] = to_email
+    message.set_content(body)
+    folder = os.path.join(current_app.instance_path, "mail_outbox")
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    path = os.path.join(folder, utcnow().strftime("%Y%m%d-%H%M%S-%f") + ".eml")
+    descriptor = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "wb") as handle:
+        handle.write(bytes(message))
+    current_app.logger.info("Development mail saved to outbox")
+    return True

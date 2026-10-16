@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from flask import g
 
+from tests.support import sign_csrf
 from app import create_app, db
 from app.models import Event, EventDetail, MemberRecord, User
 from app.services import ctftime
@@ -140,11 +141,11 @@ class CTFtimeRouteTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["_user_id"] = str(user_id)
             session["_fresh"] = True
-            session["_csrf_token"] = csrf
+            session["csrf_token"] = csrf   # token gốc; form gửi bản đã ký
         g.pop("_login_user", None)
 
     def import_data(self, event_id="71", csrf="test-csrf", **extra):
-        return {"csrf_token": csrf, "event_id": event_id, **extra}
+        return {"csrf_token": sign_csrf(self.app, csrf), "event_id": event_id, **extra}
 
     def test_calendar_is_lazy_and_available_to_approved_members(self):
         self.login(2)

@@ -27,6 +27,7 @@ class CalendarUnavailable(Exception):
 
 
 def _text(value):
+    """Giải mã ký tự escape trong iCalendar (\\n, \\, \\; …)."""
     return re.sub(r"\\([nN,;\\])", lambda match: "\n" if match[1].lower() == "n" else match[1], value)
 
 

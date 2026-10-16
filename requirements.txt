@@ -1,9 +1,14 @@
+# Thư viện chạy ứng dụng (cài: pip install -r requirements.txt)
 Flask==3.1.3
 Flask-SQLAlchemy==3.1.1
-Flask-Login==0.6.3
+Flask-Migrate==4.1.0          # Ch5 – migration schema (Alembic)
+Flask-Login==0.6.3            # Ch6 – đăng nhập, session, remember me
+Flask-WTF==1.3.0              # Ch4 – form + CSRF
+Flask-Limiter[redis]==4.1.1   # Ch9 – rate limit (Redis khi chạy nhiều worker)
 Werkzeug==3.1.9
 email-validator==2.2.0
 openpyxl==3.1.5
 python-dotenv==1.2.2
 APScheduler==3.10.4
 qrcode[pil]==8.2
+gunicorn==26.2.0              # Ch11 – WSGI server production

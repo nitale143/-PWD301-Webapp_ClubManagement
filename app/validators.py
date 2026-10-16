@@ -1,80 +1,81 @@
+"""Quy tắc kiểm tra dữ liệu dùng chung cho form (WTForms) và REST API.
+
+Nguyên tắc "Zero Trust" (Ch4 – slide 28-29): mọi dữ liệu người dùng gửi lên
+đều được kiểm tra lại ở server, kể cả khi trình duyệt đã kiểm tra.
+"""
 import re
 import unicodedata
-from datetime import datetime
+
+from wtforms.validators import ValidationError
 
 MSSV_RE = re.compile(r"^[A-Za-z0-9]{6,15}$")
 PHONE_RE = re.compile(r"^0\d{9,10}$")
 FACEBOOK_RE = re.compile(r"^https?://(www\.)?facebook\.com/.+$")
 EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
+PASSWORD_MIN = 8
+PASSWORD_MAX = 128
+COMMON_PASSWORDS = frozenset({
+    "12345678", "123456789", "1234567890", "password", "password1", "password123",
+    "qwerty123", "11111111", "abc12345", "matkhau123", "iloveyou1", "admin123",
+})
 
-def validate_registration(form):
+
+def contains_control(value):
+    """True nếu chuỗi có ký tự điều khiển (xuống dòng, tab, ký tự ẩn…)."""
+    return any(unicodedata.category(char).startswith("C") for char in value or "")
+
+
+def password_problems(password, mssv=None):
+    """Trả về danh sách lý do mật khẩu chưa đủ mạnh (rỗng = hợp lệ).
+
+    Chính sách (Ch6 – slide 79-80): 8–128 ký tự, có ít nhất một chữ cái và một
+    chữ số, không chứa MSSV, không nằm trong danh sách mật khẩu phổ biến.
     """
-    Nhan vao request.form, tra ve dict {field: error_message}.
-    Dict rong nghia la hop le.
+    problems = []
+    if not isinstance(password, str) or not PASSWORD_MIN <= len(password) <= PASSWORD_MAX:
+        return [f"Mật khẩu phải có từ {PASSWORD_MIN} đến {PASSWORD_MAX} ký tự."]
+    if not re.search(r"[^\W\d_]", password):
+        problems.append("Mật khẩu phải có ít nhất một chữ cái.")
+    if not re.search(r"\d", password):
+        problems.append("Mật khẩu phải có ít nhất một chữ số.")
+    if mssv and len(mssv) >= 4 and mssv.casefold() in password.casefold():
+        problems.append("Mật khẩu không được chứa MSSV.")
+    if password.casefold() in COMMON_PASSWORDS:
+        problems.append("Mật khẩu quá phổ biến, hãy chọn mật khẩu khác.")
+    return problems
+
+
+class StrongPassword:
+    """Validator WTForms tùy biến dùng `password_problems` (Ch6 – slide 80, Ch4 – slide 35).
+
+    `mssv_field`: tên field MSSV trong cùng form (nếu có) để chặn mật khẩu chứa MSSV.
     """
-    errors = {}
 
-    ho_ten = _text(form, "ho_ten")
-    if not 2 <= len(ho_ten) <= 100 or _contains_control(ho_ten):
-        errors["ho_ten"] = "Ho va ten khong hop le."
+    def __init__(self, mssv_field=None):
+        """`mssv_field`: tên field MSSV trong form để chặn mật khẩu chứa MSSV."""
+        self.mssv_field = mssv_field
 
-    mssv = _text(form, "mssv")
-    if not MSSV_RE.fullmatch(mssv):
-        errors["mssv"] = "MSSV phai gom 6-15 ky tu chu/so."
-
-    ngay_sinh = _text(form, "ngay_sinh")
-    try:
-        dob = datetime.strptime(ngay_sinh, "%Y-%m-%d").date()
-        if dob.year < 1980 or dob >= datetime.utcnow().date():
-            errors["ngay_sinh"] = "Ngay sinh khong hop le."
-    except (TypeError, ValueError, OverflowError):
-        errors["ngay_sinh"] = "Dinh dang ngay sinh khong hop le (YYYY-MM-DD)."
-
-    ban_ids = form.getlist("ban_hoat_dong") if hasattr(form, "getlist") else form.get("ban_hoat_dong")
-    if not ban_ids:
-        errors["ban_hoat_dong"] = "Vui long chon it nhat 1 ban hoat dong."
-    else:
-        from app.models import Ban
-        ids = ban_ids if isinstance(ban_ids, (list, tuple)) else [ban_ids]
-        if len(ids) > 20:
-            errors["ban_hoat_dong"] = "Ban hoat dong khong hop le."
-            ids = []
-        try:
-            parsed_ids = [
-                int(value) for value in ids
-                if str(value).isdigit() and len(str(value)) <= 10
-            ]
-            unique_ids = set(parsed_ids) if len(parsed_ids) == len(ids) else set()
-        except (TypeError, ValueError, OverflowError):
-            unique_ids = set()
-        if not unique_ids or Ban.query.filter(Ban.id.in_(unique_ids)).count() != len(unique_ids):
-            errors["ban_hoat_dong"] = "Ban hoat dong khong hop le."
-
-    sdt = _text(form, "sdt")
-    if len(sdt) > 15 or not PHONE_RE.fullmatch(sdt):
-        errors["sdt"] = "So dien thoai khong hop le (vd: 0912345678)."
-
-    email = _text(form, "email")
-    if len(email) > 120 or not EMAIL_RE.fullmatch(email):
-        errors["email"] = "Email khong hop le."
-
-    facebook_link = _text(form, "facebook_link")
-    if (len(facebook_link) > 255 or _contains_control(facebook_link)
-            or not FACEBOOK_RE.fullmatch(facebook_link)):
-        errors["facebook_link"] = "Link Facebook khong hop le (vd: https://facebook.com/ten.ban)."
-
-    password = form.get("password", "")
-    if not isinstance(password, str) or not 8 <= len(password) <= 128:
-        errors["password"] = "Mat khau phai co tu 8 den 128 ky tu."
-
-    return errors
+    def __call__(self, form, field):
+        """Chạy password_problems; có vấn đề thì báo ValidationError."""
+        mssv = None
+        if self.mssv_field and self.mssv_field in form:
+            mssv = (form[self.mssv_field].data or "").strip()
+        elif getattr(form, "mssv_value", None):
+            mssv = form.mssv_value
+        problems = password_problems(field.data or "", mssv)
+        if problems:
+            raise ValidationError(" ".join(problems))
 
 
-def _text(form, field):
-    value = form.get(field, "")
-    return value.strip() if isinstance(value, str) else ""
+class NoControlChars:
+    """Chặn ký tự điều khiển trong các ô văn bản một dòng."""
 
+    def __init__(self, message="Dữ liệu chứa ký tự không hợp lệ."):
+        """Thông báo lỗi tùy chỉnh."""
+        self.message = message
 
-def _contains_control(value):
-    return any(unicodedata.category(char).startswith("C") for char in value)
+    def __call__(self, form, field):
+        """Báo lỗi nếu chuỗi có ký tự điều khiển."""
+        if isinstance(field.data, str) and contains_control(field.data):
+            raise ValidationError(self.message)

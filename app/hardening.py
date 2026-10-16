@@ -1,4 +1,10 @@
-"""Security boundaries and safe failure handling shared by every route."""
+"""Ranh giới bảo mật và xử lý lỗi an toàn cho mọi route (Ch10 – Middleware & Error handling).
+
+- `configure_security`: kiểm tra cấu hình lúc khởi động (SECRET_KEY, debug, HTTPS),
+  gắn ProxyFix khi chạy sau Nginx, bật log file.
+- `install_hardening`: hook before/after_request (host allowlist, HTTPS, header
+  bảo mật, CSP nonce, log thao tác) và error handler trả lỗi an toàn.
+"""
 import ipaddress
 import logging
 import os
@@ -13,9 +19,14 @@ from flask import abort, g, jsonify, request
 from flask_login import current_user
 from markupsafe import escape
 from werkzeug.exceptions import HTTPException
+from werkzeug.middleware.proxy_fix import ProxyFix
 
 
 def configure_security(app):
+    """Kiểm tra cấu hình lúc khởi động: APP_ENV hợp lệ, SECRET_KEY đủ mạnh ở production (dev tự tạo
+    khóa trong instance/), cấm debug ở production, bật cookie Secure, gắn ProxyFix theo
+    TRUST_PROXY_HOPS và mở file log instance/security.log.
+    """
     if app.config.get("APP_ENV") not in {"development", "production"}:
         raise RuntimeError("APP_ENV must be development or production.")
     production = app.config.get("APP_ENV") == "production"
@@ -50,6 +61,14 @@ def configure_security(app):
             raise RuntimeError("Production SMTP must use TLS or SSL.")
         app.config.update(SESSION_COOKIE_SECURE=True, SESSION_COOKIE_HTTPONLY=True)
     app.config.setdefault("PERMANENT_SESSION_LIFETIME", timedelta(hours=8))
+    if production:
+        app.config.update(REMEMBER_COOKIE_SECURE=True)
+    # WSGI middleware: chỉ tin header X-Forwarded-* từ đúng số proxy đã khai báo.
+    # Khi đứng sau Nginx (TRUST_PROXY_HOPS=1) Flask mới thấy đúng IP client và
+    # scheme https; nếu không, kiểm tra HTTPS bên dưới sẽ chặn mọi request.
+    hops = int(app.config.get("TRUST_PROXY_HOPS") or 0)
+    if hops > 0:
+        app.wsgi_app = ProxyFix(app.wsgi_app, x_for=hops, x_proto=hops, x_host=hops, x_port=hops)
     if not app.config.get("TESTING"):
         log_path = Path(app.instance_path) / "security.log"
         handler = RotatingFileHandler(log_path, maxBytes=1_000_000, backupCount=3, encoding="utf-8")
@@ -61,6 +80,10 @@ def configure_security(app):
 
 
 def install_hardening(app):
+    """Gắn hook before_request (host allowlist, bắt buộc HTTPS ở production, kiểm tra quyền xem ảnh
+    upload), after_request (CSP có nonce, header bảo mật, Cache-Control, log thao tác) và error
+    handler trả lỗi an toàn dạng HTML/JSON.
+    """
     @app.before_request
     def request_boundary():
         g.request_id = secrets.token_hex(12)
@@ -110,10 +133,10 @@ def install_hardening(app):
         response.headers["X-Request-ID"] = getattr(g, "request_id", "")
         try:
             authenticated = current_user.is_authenticated
-            actor_id = current_user.get_id() if authenticated else "anonymous"
+            actor_id = current_user.id if authenticated else "anonymous"
         except Exception:
             authenticated, actor_id = False, "unavailable"
-        if authenticated or request.path.startswith(("/login", "/register", "/ai", "/api/")):
+        if authenticated or request.path.startswith(("/login", "/register", "/ai", "/api/", "/password", "/confirm", "/reauth")):
             response.headers["Cache-Control"] = "private, no-store"
         if app.config.get("APP_ENV") == "production" and request.is_secure:
             response.headers["Strict-Transport-Security"] = "max-age=31536000"
@@ -151,7 +174,10 @@ def install_hardening(app):
     def unexpected_failure(error):
         from app import db
         db.session.rollback()
-        app.logger.error("security_exception type=%s request_id=%s", type(error).__name__, getattr(g, "request_id", ""))
+        # Ghi đủ stack trace vào log server (Ch10 – slide 32, 34); người dùng chỉ
+        # thấy thông báo chung kèm mã hỗ trợ request_id để đối chiếu log.
+        app.logger.exception("unhandled_exception type=%s path=%s request_id=%s",
+                             type(error).__name__, request.path, getattr(g, "request_id", ""))
         if app.config.get("TESTING"):
             raise error
         return error_response(500)

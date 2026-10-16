@@ -8,6 +8,7 @@ from pathlib import Path
 
 from flask import g
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import MemberRecord, User, Ban, UserBan, Event, Task, FundCollection
 from app.services.common import club_now
@@ -158,8 +159,7 @@ class RealLandingAndWorkspaceTests(unittest.TestCase):
 
         self.assertEqual(page.status_code, 200)
         self.assertIn('data-stream-url="/ai/stream"', page.get_data(as_text=True))
-        with self.client.session_transaction() as session:
-            csrf_token = session["_csrf_token"]
+        csrf_token = csrf_for(self.client)
 
         response = self.client.post("/ai/stream", data={
             "csrf_token": csrf_token,

@@ -1,6 +1,5 @@
 """Owned, persistent conversations with bounded keyset message pages."""
 
-from datetime import datetime
 
 from flask import session
 from sqlalchemy.exc import IntegrityError
@@ -8,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from app import db
 from app.models import AssistantPending, ChatConversation, ChatMessage, ConversationPending
 from .common import DomainError
+from app.timeutil import utcnow
 
 DEFAULT_TITLE = "Cuộc trò chuyện mới"
 MESSAGE_PAGE_SIZE = 40
@@ -15,6 +15,7 @@ CONVERSATION_PAGE_SIZE = 20
 
 
 def positive_id(value):
+    """Ép kiểu id/trang thành số nguyên dương hợp lệ, sai → DomainError."""
     if isinstance(value, bool) or not str(value).isascii() or not str(value).isdigit():
         raise DomainError("Mã cuộc trò chuyện hoặc trang không hợp lệ.")
     number = int(value)
@@ -24,6 +25,9 @@ def positive_id(value):
 
 
 def owned_conversation(actor, conversation_id, active=False):
+    """Lấy cuộc trò chuyện thuộc đúng người dùng (không thì 404); `active=True` thì chặn cuộc đã
+    lưu trữ.
+    """
     conversation = ChatConversation.query.filter_by(
         id=positive_id(conversation_id), user_id=actor.id).populate_existing().first()
     if conversation is None:
@@ -34,12 +38,14 @@ def owned_conversation(actor, conversation_id, active=False):
 
 
 def checked_title(title):
+    """Kiểm tra tên cuộc trò chuyện 1–100 ký tự."""
     if not isinstance(title, str) or not title.strip() or len(title.strip()) > 100:
         raise DomainError("Tên cuộc trò chuyện phải có từ 1 đến 100 ký tự.")
     return title.strip()
 
 
 def create_conversation(actor, title=None):
+    """Tạo cuộc trò chuyện mới và ghi nhớ là cuộc đang chọn trong session."""
     conversation = ChatConversation(user_id=actor.id,
         title=DEFAULT_TITLE if title is None or title == "" else checked_title(title))
     db.session.add(conversation)
@@ -74,6 +80,7 @@ def _import_unscoped_history(actor):
 
 
 def select_conversation(actor, requested_id=None, create=False, active=False):
+    """Chọn cuộc trò chuyện theo id yêu cầu hoặc cuộc đang mở trong session (tạo mới nếu `create`)."""
     _import_unscoped_history(actor)
     key = f"ai_conversation_{actor.id}"
     if requested_id is not None:
@@ -95,6 +102,7 @@ def select_conversation(actor, requested_id=None, create=False, active=False):
 
 
 def append_exchange(actor, conversation, question, reply):
+    """Lưu cặp câu hỏi – trả lời vào cuộc trò chuyện (đặt tiêu đề từ câu hỏi đầu tiên)."""
     owned_conversation(actor, conversation.id, active=True)
     if conversation.title == DEFAULT_TITLE and not ChatMessage.query.filter_by(
             conversation_id=conversation.id, user_id=actor.id, role="user").first():
@@ -102,7 +110,7 @@ def append_exchange(actor, conversation, question, reply):
     for role, content in (("user", question), ("ai", reply)):
         db.session.add(ChatMessage(user_id=actor.id, conversation_id=conversation.id,
                                    role=role, content=content))
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
 
 
 def begin_turn(actor, conversation, question):
@@ -114,7 +122,7 @@ def begin_turn(actor, conversation, question):
     message = ChatMessage(user_id=actor.id, conversation_id=conversation.id,
                           role="user", content=question)
     db.session.add(message)
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
     db.session.flush()
     db.session.commit()
     return message
@@ -132,7 +140,7 @@ def finish_turn(actor, conversation, reply, user_message_id, run_id, permission_
     message = ChatMessage(user_id=actor.id, conversation_id=conversation.id,
                           role="ai", content=reply["answer"])
     db.session.add(message)
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
     audit(actor, "assistant_query", actor, {
         "intent": reply.get("intent", "unsupported"),
         "provider": reply.get("provider", "rules"),
@@ -146,6 +154,7 @@ def finish_turn(actor, conversation, reply, user_message_id, run_id, permission_
 
 
 def conversation_list(actor, page=1, archived=False):
+    """Danh sách cuộc trò chuyện theo trang (20 mục/trang), mới cập nhật trước."""
     page = positive_id(page)
     rows = ChatConversation.query.filter_by(user_id=actor.id, archived=archived)\
         .order_by(ChatConversation.updated_at.desc(), ChatConversation.id.desc())\
@@ -154,6 +163,7 @@ def conversation_list(actor, page=1, archived=False):
 
 
 def message_page(actor, conversation, before=None, after=None):
+    """Tin nhắn của cuộc trò chuyện theo trang dạng keyset (before/after theo id)."""
     if before is not None and after is not None:
         raise DomainError("Chỉ chọn một hướng tải lịch sử.")
     if conversation is None:
@@ -179,6 +189,7 @@ def message_page(actor, conversation, before=None, after=None):
 
 
 def conversation_json(conversation):
+    """Chuyển cuộc trò chuyện thành JSON."""
     return {"id": conversation.id, "title": conversation.title,
             "archived": conversation.archived,
             "created_at": conversation.created_at.isoformat(),

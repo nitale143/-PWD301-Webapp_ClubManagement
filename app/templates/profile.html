@@ -67,19 +67,46 @@
                 </form>
             </div>
         </section>
+        {% endif %}
+
+        {% if is_self %}
+        <section class="span-12 card">
+            <div class="card-header"><div><h2>Bảo mật tài khoản</h2><p class="small muted">Mật khẩu và xác minh email.</p></div>{{ icon('shield') }}</div>
+            <div class="card-body toolbar">
+                <div class="toolbar-left">
+                    {% if member.email_confirmed %}{{ badge('Email đã xác minh', 'success') }}{% else %}{{ badge('Email chưa xác minh', 'warning') }}
+                    <form method="post" action="{{ url_for('auth.resend_confirmation') }}" class="inline-form">{{ resend_form.hidden_tag() }}<button class="btn btn-ghost btn-sm" type="submit">{{ icon('mail') }} Gửi lại email xác minh</button></form>{% endif %}
+                </div>
+                <div class="toolbar-right"><a class="btn btn-secondary" href="{{ url_for('auth.change_password') }}">{{ icon('shield') }} Đổi mật khẩu</a></div>
+            </div>
+        </section>
+        {% elif can_issue_temp %}
+        <section class="span-12 card">
+            <div class="card-header"><div><h2>Hỗ trợ đăng nhập</h2><p class="small muted">Dùng khi thành viên quên mật khẩu và không nhận được email đặt lại.</p></div>{{ icon('shield') }}</div>
+            <div class="card-body toolbar">
+                <span class="small muted">{{ badge('Email đã xác minh', 'success') if member.email_confirmed else badge('Email chưa xác minh', 'warning') }}</span>
+                <form method="post" action="{{ url_for('admin.issue_temp_password', user_id=member.id) }}" class="inline-form">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button class="btn btn-danger btn-sm" type="submit">{{ icon('shield') }} Cấp mật khẩu tạm</button>
+                </form>
+            </div>
+        </section>
+        {% endif %}
+
+        {% if is_self %}
 
         <section class="span-12 card">
             <div class="card-header"><div><h2>Ảnh đại diện</h2><p class="small muted">Tải ảnh mới để cập nhật hồ sơ của bạn.</p></div>{{ icon('edit') }}</div>
             <div class="card-body">
                 <form method="post" action="{{ url_for('profile.upload_avatar') }}" enctype="multipart/form-data" class="profile-avatar-form">
-                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    {{ avatar_form.hidden_tag() }}
                     <span class="profile-avatar-form-preview">
                         {{ avatar(member.ho_ten, 'indigo') }}
                         <img data-avatar-image src="{{ member.avatar_url }}" alt="" aria-hidden="true">
                     </span>
                     <div class="field grow">
-                        <label class="field-label" for="profile-avatar">Chọn ảnh đại diện</label>
-                        <input class="input" id="profile-avatar" type="file" name="avatar" accept="image/png,image/jpeg,image/gif,image/webp" required>
+                        {{ avatar_form.avatar.label(class_='field-label', for_='profile-avatar', text='Chọn ảnh đại diện') }}
+                        {{ avatar_form.avatar(class_='input', id='profile-avatar', accept='image/png,image/jpeg,image/gif,image/webp', required=true) }}
                         <span class="field-help">Định dạng hỗ trợ: PNG, JPG, JPEG, GIF hoặc WEBP.</span>
                     </div>
                     <button class="btn btn-secondary" type="submit">Tải ảnh lên</button>

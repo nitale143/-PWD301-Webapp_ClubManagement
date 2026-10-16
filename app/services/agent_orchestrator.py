@@ -81,12 +81,15 @@ _TIME_PATTERN = re.compile(
 
 
 class _PlanError(ValueError):
+    """Lỗi nội bộ khi kế hoạch do model trả về không hợp lệ (sẽ chuyển sang phương án rules)."""
     def __init__(self, reason):
+        """Lưu lý do lỗi kế hoạch."""
         super().__init__(reason)
         self.reason = reason
 
 
 def _bounded_setting(name, default, lower, upper):
+    """Đọc một cấu hình số nguyên và kẹp trong khoảng [lower, upper]."""
     try:
         value = int(current_app.config.get(name, default))
     except (TypeError, ValueError):
@@ -95,6 +98,7 @@ def _bounded_setting(name, default, lower, upper):
 
 
 def _conversation_history(actor, message, conversation, message_id):
+    """Lấy lịch sử gần nhất của cuộc trò chuyện (trước tin nhắn hiện tại) để làm ngữ cảnh."""
     if conversation is None:
         if message_id is not None:
             raise DomainError("Không tìm thấy tin nhắn trong cuộc trò chuyện.", 404)
@@ -119,11 +123,15 @@ def _conversation_history(actor, message, conversation, message_id):
 
 
 def _user_history(history):
+    """Chỉ giữ tối đa 6 câu hỏi gần nhất của người dùng (không đưa câu trả lời AI vào ngữ cảnh)."""
     return [{"role": "user", "content": str(row.content)[:500]}
             for row in history if row.role == "user"][-6:]
 
 
 def _scope_markers(actor, text, members, bans, periods):
+    """Trích các "dấu phạm vi" (thành viên, ban, kỳ, thời gian, trạng thái) xuất hiện trong câu
+    hỏi.
+    """
     normalized = _normalize(text)
     markers = set()
     markers.update("time:" + match.group(0)
@@ -137,7 +145,6 @@ def _scope_markers(actor, text, members, bans, periods):
     if re.search(r"\b(?:cua toi|cua minh|ban than toi|chinh toi)\b", normalized):
         markers.add("member:self")
     # Resolve member and period markers only from rows visible to this actor.
-    from .access import visible_members
 
     for member in members:
         for value in (member.mssv, member.ho_ten):
@@ -184,7 +191,8 @@ def _tool_request(question, tool):
 
 
 def _query_preserves_scope(actor, question, query):
-    from .access import visible_members
+    """Kiểm tra truy vấn model viết lại vẫn giữ đúng phạm vi của câu hỏi gốc."""
+    from .access import board_members as visible_members
 
     members = visible_members(actor).order_by(User.id).all()
     bans = Ban.query.order_by(Ban.id).all()
@@ -195,6 +203,7 @@ def _query_preserves_scope(actor, question, query):
 
 
 def _parse_plan(raw, actor, question):
+    """Đọc và kiểm tra JSON kế hoạch của model (công cụ hợp lệ, số bước giới hạn, giữ phạm vi)."""
     if not isinstance(raw, str) or len(raw) > 10000:
         raise _PlanError("invalid_output")
     try:
@@ -219,6 +228,7 @@ def _parse_plan(raw, actor, question):
 
 
 def _unsupported_scope(message):
+    """Câu trả lời chuẩn khi câu hỏi lọc theo ban/thành viên mà công cụ chưa hỗ trợ."""
     return {
         "intent": "unsupported_query", "provider": "database",
         "verification": "unsupported",
@@ -229,6 +239,7 @@ def _unsupported_scope(message):
 
 
 def _unsupported_event_scope():
+    """Câu trả lời chuẩn khi câu hỏi sự kiện có bộ lọc chưa hỗ trợ."""
     return {
         "intent": "unsupported_query", "provider": "database",
         "verification": "unsupported",
@@ -238,6 +249,7 @@ def _unsupported_event_scope():
 
 
 def _unsupported_member_info_scope():
+    """Câu trả lời chuẩn khi hỏi hồ sơ theo ngày/trạng thái chưa hỗ trợ."""
     return {
         "intent": "unsupported_query", "provider": "database",
         "verification": "unsupported",
@@ -246,6 +258,7 @@ def _unsupported_member_info_scope():
 
 
 def _unsupported_member_task_scope():
+    """Câu trả lời chuẩn khi hỏi task theo thời gian chưa hỗ trợ."""
     return {
         "intent": "unsupported_query", "provider": "database",
         "verification": "unsupported",
@@ -255,6 +268,7 @@ def _unsupported_member_task_scope():
 
 
 def _clarify_member_target():
+    """Yêu cầu người dùng nêu rõ MSSV/họ tên khi không xác định được thành viên."""
     return {
         "intent": "member_needs_details", "provider": "database",
         "verification": "clarification",
@@ -280,11 +294,13 @@ def _task_query_for_original(actor, original):
 
 
 def _member_for_original(actor, original):
+    """Tìm thành viên được nhắc trong câu hỏi gốc (trong phạm vi được xem)."""
     return _member(actor, original)
 
 
 def _visible_member_scope(actor):
-    from .access import visible_members
+    """Ánh xạ id → {MSSV, họ tên chuẩn hóa} của thành viên trong phạm vi tra cứu."""
+    from .access import board_members as visible_members
 
     return {
         member.id: {_normalize(member.mssv), _normalize(member.ho_ten)}
@@ -293,6 +309,7 @@ def _visible_member_scope(actor):
 
 
 def _target_scope_was_revoked(original, prior_scope, current_members):
+    """True nếu thành viên được hỏi đã ra khỏi phạm vi quyền trong lúc xử lý."""
     if not prior_scope:
         return False
     text = _normalize(original)
@@ -307,11 +324,13 @@ def _target_scope_was_revoked(original, prior_scope, current_members):
 
 
 def _explicit_member_code(text):
+    """True nếu câu hỏi có ghi rõ một MSSV."""
     return re.search(r"\b(?:sv|mssv|msv)\s*[-:]?\s*[a-z0-9-]*\d+[a-z0-9-]*\b",
                      _normalize(text)) is not None
 
 
 def _unsupported_task_status(markers):
+    """True nếu câu hỏi chứa trạng thái task mà bộ đọc chưa hỗ trợ."""
     supported = {
         "dang lam", "cho duyet", "lam lai", "hoan thanh", "da xong",
         "chua hoan thanh", "khong hoan thanh", "chua xong", "tat ca",
@@ -322,6 +341,7 @@ def _unsupported_task_status(markers):
 
 
 def _wants_member_tasks(original):
+    """Nhận diện câu hỏi muốn xem task của một thành viên."""
     normalized = _normalize(original)
     return bool(re.search(r"\b(?:task|cong viec)\b", normalized) and any(
         phrase in normalized for phrase in
@@ -330,6 +350,7 @@ def _wants_member_tasks(original):
 
 
 def _safe_member_read(actor, message, conversation=None):
+    """Đọc hồ sơ/task thành viên bằng truy vấn đã kiểm chứng (không qua model)."""
     kind = member_query_kind(message)
     if kind == "member":
         return _execute_tool(actor, "member_info", "", message, conversation)
@@ -339,6 +360,7 @@ def _safe_member_read(actor, message, conversation=None):
 
 
 def _safe_briefing_read(actor, message):
+    """Trả lời tóm tắt ngày/báo cáo bằng dữ liệu kiểm chứng nếu câu hỏi phù hợp."""
     if not briefing_kind(message):
         return None
     markers = _scope_markers_for_actor(actor, message)
@@ -348,6 +370,7 @@ def _safe_briefing_read(actor, message):
 
 
 def _safe_rules_answer(actor, message, history):
+    """Trả lời bằng RulesProvider (truy vấn cố định) khi không cần model."""
     markers = _scope_markers_for_actor(actor, message)
     if any(marker.startswith("ban:") for marker in markers):
         return _unsupported_scope(message)
@@ -374,11 +397,13 @@ def _safe_rules_answer(actor, message, history):
 
 
 def _mentions_funds(text):
+    """Nhận diện câu hỏi liên quan quỹ."""
     return bool(re.search(r"\b(?:quy|khoan thu|da thu|chua dong|dong thieu|thieu tien|"
                           r"thanh toan|dong tien|tien quy|qua han)\b", text))
 
 
 def _fund_result(result, markers):
+    """Chỉ chấp nhận kết quả tra cứu quỹ thuộc các intent quỹ đã hỗ trợ."""
     if result.get("intent") not in _FUND_INTENTS:
         return {"intent": "unsupported_query", "provider": "database",
                 "verification": "unsupported", "answer":
@@ -449,6 +474,7 @@ def _read_filter_guard(message, tool, markers):
 
 
 def _read_before_pending(actor, message, conversation):
+    """Ưu tiên trả lời câu hỏi đọc dữ liệu trước khi xử lý đề xuất đang chờ bổ sung."""
     if (is_natural_proposal_command(message)
             or is_pending_deadline_reply(actor, message, conversation)):
         return None
@@ -466,7 +492,8 @@ def _read_before_pending(actor, message, conversation):
 
 
 def _scope_markers_for_actor(actor, text):
-    from .access import visible_members
+    """Trích dấu phạm vi của câu hỏi dựa trên dữ liệu người dùng được xem."""
+    from .access import board_members as visible_members
 
     members = visible_members(actor).order_by(User.id).all()
     bans = Ban.query.order_by(Ban.id).all()
@@ -477,7 +504,10 @@ def _scope_markers_for_actor(actor, text):
 def _execute_tool(actor, tool, query, original, conversation, prior_scope=None):
     # Each alias selects exactly one deterministic reader. Model text is used
     # only as that reader's validated query, never as SQL or write data.
-    from .access import visible_members
+    """Chạy đúng một công cụ đọc dữ liệu đã kiểm chứng theo tên tool; text của model chỉ dùng làm
+    truy vấn đã validate, không bao giờ làm SQL hay dữ liệu ghi.
+    """
+    from .access import board_members as visible_members
 
     original = _tool_request(original, tool)
 
@@ -567,6 +597,7 @@ def _execute_tool(actor, tool, query, original, conversation, prior_scope=None):
 
 
 def _result_verification(result):
+    """Xác định mức kiểm chứng của kết quả: database | clarification | unsupported | draft."""
     value = result.get("verification")
     if value in {"database", "clarification", "unsupported", "draft"}:
         return value
@@ -579,6 +610,7 @@ def _result_verification(result):
 
 
 def _combine_results(results, progress, mode, step_count, fallback_reason=None):
+    """Gộp kết quả nhiều bước thành một câu trả lời, bỏ trùng lặp, kèm tiến trình."""
     unique = []
     seen_answers = set()
     for tool, result in results:
@@ -639,6 +671,7 @@ def _combine_results(results, progress, mode, step_count, fallback_reason=None):
 
 
 def _error_result(exc):
+    """Chuyển DomainError thành kết quả trả lời an toàn."""
     return {
         "intent": "permission_denied" if exc.status == 403 else "request_error",
         "provider": "database", "verification": "unsupported",
@@ -647,6 +680,7 @@ def _error_result(exc):
 
 
 def _rules_fallback(actor, message, history, conversation, allow_prepare):
+    """Phương án dự phòng khi model lỗi: trả lời bằng rules/dữ liệu kiểm chứng, không gọi model."""
     if allow_prepare:
         safe_provider = RulesProvider()
         prepared = (maybe_create_email_draft(actor, message, provider=safe_provider)
@@ -673,6 +707,7 @@ def _rules_fallback(actor, message, history, conversation, allow_prepare):
 
 
 def _status(stage, label, tool=None):
+    """Tạo sự kiện tiến trình (status) gửi về trình duyệt qua SSE."""
     event = {"type": "status", "stage": stage, "label": label}
     if tool in _TOOLS:
         event["tool"] = tool
@@ -854,6 +889,7 @@ def respond_events(actor, message, conversation=None, message_id=None):
 
 
 def _tool_description(name):
+    """Mô tả ngắn từng công cụ để đưa vào prompt lập kế hoạch."""
     return {
         "member_info": "Hồ sơ hiện tại của một thành viên; query cần nêu đúng MSSV/tên.",
         "member_tasks": "Task của thành viên theo các trạng thái được hỏi; query cần giữ MSSV/tên, trạng thái và thời gian.",
@@ -865,6 +901,7 @@ def _tool_description(name):
 
 
 def _reauthorize(actor, conversation, permission_stamp=None):
+    """Kiểm tra lại tài khoản còn được duyệt và quyền không đổi trước khi trả kết quả."""
     from .access import require_current_approval, require_unchanged_scope
 
     require_current_approval(actor)

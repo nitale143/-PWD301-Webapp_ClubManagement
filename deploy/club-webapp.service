@@ -1,0 +1,15 @@
+# systemd unit chạy Gunicorn khi không dùng Docker (Ch8/11 – Process management).
+# sudo cp deploy/club-webapp.service /etc/systemd/system/ && sudo systemctl enable --now club-webapp
+[Unit]
+Description=Club management webapp (Gunicorn)
+After=network.target
+
+[Service]
+User=club
+WorkingDirectory=/srv/club
+EnvironmentFile=/srv/club/.env
+ExecStart=/srv/club/.venv/bin/gunicorn -c gunicorn.conf.py wsgi:app
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

@@ -13,7 +13,7 @@ from app import db
 from app.models import (AIProposal, AIReportSnapshot, Attendance, EmailProposal,
                         Event, EventRegistration, FundCollection,
                         FundPayment, Task)
-from .access import is_board, require, visible_members
+from .access import board_members as visible_members, is_board, require
 from .assistant import _normalize
 from .common import DomainError, audit, club_now
 from .email_proposals import _validate_address, can_review_email
@@ -22,10 +22,12 @@ from .proposals import can_review
 
 
 def _event_scope(actor, query):
+    """Phạm vi sự kiện cho báo cáo (hiện là toàn CLB)."""
     return query
 
 
 def _task_scope(actor, query):
+    """Phạm vi task cho báo cáo (hiện là toàn CLB)."""
     return query
 
 
@@ -45,7 +47,6 @@ def daily_digest(actor, today=None):
         Event.thoi_gian_bat_dau >= datetime.combine(today, time.min),
         Event.thoi_gian_bat_dau < datetime.combine(week_end, time.min))
         ).order_by(Event.thoi_gian_bat_dau, Event.id).all()
-    visible_ids = {member.id for member in visible_members(actor)}
     funds = FundCollection.query.filter(
         FundCollection.trang_thai == "open", FundCollection.han_dong < today
     ).order_by(FundCollection.han_dong, FundCollection.id).all()
@@ -68,6 +69,7 @@ def daily_digest(actor, today=None):
 
 
 def _window(period, today):
+    """Khoảng ngày của báo cáo tuần (từ thứ Hai) hoặc tháng (từ ngày 1) đến hết hôm nay."""
     if period == "week":
         start = today - timedelta(days=today.weekday())
     elif period == "month":
@@ -78,6 +80,7 @@ def _window(period, today):
 
 
 def report_data(actor, period, today=None):
+    """Số liệu báo cáo tuần/tháng (sự kiện, task, điểm danh, thanh toán) kèm nguồn – chỉ BĐH."""
     require(is_board(actor))
     today = today or club_now().date()
     start, end = _window(period, today)
@@ -121,6 +124,7 @@ def report_data(actor, period, today=None):
 
 
 def report_text(payload):
+    """Diễn giải payload báo cáo thành văn bản tiếng Việt."""
     label = "tuần" if payload["period"] == "week" else "tháng"
     events, tasks = payload["events"], payload["tasks"]
     attendance, payments = payload["attendance"], payload["payments"]
@@ -141,6 +145,7 @@ def report_text(payload):
 
 
 def save_report(actor, period):
+    """Lưu bản chụp báo cáo (bỏ qua nếu giống hệt một bản gần đây)."""
     payload = report_data(actor, period)
     previous = (AIReportSnapshot.query.filter_by(user_id=actor.id, period=period)
                 .order_by(AIReportSnapshot.id.desc()).limit(5).all())
@@ -164,6 +169,7 @@ def can_access_report(actor, snapshot):
 
 
 def report_workbook(snapshot):
+    """Tạo file Excel từ bản chụp báo cáo (đã chống chèn công thức)."""
     payload = snapshot.payload
     wb = Workbook()
     overview = wb.active
@@ -188,6 +194,7 @@ def report_workbook(snapshot):
 
 
 def report_email_draft(actor, snapshot):
+    """Tạo nháp email báo cáo gửi về email hồ sơ của chính người dùng."""
     require(can_access_report(actor, snapshot))
     address = _validate_address(actor.email)
     if address.lower().endswith(("@example.com", "@example.test")):
@@ -205,6 +212,7 @@ def report_email_draft(actor, snapshot):
 
 
 def briefing_kind(message):
+    """Nhận diện câu hỏi tóm tắt hôm nay (daily), báo cáo tuần/tháng, hoặc mốc chưa hỗ trợ."""
     text = _normalize(message).strip().rstrip(".!?")
     if any(phrase in text for phrase in ("hom nay can", "viec can lam", "tom tat hom nay",
                                        "lich hom nay", "can xu ly gi")):
@@ -223,6 +231,7 @@ def briefing_kind(message):
 
 
 def maybe_answer_briefing(actor, message):
+    """Trả lời câu hỏi tóm tắt/báo cáo nếu nhận diện được; ngược lại trả None."""
     kind = briefing_kind(message)
     if kind == "unsupported":
         require(is_board(actor))

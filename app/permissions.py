@@ -1,17 +1,27 @@
-"""
-Cac decorator kiem tra quyen han, dung chung cho moi blueprint.
+"""Decorator phân quyền dùng chung cho mọi blueprint (Ch7 – slide 58-87).
 
-Quyền quản trị dùng chung cho các chức vụ CN, PCN, TB và THUKY_THUQUY.
-THANH_VIEN chỉ có quyền trong phạm vi dữ liệu của chính mình.
+Thứ tự đặt decorator (từ trên xuống) luôn là::
+
+    @bp.route(...)
+    @login_required            # 1. đã đăng nhập chưa? (401 → trang đăng nhập)
+    @permission_required(...)  # 2. có quyền không? (403)
+    def view(): ...
+
+`functools.wraps` giữ nguyên tên hàm view để `url_for()` và endpoint không bị đổi.
 """
 from functools import wraps
+
 from flask import abort
 from flask_login import current_user
-from app.services.access import ADMIN_ROLES, approved, is_admin, is_board, can_manage_member
+
+from app.models import Permission
+from app.services.access import (
+    approved, can_assign_role_to, has_permission, is_board,
+)
 
 
 def approved_required(view_func):
-    """Chi cho phep thanh vien da duoc BDH duyet (status == approved) truy cap."""
+    """Chỉ cho phép thành viên đã được BĐH duyệt (và chưa rời CLB) truy cập."""
 
     @wraps(view_func)
     def wrapped(*args, **kwargs):
@@ -24,28 +34,62 @@ def approved_required(view_func):
     return wrapped
 
 
-def bdh_required(view_func):
-    """Chỉ tài khoản quản trị đã được duyệt mới được truy cập."""
+def permission_required(permission):
+    """Decorator 3 lớp: chỉ người có bit quyền `permission` mới vào được view.
 
-    @wraps(view_func)
-    def wrapped(*args, **kwargs):
-        if not current_user.is_authenticated or not is_board(current_user):
-            abort(403)
-        return view_func(*args, **kwargs)
-
-    return wrapped
-
-
-def role_required(*roles):
-    """Chi cac chuc vu duoc liet ke moi duoc truy cap. Vi du: @role_required('CN', 'PCN')"""
-    admin_only = bool(roles) and set(roles).issubset(ADMIN_ROLES)
+    Ví dụ: ``@permission_required(Permission.MANAGE_FUNDS)``
+    """
 
     def decorator(view_func):
         @wraps(view_func)
         def wrapped(*args, **kwargs):
-            if not current_user.is_authenticated or not (
-                    is_admin(current_user) if admin_only else
-                    approved(current_user) and current_user.chuc_vu in roles):
+            if not current_user.is_authenticated or not has_permission(current_user, permission):
+                abort(403)
+            return view_func(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def any_permission_required(*permissions):
+    """Vào được nếu có ÍT NHẤT MỘT trong các quyền đã liệt kê."""
+
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(*args, **kwargs):
+            if not current_user.is_authenticated or not any(
+                    has_permission(current_user, perm) for perm in permissions):
+                abort(403)
+            return view_func(*args, **kwargs)
+
+        return wrapped
+
+    return decorator
+
+
+def bdh_required(view_func):
+    """Chỉ thành viên Ban điều hành (quyền BOARD) đã được duyệt."""
+    return permission_required(Permission.BOARD)(view_func)
+
+
+def admin_required(view_func):
+    """Người có quyền phân vai trò (CN/PCN theo bảng mặc định)."""
+    return permission_required(Permission.ASSIGN_ROLES)(view_func)
+
+
+def role_required(*roles):
+    """Chỉ đúng các chức vụ được liệt kê. Ví dụ: ``@role_required('CN', 'PCN')``.
+
+    Ưu tiên dùng `permission_required`; decorator này dành cho quy tắc gắn với
+    chức danh cụ thể.
+    """
+
+    def decorator(view_func):
+        @wraps(view_func)
+        def wrapped(*args, **kwargs):
+            if (not current_user.is_authenticated or not approved(current_user)
+                    or current_user.chuc_vu not in roles):
                 abort(403)
             return view_func(*args, **kwargs)
 
@@ -55,24 +99,30 @@ def role_required(*roles):
 
 
 def can_assign_role(assigner, target, new_role, current_counts):
-    """
-    Kiem tra assigner co duoc phep chi dinh new_role cho target khong.
-    Tra ve (True, "") hoac (False, "ly do").
+    """Kiểm tra `assigner` có được chỉ định `new_role` cho `target` không.
+
+    Trả về (True, "") hoặc (False, "lý do").
     """
     from app.config import Config
+    from app.models import DEFAULT_ROLES
 
-    order = Config.ROLE_ORDER
-    if new_role not in order:
-        return False, "Chuc vu khong hop le."
+    if new_role not in DEFAULT_ROLES:
+        return False, "Chức vụ không hợp lệ."
     if not approved(assigner) or not approved(target) or assigner.id == target.id:
-        return False, "Chi duoc chi dinh cho thanh vien khac da duoc duyet."
-    if not is_admin(assigner) or not can_manage_member(assigner, target):
-        return False, "Ban khong co quyen phan vai tro nay."
+        return False, "Chỉ được chỉ định cho thành viên khác đã được duyệt."
     if new_role == "CN":
         return False, "Vui lòng dùng quy trình nhường quyền để chỉ định Chủ nhiệm."
+    if not can_assign_role_to(assigner, target, new_role):
+        return False, "Bạn không có quyền phân vai trò này (chỉ gán vai trò thấp hơn cấp của bạn)."
 
     limit = Config.ROLE_LIMITS.get(new_role)
     if limit is not None and current_counts.get(new_role, 0) >= limit:
-        return False, f"Da du so luong toi da cho chuc vu nay ({limit} nguoi)."
+        return False, f"Đã đủ số lượng tối đa cho chức vụ này ({limit} người)."
 
     return True, ""
+
+
+__all__ = [
+    "Permission", "admin_required", "any_permission_required", "approved_required",
+    "bdh_required", "can_assign_role", "is_board", "permission_required", "role_required",
+]

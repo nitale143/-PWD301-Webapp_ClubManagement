@@ -1,0 +1,12 @@
+.git
+.env
+instance/
+**/__pycache__/
+*.pyc
+*.db
+*.sqlite*
+app/static/uploads/
+tests/
+docs/
+.venv/
+venv/

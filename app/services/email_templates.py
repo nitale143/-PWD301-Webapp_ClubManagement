@@ -4,7 +4,8 @@ import re
 
 from app import db
 from app.models import EmailTemplate
-from .access import require, is_admin
+from app.models import Permission
+from .access import has_permission, require
 from .assistant import _normalize
 from .common import DomainError, audit
 
@@ -13,6 +14,7 @@ PLACEHOLDERS = {"ten", "mssv", "email"}
 
 
 def _validate_text(subject, body):
+    """Kiểm tra tiêu đề/nội dung mail mẫu và chỉ cho phép biến {{ten}}, {{mssv}}, {{email}}."""
     subject = str(subject or "").strip()
     body = str(body or "").strip()
     if not 1 <= len(subject) <= 180 or "\n" in subject or "\r" in subject:
@@ -29,7 +31,8 @@ def _validate_text(subject, body):
 
 
 def save_template(actor, name, subject, body, template=None):
-    require(is_admin(actor),
+    """Tạo mới hoặc cập nhật mail mẫu (MANAGE_TEMPLATES), tên mẫu không trùng."""
+    require(has_permission(actor, Permission.MANAGE_TEMPLATES),
             "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được quản lý mail mẫu.")
     name = str(name or "").strip()
     if not 2 <= len(name) <= 100 or "\n" in name or "\r" in name:
@@ -56,7 +59,8 @@ def save_template(actor, name, subject, body, template=None):
 
 
 def set_template_active(actor, template, active):
-    require(is_admin(actor),
+    """Bật/tắt mail mẫu và ghi audit."""
+    require(has_permission(actor, Permission.MANAGE_TEMPLATES),
             "Chỉ Chủ nhiệm hoặc Phó chủ nhiệm được quản lý mail mẫu.")
     template.active = bool(active)
     audit(actor, "email_template_activated" if active else "email_template_disabled", template)
@@ -64,6 +68,7 @@ def set_template_active(actor, template, active):
 
 
 def render_template(template, display_name, code, email):
+    """Thay biến trong mail mẫu bằng thông tin người nhận."""
     if not template.active:
         raise DomainError("Mail mẫu này đã ngừng sử dụng.")
     if not code and any("{{mssv}}" in value for value in (template.subject, template.body)):

@@ -9,14 +9,16 @@ from PIL import Image, ImageOps
 
 from app import db
 from app.models import User, MemberActivity, FundDue, MemberPlanningProfile
+from app.forms import AvatarForm, ResendConfirmationForm
 from app.permissions import approved_required
-from app.services.access import can_view_member, can_view_all_members
+from app.services.access import can_issue_temp_password, can_view_member, can_view_all_members
 from app.security import require_csrf
 
 profile_bp = Blueprint("profile", __name__)
 
 
 def _allowed_avatar(filename):
+    """Đuôi file ảnh đại diện nằm trong ALLOWED_AVATAR_EXTENSIONS."""
     if not isinstance(filename, str) or not filename:
         return False
     ext = filename.rsplit(".", 1)[-1].lower() if "." in filename else ""
@@ -24,6 +26,9 @@ def _allowed_avatar(filename):
 
 
 def _sanitize_avatar(file, extension):
+    """Kiểm tra ảnh thật bằng Pillow (đúng định dạng, không quá lớn, chống decompression bomb) và
+    lưu lại bản sạch, bỏ metadata.
+    """
     max_bytes = int(current_app.config.get("MAX_AVATAR_SIZE", 2 * 1024 * 1024))
     max_pixels = int(current_app.config.get("MAX_AVATAR_PIXELS", 4_000_000))
     raw = file.stream.read(max_bytes + 1)
@@ -64,11 +69,11 @@ def _sanitize_avatar(file, extension):
 @login_required
 @approved_required
 def view_profile(user_id=None):
+    """Xem hồ sơ. Không truyền user_id → xem chính mình.
+
+    Xem người khác cần quyền quản lý thành viên (MANAGE_MEMBERS).
     """
-    Xem thong tin ca nhan. Neu khong truyen user_id -> xem chinh minh.
-    Xem nguoi khac chi hien thong tin cong khai (giong rule trang Member).
-    """
-    user = User.query.get_or_404(user_id) if user_id else current_user
+    user = db.get_or_404(User, user_id) if user_id else current_user
     if not can_view_member(current_user, user):
         abort(403)
     is_self = user.id == current_user.id
@@ -89,6 +94,9 @@ def view_profile(user_id=None):
         activities=activities,
         dues=dues,
         planning_profile=db.session.get(MemberPlanningProfile, user.id) if is_self else None,
+        avatar_form=AvatarForm(),
+        resend_form=ResendConfirmationForm(),
+        can_issue_temp=(not is_self and can_issue_temp_password(current_user, user)),
     )
 
 
@@ -129,14 +137,17 @@ def task_preferences():
 @login_required
 @approved_required
 def upload_avatar():
-    """Upload anh dai dien, luu truc tiep vao server (phuc vu demo)."""
-    file = request.files.get("avatar")
-    if not file or not isinstance(file.filename, str) or not file.filename:
-        flash("Vui long chon mot file anh.", "error")
+    """Upload ảnh đại diện (AvatarForm: FileRequired + FileAllowed), rồi kiểm tra
+    nội dung thật bằng Pillow và lưu lại ảnh đã làm sạch."""
+    form = AvatarForm()
+    if not form.validate_on_submit():
+        for errors in form.errors.values():
+            for message in errors:
+                flash(message, "error")
         return redirect(url_for("profile.view_profile"))
-
+    file = form.avatar.data
     if not _allowed_avatar(file.filename):
-        flash("Chi chap nhan file anh (png, jpg, jpeg, gif, webp).", "error")
+        flash("Chỉ chấp nhận file ảnh (png, jpg, jpeg, gif, webp).", "error")
         return redirect(url_for("profile.view_profile"))
 
     ext = file.filename.rsplit(".", 1)[-1].lower()
@@ -164,5 +175,5 @@ def upload_avatar():
     current_user.avatar_url = f"/static/uploads/avatars/{filename}"
     db.session.commit()
 
-    flash("Da cap nhat anh dai dien.", "success")
+    flash("Đã cập nhật ảnh đại diện.", "success")
     return redirect(url_for("profile.view_profile"))

@@ -1,34 +1,51 @@
-from flask import Blueprint, render_template, request, redirect, url_for, flash, abort
-from flask_login import login_required, current_user
+"""Khu vực Ban điều hành: duyệt thành viên, phân vai trò, nhường chức vụ, cấp mật khẩu tạm.
+
+Mọi route đều theo thứ tự decorator: route → login_required → (fresh_login_required)
+→ permission_required (Ch7 – slide 85).
+"""
+import secrets
+
+from flask import Blueprint, abort, flash, redirect, render_template, request, url_for
+from flask_login import current_user, fresh_login_required, login_required
 
 from app import db
-from app.models import User, Ban, UserBan, FundPeriod, FundDue
-from app.permissions import bdh_required, can_assign_role, role_required
 from app.mail import send_email
-from app.security import require_csrf
-from app.services.common import member_record
+from app.models import DEFAULT_ROLES, Ban, FundDue, FundPeriod, Permission, User, UserBan, role_rank
+from app.permissions import any_permission_required, can_assign_role, permission_required
 from app.services.access import (
-    MEMBER_ROLE, approved, can_manage_member, set_member_role_safely,
+    MEMBER_ROLE, approved, can_assign_role_to, can_issue_temp_password, set_member_role_safely,
 )
-from app.services.common import audit
+from app.services.common import audit, member_record
 
 admin_bp = Blueprint("admin", __name__, url_prefix="/admin")
 
 
+def _role_counts():
+    """Đếm số người đang giữ mỗi chức vụ (chỉ tính thành viên còn hoạt động)."""
+    counts = {}
+    for member in User.query.filter_by(status="approved").all():
+        if approved(member):
+            counts[member.chuc_vu] = counts.get(member.chuc_vu, 0) + 1
+    return counts
+
+
 @admin_bp.route("/approve")
 @login_required
-@bdh_required
+@permission_required(Permission.APPROVE_MEMBERS)
 def approve_list():
-    pending_users = User.query.filter_by(status="pending").all()
+    """Trang danh sách đơn đăng ký đang chờ duyệt (cần quyền APPROVE_MEMBERS)."""
+    pending_users = User.query.filter_by(status="pending").order_by(User.ngay_tao.asc()).all()
     return render_template("admin_approve.html", pending_users=pending_users)
 
 
 @admin_bp.route("/approve/<int:user_id>", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.APPROVE_MEMBERS)
 def approve_user(user_id):
-    require_csrf()
-    user = User.query.get_or_404(user_id)
+    """Duyệt (accept) hoặc từ chối (reject) một đơn đăng ký; khi duyệt thì tạo MemberRecord và dòng
+    đóng quỹ kỳ hiện tại, sau đó gửi email thông báo.
+    """
+    user = db.get_or_404(User, user_id)
     if user.status != "pending":
         abort(400)
     action = request.form.get("action")  # 'accept' | 'reject'
@@ -43,65 +60,65 @@ def approve_user(user_id):
         db.session.commit()
         mailed = send_email(
             user.email,
-            "[CLB] Ban da tro thanh thanh vien chinh thuc",
-            f"Chao {user.ho_ten},\n\nBDH da duyet ho so cua ban (MSSV: {user.mssv}). "
-            "Ban co the dang nhap va xem noi dung cua CLB.\n\n-- AI Agent CLB",
+            "[CLB] Bạn đã trở thành thành viên chính thức",
+            f"Chào {user.ho_ten},\n\nBĐH đã duyệt hồ sơ của bạn (MSSV: {user.mssv}). "
+            "Bạn có thể đăng nhập và sử dụng không gian làm việc của CLB.\n\n-- CLB",
         )
-        flash(f"Da duyet {user.ho_ten} thanh thanh vien CLB.", "success")
-        if not mailed:
-            flash("Email thong bao chua gui duoc. Kiem tra cau hinh SMTP va thong bao truc tiep cho thanh vien.", "error")
+        flash(f"Đã duyệt {user.ho_ten} thành thành viên CLB.", "success")
     elif action == "reject":
         user.status = "rejected"
         audit(current_user, "member_reject", user)
         db.session.commit()
         mailed = send_email(
             user.email,
-            "[CLB] Ho so dang ky chua duoc chap nhan",
-            f"Chao {user.ho_ten},\n\nRat tiec, BDH chua the xac nhan thong tin dang ky "
-            f"cua ban (MSSV: {user.mssv}). Vui long lien he BDH de biet them chi tiet.\n\n"
-            "-- AI Agent CLB",
+            "[CLB] Hồ sơ đăng ký chưa được chấp nhận",
+            f"Chào {user.ho_ten},\n\nRất tiếc, BĐH chưa thể xác nhận thông tin đăng ký "
+            f"của bạn (MSSV: {user.mssv}). Vui lòng liên hệ BĐH để biết thêm chi tiết.\n\n-- CLB",
         )
-        flash(f"Da tu choi {user.ho_ten}.", "success")
-        if not mailed:
-            flash("Email thong bao chua gui duoc. Kiem tra cau hinh SMTP va thong bao truc tiep cho thanh vien.", "error")
+        flash(f"Đã từ chối {user.ho_ten}.", "success")
     else:
         abort(400)
+    if not mailed:
+        flash("Email thông báo chưa gửi được. Kiểm tra cấu hình SMTP và thông báo trực tiếp cho thành viên.", "error")
     return redirect(url_for("admin.approve_list"))
 
 
 @admin_bp.route("/roles")
 @login_required
-@role_required("CN", "PCN", "TB", "THUKY_THUQUY")
+@any_permission_required(Permission.ASSIGN_ROLES, Permission.HANDOFF_ROLE)
 def role_list():
+    """Trang vai trò & phân quyền: danh sách thành viên, nút gán chức vụ (chỉ với người thấp cấp
+    hơn) và hộp nhường chức vụ.
+    """
     members = User.query.filter_by(status="approved").order_by(User.ho_ten).all()
-    bans = Ban.query.all()
-
-    counts = {}
-    for m in members:
-        if not approved(m):
-            continue
-        counts[m.chuc_vu] = counts.get(m.chuc_vu, 0) + 1
-
+    members = [member for member in members if approved(member)]
+    # Vai trò mà người đang xem được phép gán (thấp hơn cấp của mình, trừ CN)
+    my_rank = role_rank(current_user.chuc_vu)
+    assignable_roles = [name for name, spec in DEFAULT_ROLES.items()
+                        if name != "CN" and spec["rank"] > my_rank]
+    assignable_ids = {member.id for member in members
+                      if assignable_roles and can_assign_role_to(current_user, member, assignable_roles[-1])}
     return render_template(
-        "admin_roles.html", members=members, bans=bans, counts=counts, current_user=current_user
+        "admin_roles.html", members=members, bans=Ban.query.all(), counts=_role_counts(),
+        assignable_roles=assignable_roles, assignable_ids=assignable_ids,
+        role_labels={name: spec["label"] for name, spec in DEFAULT_ROLES.items()},
     )
 
 
 @admin_bp.route("/roles/<int:user_id>/assign", methods=["POST"])
 @login_required
-@bdh_required
+@fresh_login_required
+@permission_required(Permission.ASSIGN_ROLES)
 def assign_role(user_id):
-    require_csrf()
-    target = User.query.get_or_404(user_id)
+    """Gán chức vụ mới cho một thành viên sau khi kiểm tra cấp bậc, giới hạn số lượng và quy tắc
+    "không hạ BĐH cuối cùng" (cần fresh login + ASSIGN_ROLES).
+    """
+    target = db.get_or_404(User, user_id)
     new_role = request.form.get("chuc_vu")
-    ban_id = request.form.get("ban_id", type=int)  # bat buoc khi new_role == 'TB'
+    ban_id = request.form.get("ban_id", type=int)  # bắt buộc khi new_role == 'TB'
 
-    counts = {}
-    for m in User.query.filter_by(status="approved").all():
-        if not approved(m):
-            continue
-        counts[m.chuc_vu] = counts.get(m.chuc_vu, 0) + 1
-    # tru di 1 neu target dang giu dung chuc vu do (khong tinh trung lap khi giu nguyen)
+    counts = _role_counts()
+    # Không tính trùng khi người được gán đang giữ đúng chức vụ đó
     if target.chuc_vu == new_role:
         counts[new_role] = max(0, counts.get(new_role, 0) - 1)
 
@@ -110,22 +127,18 @@ def assign_role(user_id):
         flash(message, "error")
         return redirect(url_for("admin.role_list"))
 
-    if new_role == "TB":
-        if not ban_id or not Ban.query.get(ban_id):
-            flash("Vui long chon ban ma Truong ban nay se quan ly.", "error")
-            return redirect(url_for("admin.role_list"))
+    if new_role == "TB" and (not ban_id or not db.session.get(Ban, ban_id)):
+        flash("Vui lòng chọn ban mà Trưởng ban này sẽ quản lý.", "error")
+        return redirect(url_for("admin.role_list"))
 
     if not set_member_role_safely(target, new_role):
         flash("Không thể thay đổi vai trò quản trị viên cuối cùng hoặc dữ liệu vừa thay đổi.", "error")
         return redirect(url_for("admin.role_list"))
-    # Xoa quyen truong ban khi chuyen sang chuc vu khac.
-    UserBan.query.filter_by(user_id=target.id, is_truong_ban=True).update(
-        {"is_truong_ban": False}
-    )
+    # Bỏ quyền trưởng ban cũ khi chuyển sang chức vụ khác
+    UserBan.query.filter_by(user_id=target.id, is_truong_ban=True).update({"is_truong_ban": False})
     target.chi_dinh_boi_id = current_user.id
 
     if new_role == "TB":
-        # xoa cac quyen truong-ban cu (neu co) roi gan quyen moi
         link = UserBan.query.filter_by(user_id=target.id, ban_id=ban_id).first()
         if not link:
             link = UserBan(user_id=target.id, ban_id=ban_id)
@@ -134,37 +147,32 @@ def assign_role(user_id):
 
     audit(current_user, "role_assign", target, {"role": new_role, "ban_id": ban_id})
     db.session.commit()
-    flash(f"Da chi dinh {target.ho_ten} lam {new_role}.", "success")
+    flash(f"Đã chỉ định {target.ho_ten} làm {DEFAULT_ROLES[new_role]['label']}.", "success")
     return redirect(url_for("admin.role_list"))
 
 
 @admin_bp.route("/roles/nhuong-quyen", methods=["POST"])
 @login_required
-@role_required("CN", "PCN", "TB", "THUKY_THUQUY")
+@fresh_login_required
+@permission_required(Permission.HANDOFF_ROLE)
 def nhuong_quyen():
+    """Nhường chức vụ: người BĐH hiện tại giao chức vụ của mình cho một thành viên
+    thường (target) và tự trở thành THANH_VIEN.
     """
-    Co che nhuong quyen: BDH cu (current_user) roi vi tri, chi dinh chuc vu
-    cua minh cho thanh vien khac (target), ban than current_user thanh
-    THANH_VIEN.
-    """
-    require_csrf()
     user_id = request.form.get("target_id", type=int)
     if user_id is None:
         abort(400)
-    target = User.query.get_or_404(user_id)
+    target = db.get_or_404(User, user_id)
     old_role = current_user.chuc_vu
-    can_transfer = can_manage_member(current_user, target)
-    if target.id == current_user.id or not approved(target) or not current_user.outranks(target) or not can_transfer:
+    if target.id == current_user.id or not approved(target) or not current_user.outranks(target):
         abort(400)
 
     ban_id = request.form.get("ban_id", type=int)
     if old_role == "TB" and (not ban_id or ban_id not in current_user.quan_ly_ban_ids()):
-        flash("Vui long chon ban de nhuong quyen Truong ban.", "error")
+        flash("Vui lòng chọn ban để nhường quyền Trưởng ban.", "error")
         return redirect(url_for("admin.role_list"))
 
-    UserBan.query.filter_by(user_id=target.id, is_truong_ban=True).update(
-        {"is_truong_ban": False}
-    )
+    UserBan.query.filter_by(user_id=target.id, is_truong_ban=True).update({"is_truong_ban": False})
 
     if not set_member_role_safely(target, old_role):
         db.session.rollback()
@@ -181,11 +189,33 @@ def nhuong_quyen():
     if not set_member_role_safely(current_user, MEMBER_ROLE):
         db.session.rollback()
         abort(409, "Không thể hạ quyền quản trị viên cuối cùng.")
-    UserBan.query.filter_by(user_id=current_user.id, is_truong_ban=True).update(
-        {"is_truong_ban": False}
-    )
+    UserBan.query.filter_by(user_id=current_user.id, is_truong_ban=True).update({"is_truong_ban": False})
 
     audit(current_user, "role_transfer", target, {"role": old_role})
     db.session.commit()
-    flash(f"Ban da nhuong quyen {old_role} lai cho {target.ho_ten} va tro thanh thanh vien.", "success")
+    label = DEFAULT_ROLES.get(old_role, {}).get("label", old_role)
+    flash(f"Bạn đã nhường chức vụ {label} cho {target.ho_ten} và trở thành thành viên.", "success")
     return redirect(url_for("main.home"))
+
+
+@admin_bp.route("/members/<int:user_id>/temp-password", methods=["POST"])
+@login_required
+@fresh_login_required
+@permission_required(Permission.MANAGE_MEMBERS)
+def issue_temp_password(user_id):
+    """Cấp mật khẩu tạm khi thành viên quên mật khẩu mà email không dùng được.
+
+    Mật khẩu tạm chỉ hiển thị MỘT lần trên trang kết quả (không đưa vào flash
+    vì flash nằm trong cookie session). Thành viên bị bắt đổi mật khẩu ngay
+    lần đăng nhập kế tiếp.
+    """
+    target = db.get_or_404(User, user_id)
+    if not approved(target) or not can_issue_temp_password(current_user, target):
+        abort(403)
+    temporary = secrets.token_urlsafe(9)
+    target.set_password(temporary)
+    target.must_change_password = True
+    audit(current_user, "member_temp_password", target)
+    db.session.commit()
+    response = render_template("admin_temp_password.html", member=target, temporary=temporary)
+    return response, 200, {"Cache-Control": "no-store"}

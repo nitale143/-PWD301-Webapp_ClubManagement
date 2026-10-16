@@ -3,20 +3,21 @@
 import json
 import re
 import secrets
-from datetime import datetime
 
 from app import db
 from app.models import (
     AIProposal, Ban, Event, EventDetail, EventTargetBan, MemberPlanningProfile,
     Task, User, UserBan,
 )
-from .access import approved, is_board, require
+from .access import approved, can_manage_events, require
 from .assistant import AnthropicProvider, _normalize, get_provider
 from .common import DomainError, audit, club_now, parse_datetime
 from .events import event_is_terminal
+from app.timeutil import utcnow
 
 
 def _integer(value, label):
+    """Ép kiểu số nguyên, sai → DomainError có nhãn trường."""
     try:
         return int(value)
     except (TypeError, ValueError):
@@ -24,6 +25,7 @@ def _integer(value, label):
 
 
 def _json_object(text):
+    """Đọc JSON object từ text model trả về (bỏ ```json nếu có)."""
     cleaned = text.strip()
     if cleaned.startswith("```"):
         cleaned = re.sub(r"^```(?:json)?\s*|\s*```$", "", cleaned, flags=re.IGNORECASE).strip()
@@ -37,6 +39,7 @@ def _json_object(text):
 
 
 def _model_suggestion(provider, kind, brief, context):
+    """Nhờ model gợi ý tên/mô tả/địa điểm cho đề xuất; lỗi thì trả gợi ý rỗng."""
     if kind == "event":
         schema = {"name": "Tên sự kiện", "content": "Mô tả", "type": "Loại",
                   "location": "Địa điểm", "capacity": None}
@@ -65,6 +68,7 @@ def _model_suggestion(provider, kind, brief, context):
 
 
 def _event_payload(actor, data, brief, provider):
+    """Dựng payload đề xuất sự kiện đã kiểm tra thời gian, ban, sức chứa."""
     start = parse_datetime(data.get("start_at"), "Giờ bắt đầu")
     end = parse_datetime(data.get("end_at"), "Giờ kết thúc")
     if start <= club_now() or end <= start:
@@ -97,6 +101,9 @@ def _event_payload(actor, data, brief, provider):
 
 
 def _task_payload(actor, data, brief, provider):
+    """Dựng payload đề xuất task: kiểm tra sự kiện, ban, hạn, chọn người phụ trách phù hợp (kỹ
+    năng, số task đang làm, lịch bận).
+    """
     event_id = _integer(data.get("event_id"), "Mã sự kiện")
     ban_id = _integer(data.get("ban_id"), "Mã ban")
     event = db.session.get(Event, event_id)
@@ -185,7 +192,8 @@ def _task_payload(actor, data, brief, provider):
 
 
 def create_proposal(actor, data, provider=None):
-    require(is_board(actor))
+    """Tạo AIProposal (event/task) trạng thái pending – chưa ghi dữ liệu thật (MANAGE_EVENTS)."""
+    require(can_manage_events(actor), "Chỉ người có quyền quản lý sự kiện được tạo đề xuất.")
     kind = str(data.get("kind", "")).strip()
     brief = str(data.get("brief", "")).strip()
     if kind not in {"event", "task"} or not 1 <= len(brief) <= 2000:
@@ -204,6 +212,7 @@ def create_proposal(actor, data, provider=None):
 
 
 def proposal_preview(proposal):
+    """Văn bản xem trước của đề xuất để người duyệt đọc."""
     payload = proposal.payload
     if proposal.kind == "event":
         return (f"Sự kiện: {payload['name']}\n"
@@ -219,10 +228,12 @@ def proposal_preview(proposal):
 
 
 def can_review(actor, proposal):
-    return is_board(actor)
+    """Duyệt đề xuất AI theo quyền tương ứng: sự kiện/task cần MANAGE_EVENTS."""
+    return can_manage_events(actor)
 
 
 def review_proposal(actor, proposal, decision):
+    """Duyệt (tạo sự kiện/task thật, kiểm tra lại sức chứa người phụ trách) hoặc từ chối đề xuất."""
     require(can_review(actor, proposal))
     if proposal.status != "pending":
         raise DomainError("Đề xuất đã được xử lý.")
@@ -283,7 +294,7 @@ def review_proposal(actor, proposal, decision):
                 ids.append(task.id)
     proposal.status = decision
     proposal.reviewed_by_id = actor.id
-    proposal.reviewed_at = datetime.utcnow()
+    proposal.reviewed_at = utcnow()
     proposal.result_ids = ids
     audit(actor, "ai_proposal_" + decision, proposal, {"kind": proposal.kind, "result_ids": ids})
     db.session.commit()
@@ -295,15 +306,17 @@ _CHAT_TASK = re.compile(r"^\s*(?:đề xuất\s+)?chia\s+task\s*:\s*(.+)$", re.I
 
 
 def is_chat_proposal_command(message):
+    """True nếu câu chat là lệnh cú pháp cố định 'đề xuất sự kiện: ...' hoặc 'chia task: ...'."""
     return bool(_CHAT_EVENT.match(message) or _CHAT_TASK.match(message))
 
 
 def maybe_create_chat_proposal(actor, message, provider=None):
+    """Tạo đề xuất từ lệnh chat cú pháp cố định."""
     event_match = _CHAT_EVENT.match(message)
     task_match = _CHAT_TASK.match(message)
     if not event_match and not task_match:
         return None
-    require(is_board(actor), "Chỉ BDH được tạo đề xuất AI.")
+    require(can_manage_events(actor), "Chỉ người có quyền quản lý sự kiện được tạo đề xuất AI.")
     parts = [part.strip() for part in (event_match or task_match).group(1).split("|")]
     if event_match:
         if len(parts) not in {3, 4}:

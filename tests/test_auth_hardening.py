@@ -6,6 +6,7 @@ from pathlib import Path
 from unittest.mock import patch
 from flask import g
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import Ban, User, UserBan
 from app.mail import send_email
@@ -61,8 +62,7 @@ class AuthHardeningTests(unittest.TestCase):
         response = client.get("/login")
         self.assertEqual(response.status_code, 200)
         self.assertIn(b'name="csrf_token"', response.data)
-        with client.session_transaction() as session:
-            return session["_csrf_token"]
+        return csrf_for(client)
 
     def login(self, client=None, code="STU001", password="fixture-ui-test-password", **extra):
         client = client or self.client
@@ -127,7 +127,8 @@ class AuthHardeningTests(unittest.TestCase):
             self.assertIn("Secure", success.headers["Set-Cookie"])
         with local_client.session_transaction() as session:
             self.assertTrue(session["_permanent"])
-            self.assertNotEqual(session["_csrf_token"], old_token)
+            # session.clear() khi đăng nhập → token CSRF gốc cũ bị xóa (session mới)
+            self.assertNotIn("csrf_token", session)
 
         g.pop("_login_user", None)
         external_client = self.app.test_client()
@@ -165,8 +166,7 @@ class AuthHardeningTests(unittest.TestCase):
         self.assertIn(b'name="csrf_token"', pending.data)
         self.assertEqual(client.get("/logout").status_code, 405)
 
-        with client.session_transaction() as session:
-            token = session["_csrf_token"]
+        token = csrf_for(client)
         logout = client.post("/logout", data={"csrf_token": token})
         self.assertEqual(logout.status_code, 302)
         self.assertEqual(logout.headers["Location"], "/login")
@@ -180,10 +180,11 @@ class AuthHardeningTests(unittest.TestCase):
             "ho_ten": "New Member",
             "ngay_sinh": "2003-01-01",
             "sdt": "0912345678",
-            "email": "new.member@example.test",
+            "email": "new.member@example.com",
             "facebook_link": "https://facebook.com/new.member",
             "ban_hoat_dong": ["1", "1"],
-            "password": "new-account-password",
+            "password": "new-account-password-2026",
+            "confirm_password": "new-account-password-2026",
         }
         created = self.client.post("/register", data=form)
         self.assertEqual(created.status_code, 302)
@@ -200,7 +201,7 @@ class AuthHardeningTests(unittest.TestCase):
         self.assertNotIn("Traceback".encode(), response.data)
         self.assertIsNone(User.query.filter_by(mssv="NEW002").first())
 
-        too_long = {**form, "mssv": "NEW003", "password": "x" * 129}
+        too_long = {**form, "mssv": "NEW003", "password": "x1" * 65, "confirm_password": "x1" * 65}
         rejected = self.client.post("/register", data=too_long)
         self.assertEqual(rejected.status_code, 200)
         self.assertIsNone(User.query.filter_by(mssv="NEW003").first())
@@ -211,8 +212,7 @@ class AuthHardeningTests(unittest.TestCase):
         profile = self.client.get("/profile")
         avatar_form = profile.data.split(b'class="profile-avatar-form"', 1)[1].split(b"</form>", 1)[0]
         self.assertIn(b'name="csrf_token"', avatar_form)
-        with self.client.session_transaction() as session:
-            token = session["_csrf_token"]
+        token = csrf_for(self.client)
         old_avatar = db.session.get(User, 1).avatar_url
         response = self.client.post("/profile/avatar", data={
             "csrf_token": token,

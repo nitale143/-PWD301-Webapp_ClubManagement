@@ -1,6 +1,6 @@
 """One policy path for the browser chat and JSON assistant API."""
 
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import current_app
 
@@ -12,18 +12,23 @@ from .email_proposals import maybe_create_email_draft
 from .natural_proposals import maybe_create_natural_proposal
 from .proposals import maybe_create_chat_proposal
 from .verified_queries import maybe_answer_member_query
+from app.timeutil import utcnow
 
 
 def check_chat_rate(actor):
+    """Giới hạn số câu hỏi AI mỗi phút cho một người (AI_CHAT_MESSAGES_PER_MINUTE)."""
     count = ChatMessage.query.filter(
         ChatMessage.user_id == actor.id, ChatMessage.role == "user",
-        ChatMessage.thoi_gian >= datetime.utcnow() - timedelta(minutes=1),
+        ChatMessage.thoi_gian >= utcnow() - timedelta(minutes=1),
     ).count()
     if count >= current_app.config["AI_CHAT_MESSAGES_PER_MINUTE"]:
         raise DomainError("Bạn gửi câu hỏi quá nhanh. Vui lòng đợi một phút.", 429)
 
 
 def respond(actor, message, conversation=None):
+    """Trả lời một câu hỏi chat: thử lần lượt nháp email → đề xuất → đọc dữ liệu đã kiểm chứng →
+    nhà cung cấp AI.
+    """
     history = None
     if conversation is not None:
         from .chat_conversations import owned_conversation

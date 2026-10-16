@@ -6,7 +6,7 @@ from random import uniform
 from threading import Lock
 from time import sleep, monotonic
 from abc import ABC, abstractmethod
-from datetime import datetime, timedelta
+from datetime import timedelta
 from decimal import Decimal
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote
@@ -17,27 +17,34 @@ from flask_login import current_user
 
 from app import db
 from app.models import AIUsageLog, Attendance, ChatMessage, Event, EventRegistration, FundCollection, FundDue, FundPayment, FundPeriod, Task, User
-from .access import can_view_all_members, is_board, is_treasurer, require, visible_members
+from app.models import Permission
+from .access import (board_members, can_manage_events, can_manage_funds, can_manage_members,
+                     is_board, require, scoped_members, visible_members)
 from .activities import activity_stats
 from .common import DomainError, club_now
 from .funds import balance, target_members
+from app.timeutil import utcnow
 
 
 def _normalize(text):
+    """Chuẩn hóa chuỗi để so khớp: chữ thường, bỏ dấu tiếng Việt, đ → d."""
     text = unicodedata.normalize("NFD", str(text or "").lower())
     return "".join(c for c in text if unicodedata.category(c) != "Mn").replace("đ", "d")
 
 
 def _money(value):
+    """Định dạng số tiền cho câu trả lời (vd: 150,000 đ)."""
     return f"{value:,.0f} đ"
 
 
 def _matching_periods(text):
+    """Các kỳ quỹ có tên xuất hiện trong câu hỏi."""
     return [period for period in FundPeriod.query.order_by(FundPeriod.id.desc())
             if _normalize(period.ten_ky) in text]
 
 
 def _has_specific_timeframe(text):
+    """True nếu câu hỏi có mốc thời gian cụ thể (năm, ngày/tháng, quý…)."""
     return bool(re.search(
         r"\b20\d{2}\b|\b\d{1,2}[/-]\d{1,2}(?:[/-]\d{2,4})?\b|"
         r"\bthang\s+\d{1,2}\b|\bquy\s+[1-4]\b|\btu\s+ngay\b|\bden\s+ngay\b",
@@ -53,7 +60,7 @@ def _model_quota():
     """Bound shared-key use per member; the final approval gates remain separate."""
     if not has_request_context() or not current_user.is_authenticated:
         return
-    now = datetime.utcnow()
+    now = utcnow()
     recent = AIUsageLog.query.filter(
         AIUsageLog.actor_id == current_user.id,
         AIUsageLog.created_at >= now - timedelta(minutes=1),
@@ -81,6 +88,7 @@ def _model_quota():
 
 
 def _record_model_use(provider, model, purpose, data, elapsed_ms):
+    """Ghi AIUsageLog: nhà cung cấp, model, số token, thời gian (không lưu prompt/nội dung)."""
     usage = (data.get("usageMetadata") or data.get("usage") or {}) if isinstance(data, dict) else {}
     input_tokens = usage.get("promptTokenCount", usage.get("input_tokens", 0))
     output_tokens = usage.get("candidatesTokenCount", usage.get("output_tokens", 0))
@@ -100,8 +108,11 @@ def _record_model_use(provider, model, purpose, data, elapsed_ms):
 
 
 class AssistantProvider(ABC):
+    """Lớp cơ sở cho nhà cung cấp trả lời chat."""
+
     @abstractmethod
     def answer(self, actor, question, history=None):
+        """Trả lời câu hỏi; lớp con phải cài đặt."""
         raise NotImplementedError
 
 
@@ -113,6 +124,7 @@ class RulesProvider(AssistantProvider):
     """Câu hỏi chỉ ánh xạ tới các truy vấn ORM được định nghĩa trước."""
 
     def answer(self, actor, question, history=None):
+        """Trả lời bằng truy vấn cố định (không dùng model) và gắn mức kiểm chứng."""
         result = self._answer(actor, question)
         intent = result.get("intent")
         verification = {
@@ -135,9 +147,14 @@ class RulesProvider(AssistantProvider):
         }
 
     def _answer(self, actor, question):
+        """Bộ luật nhận diện câu hỏi (quỹ, chưa đóng, tổng đã thu, không hoạt động, vắng nhiều
+        nhất, báo cáo…) và truy vấn dữ liệu theo phạm vi quyền.
+        """
         text = _normalize(question)
-        full_scope = can_view_all_members(actor)
-        visible_ids = {member.id for member in visible_members(actor)}
+        # Phạm vi dữ liệu theo nghiệp vụ: quỹ theo MANAGE_FUNDS, báo cáo theo BOARD
+        full_scope = can_manage_funds(actor)
+        visible_ids = {member.id for member in scoped_members(actor, Permission.MANAGE_FUNDS)}
+        board_ids = {member.id for member in board_members(actor)}
 
         greeting = text.strip(" .,!?:;")
         if greeting in {"hello", "hi", "hey", "alo", "chao", "chao ban", "xin chao"}:
@@ -163,7 +180,7 @@ class RulesProvider(AssistantProvider):
                     "Mốc thời gian này chưa được hỗ trợ cho truy vấn. Vui lòng chọn kỳ quỹ có trong hệ thống hoặc một khoảng thời gian được hỗ trợ."}
 
         if "soan" in text and ("nhac" in text or "thong bao" in text):
-            require(is_treasurer(actor))
+            require(can_manage_funds(actor))
             return {"intent": "draft_reminder", "preview": True, "answer":
                 "BẢN XEM TRƯỚC — chưa gửi thông báo.\nTiêu đề: Nhắc đóng quỹ câu lạc bộ\n"
                 "Nội dung: Chào bạn, vui lòng kiểm tra các khoản quỹ còn thiếu và hoàn thành trước hạn. "
@@ -272,14 +289,14 @@ class RulesProvider(AssistantProvider):
             return {"intent": "collected_total", "answer": f"Tổng tiền đã thu và xác nhận {label}: {_money(total)}."}
 
         if "khong tham gia" in text or "khong hoat dong" in text or "60 ngay" in text:
-            require(is_board(actor))
+            require(can_manage_members(actor))
             day_window = re.search(r"\b(\d{1,3})\s+ngay\b", text)
             if day_window and int(day_window.group(1)) != 60:
                 return {"intent": "unsupported_timeframe", "answer":
                         "Khoảng thời gian này chưa được hỗ trợ cho danh sách thành viên không hoạt động. Hãy dùng 60 ngày hoặc quy tắc hiện tại của CLB."}
             members = visible_members(actor).order_by(User.id.asc()).all()
             if "60 ngay" in text:
-                cutoff = datetime.utcnow() - timedelta(days=60)
+                cutoff = utcnow() - timedelta(days=60)
                 rows = [member.ho_ten for member in members
                         if (not (stats := activity_stats(member))["latest"]
                             or stats["latest"] < cutoff)]
@@ -292,7 +309,7 @@ class RulesProvider(AssistantProvider):
                     ("\n".join(rows[:100]) or "Không có.")}
 
         if "vang" in text and "cao nhat" in text:
-            require(is_board(actor))
+            require(can_manage_events(actor))
             query = (
                 db.session.query(Event.ten_su_kien,
                                  db.func.count(db.distinct(Attendance.id)).label("absent"))
@@ -311,11 +328,11 @@ class RulesProvider(AssistantProvider):
                                              Event.trang_thai.notin_(["cancelled", "draft"]))
             events = event_query.count()
             attendance_query = (Attendance.query.join(EventRegistration)
-                                .filter(Attendance.checkin_luc >= datetime.utcnow() - timedelta(days=30),
-                                        Attendance.checkin_luc <= datetime.utcnow(),
+                                .filter(Attendance.checkin_luc >= utcnow() - timedelta(days=30),
+                                        Attendance.checkin_luc <= utcnow(),
                                         Attendance.trang_thai.in_(["on_time", "late"])))
-            if not full_scope:
-                attendance_query = attendance_query.filter(EventRegistration.user_id.in_(visible_ids))
+            if not is_board(actor):
+                attendance_query = attendance_query.filter(EventRegistration.user_id.in_(board_ids))
             present = attendance_query.count()
             return {"intent": "monthly_report", "preview": True, "answer": f"Bản xem trước 30 ngày: {events} sự kiện, {present} lượt có mặt. Truy cập báo cáo để xuất dữ liệu."}
 
@@ -335,6 +352,7 @@ class AnthropicProvider(AssistantProvider):
     provider_name = "anthropic"
 
     def complete(self, system, prompt, max_tokens=800, response_schema=None, purpose="chat"):
+        """Gọi Claude API với giới hạn quota/timeout và ghi nhận usage."""
         config = current_app.config
         _model_quota()
         started = monotonic()
@@ -375,6 +393,7 @@ class AnthropicProvider(AssistantProvider):
 
     def answer(self, actor, question, history=None):
         # Supported facts are rendered by code; free-text generation is opt-in.
+        """Ưu tiên dữ liệu kiểm chứng; chỉ dùng model cho câu hỏi chung khi AI_STRICT_FACTS tắt."""
         facts = RulesProvider().answer(actor, question)
         if facts["intent"] != "help":
             return facts
@@ -390,7 +409,7 @@ class AnthropicProvider(AssistantProvider):
         if any(phrase in normalized_question for phrase in
                ("nguoi do", "ban ay", "thanh vien do", "con ho", "con ban do")):
             reference_text += " " + " ".join(_normalize(row.content) for row in user_history[-4:])
-        visible = visible_members(actor).order_by(User.id).all()
+        visible = board_members(actor).order_by(User.id).all()
         matched = [member for member in visible if member.id == actor.id or
                    member.mssv.casefold() in reference_text or
                    (_normalize(member.ho_ten) in reference_text and len(member.ho_ten) >= 4)][:5]
@@ -444,6 +463,7 @@ class GeminiProvider(AnthropicProvider):
     provider_name = "gemini"
 
     def complete(self, system, prompt, max_tokens=800, response_schema=None, purpose="chat"):
+        """Gọi Gemini API với giới hạn quota/timeout và ghi nhận usage."""
         config = current_app.config
         _model_quota()
         started = monotonic()
@@ -499,6 +519,7 @@ class GeminiProvider(AnthropicProvider):
         return result[:10000]
 
     def answer(self, actor, question, history=None):
+        """Như Anthropic; lỗi tạm thời thì quay về RulesProvider."""
         try:
             return super().answer(actor, question, history=history)
         except TemporaryAIError:
@@ -509,6 +530,7 @@ class GeminiProvider(AnthropicProvider):
 
 
 def get_provider():
+    """Chọn nhà cung cấp theo AI_PROVIDER và API key đã cấu hình (mặc định RulesProvider)."""
     config = current_app.config
     provider = str(config.get("AI_PROVIDER", "rules")).lower()
     if provider == "anthropic" and config.get("AI_API_KEY"):

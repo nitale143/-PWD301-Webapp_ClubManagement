@@ -1,0 +1,55 @@
+# Thay đổi – bản chỉnh sửa theo nội dung bài học (10/2026)
+
+Mục tiêu: bám sát kiến thức 12 chương môn Python Web Development, sửa các lỗi khi triển khai thật và bổ sung tài liệu. Toàn bộ test cũ vẫn chạy, đã bổ sung test mới (167 test, coverage ~83%).
+
+## Ch4 – Web forms
+- Thêm **Flask-WTF / WTForms** (`app/forms.py`): LoginForm, RegistrationForm, ChangePasswordForm, ForgotPasswordForm, ResetPasswordForm, ReauthForm, EventForm, FundPeriodForm, FundTransactionForm, AvatarForm.
+- Thay CSRF tự viết bằng **CSRFProtect** cho toàn app. Header AJAX `X-CSRFToken`/`X-CSRF-Token`. Template dùng `form.hidden_tag()`.
+- Đăng ký thêm ô **nhập lại mật khẩu** (`EqualTo`), validator **mật khẩu mạnh**, kiểm tra trùng email, giới hạn độ dài cho mọi ô (danh mục/nội dung thu chi, tên task…).
+- Upload avatar dùng `FileField` + `FileRequired` + `FileAllowed`, giữ bước kiểm tra ảnh bằng Pillow.
+- Thông báo lỗi WTForms được dịch sang tiếng Việt; macro `form_field` hiển thị lỗi ngay dưới từng ô.
+
+## Ch5 – Database & ORM
+- Thêm **Flask-Migrate (Alembic)**: `migrations/0001` (schema gốc), `0002` (role, xác thực, email unique). Ứng dụng không còn tự `create_all()` khi chạy thật.
+- `user.email` unique (chuẩn hóa chữ thường).
+- Bỏ API đã cũ: `Model.query.get()` → `db.session.get()`, `datetime.utcnow()` → `timeutil.utcnow()`.
+- Đổi tên `app/migrations.py` → `app/legacy_sqlite.py` để không nhầm với thư mục Alembic. Có hướng dẫn nâng cấp DB cũ (`db stamp 0001`).
+
+## Ch6 – Authentication
+- Mới: **xác minh email**, **quên / đặt lại mật khẩu** (token itsdangerous, 1 giờ, dùng một lần), **đổi mật khẩu**, **ghi nhớ đăng nhập**, **fresh login / xác nhận lại mật khẩu** cho thao tác nhạy cảm, `session_protection="strong"`.
+- Đổi mật khẩu thì mọi phiên và cookie ghi nhớ cũ mất hiệu lực (`User.get_id` gắn `session_marker`).
+- BĐH có thể **cấp mật khẩu tạm** (chỉ cho người cấp thấp hơn). Tài khoản import hoặc dùng mật khẩu tạm bị **bắt đổi mật khẩu** lần đầu.
+- Flask-Login nạp user bằng `db.session.get`.
+
+## Ch7 – Roles & Permissions
+- Mô hình **User → Role → Permission (bit flag)**: bảng `role`, class `Permission`, `DEFAULT_ROLES`, decorator `permission_required` / `any_permission_required`.
+- Chính sách mới theo yêu cầu CLB: duyệt thành viên = CN/PCN; quản lý thành viên = CN/PCN/TB; sự kiện & task = 4 chức vụ BĐH; quỹ = CN/PCN/Thư ký–Thủ quỹ; phân vai trò = CN/PCN (PCN không gán PCN/CN); nhường chức vụ = cả 4 chức vụ BĐH. AI duyệt đề xuất theo quyền tương ứng.
+- Sửa lỗi `role_required("CN","PCN")` trước đây vẫn cho mọi BĐH đi qua (mail mẫu nay đúng CN/PCN).
+- Phạm vi dữ liệu theo nghiệp vụ: thủ quỹ xem tình trạng quỹ của mọi người dù không có quyền xem hồ sơ thành viên.
+
+## Ch9 – REST API
+- **Flask-Limiter** cho `/api/v1/*` và các form xác thực (Redis khi nhiều worker).
+- Tài liệu endpoint đầy đủ trong `docs/DEVELOPER_GUIDE.md`.
+
+## Ch10 – Decorator, middleware, error handling
+- **ProxyFix** (bật bằng `TRUST_PROXY_HOPS`). Trước đây chạy sau Nginx thì mọi request bị chặn 400 vì app không nhận ra HTTPS.
+- Lỗi 500 ghi **đủ stack trace** (`logger.exception`) kèm request_id.
+- Chốt "bắt đổi mật khẩu" và CSRF cho URL không khớp route.
+
+## Ch11 – Testing & deployment
+- `run.py` không còn bật `debug=True` cố định (đọc từ `FLASK_DEBUG`, cấm ở production).
+- Thêm `wsgi.py`, `gunicorn.conf.py`, `Dockerfile`, `docker-compose.yml` (web + scheduler riêng + Redis), `deploy/nginx.conf`, systemd units.
+- Scheduler chạy được ở tiến trình riêng: `flask run-scheduler` + `SCHEDULER_IN_WEB=false`.
+- Test mới: `test_account_security.py`, `test_core_flows.py`, ma trận quyền mới trong `test_two_role_security.py`. Helper `tests/support.py`.
+- `requirements.txt` cập nhật; `requirements-lock.txt` sinh lại có hash; thêm `requirements-dev.txt`.
+
+## Template & mã nguồn
+- `base.html` tách thành `partials/` (sidebar, topbar, flash, dialog), menu hiển thị theo quyền (`can(Permission.X)`).
+- Thông báo, email, tên cột Excel chuyển sang tiếng Việt có dấu.
+- **Mọi hàm/class đều có docstring tiếng Việt.** `scripts/gen_function_reference.py` sinh `docs/FUNCTION_REFERENCE.md`.
+- Gỡ thư mục `backups/` và `previews/` khỏi repo (lịch sử đã có trong Git).
+
+## Chưa thay đổi (cố ý)
+- Hai hệ thống quỹ (theo kỳ và khoản thu) vẫn song song. Gộp lại cần migration dữ liệu và thống nhất với CLB (xem DEVELOPER_GUIDE mục 5).
+- Tên file CSS `preview-*` / `parity-*` giữ nguyên để không ảnh hưởng giao diện đã duyệt và các test UI.
+- API vẫn xác thực bằng session (cùng domain). JWT chỉ cần khi có client ngoài.

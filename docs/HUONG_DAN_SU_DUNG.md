@@ -1,0 +1,386 @@
+# Hướng dẫn sử dụng FIA Workspace
+
+Tài liệu dành cho **thành viên** và **Ban điều hành (BĐH)** của CLB, giải thích từng màn hình và thao tác của webapp. Phần 1–6 dành cho mọi người. Phần 7 trở đi dành cho người giữ chức vụ trong BĐH.
+
+> Người cài đặt và vận hành máy chủ xem thêm `README.md` và `docs/DEVELOPER_GUIDE.md`.
+
+## Mục lục
+
+1. [Tài khoản: đăng ký, đăng nhập, mật khẩu](#1-tài-khoản-đăng-ký-đăng-nhập-mật-khẩu)
+2. [Làm quen giao diện](#2-làm-quen-giao-diện)
+3. [Hồ sơ cá nhân](#3-hồ-sơ-cá-nhân)
+4. [Sự kiện và công việc](#4-sự-kiện-và-công-việc)
+5. [Quỹ câu lạc bộ](#5-quỹ-câu-lạc-bộ)
+6. [Trợ lý AI](#6-trợ-lý-ai)
+7. [Ban điều hành: ai được làm gì](#7-ban-điều-hành-ai-được-làm-gì)
+8. [Duyệt thành viên và quản lý hồ sơ](#8-duyệt-thành-viên-và-quản-lý-hồ-sơ)
+9. [Vai trò, phân quyền và nhường chức vụ](#9-vai-trò-phân-quyền-và-nhường-chức-vụ)
+10. [Quản lý sự kiện, task và điểm danh](#10-quản-lý-sự-kiện-task-và-điểm-danh)
+11. [Quản lý quỹ](#11-quản-lý-quỹ)
+12. [Trợ lý AI cho Ban điều hành](#12-trợ-lý-ai-cho-ban-điều-hành)
+13. [Câu hỏi thường gặp và xử lý sự cố](#13-câu-hỏi-thường-gặp-và-xử-lý-sự-cố)
+
+---
+
+## 1. Tài khoản: đăng ký, đăng nhập, mật khẩu
+
+### 1.1. Đăng ký thành viên mới
+
+1. Mở trang web của CLB, bấm **Đăng ký thành viên mới** (hoặc vào `/register`).
+2. Điền đủ các ô:
+
+   | Ô | Yêu cầu |
+   |---|---|
+   | Họ và tên | 2–100 ký tự |
+   | MSSV | 6–15 ký tự chữ/số, chưa được đăng ký |
+   | Ngày sinh | Từ năm 1980, trước hôm nay |
+   | Số điện thoại | Bắt đầu bằng 0, gồm 10–11 số (vd: 0912345678) |
+   | Email | Email thật bạn dùng thường xuyên, chưa gắn với tài khoản khác |
+   | Link Facebook | Dạng `https://facebook.com/...` |
+   | Ban hoạt động | Chọn một hoặc nhiều ban. Giữ Ctrl (Windows) hoặc Command (Mac) để chọn nhiều |
+   | Mật khẩu | 8–128 ký tự, **có cả chữ và số**, không chứa MSSV, không quá phổ biến (vd: `password123`) |
+   | Nhập lại mật khẩu | Phải giống ô Mật khẩu |
+
+3. Bấm **Gửi đăng ký**. Nếu ô nào sai, lỗi hiện ngay dưới ô đó.
+4. Hệ thống gửi **email xác minh**. Mở thư và bấm vào liên kết (hiệu lực 48 giờ).
+5. Tài khoản ở trạng thái **Chờ xét duyệt** cho tới khi Chủ nhiệm hoặc Phó chủ nhiệm duyệt. Bạn vẫn đăng nhập được nhưng chỉ thấy trang chờ duyệt. Trên trang này có nút **Gửi lại email xác minh** nếu chưa nhận được thư.
+6. Khi được duyệt (hoặc bị từ chối), bạn nhận email thông báo.
+
+### 1.2. Đăng nhập
+
+- Nhập **MSSV** và **mật khẩu**, bấm **Đăng nhập**.
+- Ô **Ghi nhớ đăng nhập trên thiết bị này**: giữ đăng nhập tối đa 14 ngày. **Không tích** trên máy dùng chung (phòng lab, máy mượn).
+- Nhập sai nhiều lần liên tiếp thì tài khoản bị khóa đăng nhập tạm thời khoảng 5 phút. Thông báo lỗi luôn là "MSSV hoặc mật khẩu không đúng." để kẻ gian không dò được MSSV.
+- Phiên đăng nhập tự hết hạn sau 8 giờ. Nếu bạn đổi mạng/IP hoặc trình duyệt, hệ thống có thể yêu cầu đăng nhập lại để bảo vệ tài khoản.
+- Luôn bấm **Đăng xuất** (cuối thanh bên trái) khi dùng xong máy chung.
+
+### 1.3. Quên mật khẩu
+
+1. Ở trang đăng nhập, bấm **Quên mật khẩu?**
+2. Nhập email đã đăng ký và bấm **Gửi liên kết đặt lại mật khẩu**.
+3. Hệ thống luôn trả cùng một thông báo, dù email có tồn tại hay không (để bảo vệ danh tính thành viên). Nếu email đúng, bạn nhận thư trong vài phút.
+4. Mở liên kết **trong vòng 1 giờ**, nhập mật khẩu mới hai lần.
+5. Mỗi liên kết chỉ dùng được **một lần**. Đã đặt lại xong thì liên kết cũ hết hiệu lực.
+
+Không nhận được email? Nhờ Chủ nhiệm, Phó chủ nhiệm hoặc Trưởng ban **cấp mật khẩu tạm** (xem [mục 8.3](#83-cấp-mật-khẩu-tạm)).
+
+### 1.4. Đổi mật khẩu
+
+1. Vào **Hồ sơ cá nhân** → phần **Bảo mật tài khoản** → **Đổi mật khẩu** (hoặc mở hộp **Các chức năng** → **Đổi mật khẩu**).
+2. Nhập mật khẩu hiện tại, mật khẩu mới và nhập lại mật khẩu mới.
+3. Đổi xong, **mọi thiết bị khác đang đăng nhập tài khoản của bạn sẽ bị đăng xuất**. Thiết bị đang dùng vẫn giữ đăng nhập.
+
+### 1.5. Mật khẩu tạm và tài khoản do BĐH tạo
+
+Nếu tài khoản của bạn do BĐH tạo (nhập từ file danh sách), hoặc bạn được cấp mật khẩu tạm, thì lần đăng nhập đầu tiên hệ thống **bắt buộc đổi mật khẩu** trước khi dùng các chức năng khác.
+
+### 1.6. Xác nhận lại mật khẩu
+
+Một số thao tác nhạy cảm như đổi mật khẩu, gán chức vụ, nhường chức vụ hay cấp mật khẩu tạm yêu cầu phiên đăng nhập "mới". Nếu bạn đang đăng nhập nhờ chế độ **Ghi nhớ đăng nhập**, hệ thống sẽ mở trang **Xác nhận lại mật khẩu**. Nhập mật khẩu rồi bấm **Xác nhận**, bạn sẽ được đưa về đúng thao tác đang làm.
+
+---
+
+## 2. Làm quen giao diện
+
+- **Thanh bên trái**: Tổng quan, Thành viên, Sự kiện, Công việc, Quỹ câu lạc bộ, Trợ lý AI. Người có quyền sẽ thấy thêm mục **ĐIỀU HÀNH** (Phê duyệt; Vai trò & phân quyền). Bên dưới là tên của bạn và nút **Đăng xuất**.
+- **Thanh trên cùng**: chuông 🔔 hiện thông báo của bạn (nhắc deadline, nhắc kỳ quỹ…). Biểu tượng tròn bên phải mở Hồ sơ.
+- **Các chức năng / Ctrl K**: hộp tìm nhanh để nhảy tới mọi trang bạn được phép vào.
+- **Thông báo màu** ở đầu trang: xanh là thành công, đỏ là lỗi hoặc cảnh báo.
+- Trên điện thoại, bấm biểu tượng lưới ở góc trái để mở menu.
+
+**Trang Tổng quan** hiển thị lời chào, thông báo mới, sự kiện sắp tới, số task đã hoàn thành và sắp đến hạn, biểu đồ lượt điểm danh 6 tháng. Thủ quỹ thấy thêm số dư quỹ kỳ hiện tại. BĐH thấy thêm khung **Việc cần xử lý hôm nay**.
+
+---
+
+## 3. Hồ sơ cá nhân
+
+Vào bằng tên của bạn ở góc dưới thanh bên trái, hoặc avatar ở góc phải trên.
+
+| Phần | Bạn làm được gì |
+|---|---|
+| Thông tin liên hệ | Xem SĐT, email, Facebook, ngày sinh, chức vụ, ban. Cần sửa thông tin thì liên hệ BĐH. |
+| Khả năng nhận task | Ghi kỹ năng (cách nhau bằng dấu phẩy, tối đa 10), số task đang làm tối đa (1–10), ngày tạm không nhận task. AI dùng các thông tin này khi gợi ý phân công. |
+| Bảo mật tài khoản | Xem email đã xác minh chưa, **Gửi lại email xác minh**, **Đổi mật khẩu**. |
+| Ảnh đại diện | Tải ảnh PNG, JPG, JPEG, GIF hoặc WEBP, tối đa 3 MB. Hệ thống kiểm tra ảnh thật và tự xóa thông tin ẩn (vị trí GPS…) trong ảnh. |
+| Hoạt động theo ban/kỳ | Tỉ lệ task hoàn thành theo từng ban, từng kỳ. |
+| Tình trạng đóng quỹ | Đã đóng hoặc chưa đóng quỹ theo từng kỳ. |
+
+**Trang Thành viên**: thành viên thường chỉ thấy hồ sơ của chính mình. Người có quyền quản lý thành viên thấy toàn bộ danh sách kèm liên hệ, có thể lọc theo tên/MSSV, ban, tình trạng và bấm **Xuất danh sách** ra Excel.
+
+---
+
+## 4. Sự kiện và công việc
+
+### 4.1. Xem và đăng ký sự kiện
+
+1. Vào **Sự kiện**. Danh sách xem được dạng **Thẻ** hoặc **Danh sách**, tìm theo tên.
+2. Tab **CTFtime** hiển thị lịch các cuộc thi CTF công khai (chỉ để tham khảo).
+3. Bấm một sự kiện → **Đăng ký tham gia**.
+   - Sự kiện đã hết chỗ thì bạn vào **danh sách chờ**. Khi có người hủy, người đầu danh sách chờ được đôn lên tự động.
+   - Chỉ đăng ký được trước giờ bắt đầu và trước hạn đăng ký (nếu có). Một số sự kiện chỉ mở cho thành viên của ban nhất định.
+4. Đổi ý thì bấm **Hủy đăng ký**. Không hủy được nữa khi đã điểm danh.
+
+### 4.2. Điểm danh bằng mã QR
+
+1. Tại sự kiện, BĐH chiếu mã QR. Bạn quét bằng điện thoại **đang đăng nhập** FIA Workspace.
+2. Trang **Xác nhận điểm danh** mở ra → bấm xác nhận.
+3. Điều kiện:
+   - Bạn đã đăng ký chính thức (không nằm trong danh sách chờ).
+   - Đang trong khoảng từ 30 phút trước giờ bắt đầu đến giờ kết thúc.
+   - Mã QR còn hạn (mỗi mã dùng được 15 phút).
+4. Quét trước giờ bắt đầu được tính **đúng giờ**, sau giờ bắt đầu được tính **đi muộn**. Mỗi người chỉ điểm danh một lần.
+
+Điểm hoạt động mặc định: đúng giờ +10, đi muộn +6, có phép 0, vắng −5.
+
+### 4.3. Đánh giá sự kiện
+
+Sau khi sự kiện **kết thúc**, người đã tham gia có thể chấm 1–5 sao kèm nhận xét rồi bấm **Lưu đánh giá**. Có thể sửa lại đánh giá sau.
+
+### 4.4. Công việc (task) của bạn
+
+1. Vào **Công việc** để xem các task được giao cho bạn, dạng bảng (Kanban) hoặc danh sách. Bấm vào bộ lọc trạng thái để lọc.
+2. Mỗi task có tên, mô tả, sự kiện, ban, hạn chót. Bạn nhận email khi được giao task và trước hạn 7 ngày.
+3. Làm xong, mở task → điền nội dung hoặc đường link sản phẩm → **Nộp sản phẩm**. Trạng thái chuyển sang **Chờ duyệt**.
+   - Nộp lại nội dung giống hệt lần trước thì trạng thái giữ nguyên.
+4. BĐH duyệt rồi chuyển trạng thái:
+   - **Hoàn thành**: task xong.
+   - **Làm lại**: kèm nhận xét. Bạn sửa rồi nộp lại.
+   - **Hủy**: task không còn cần, không tính vào tỉ lệ hoạt động.
+
+**Vòng đời task:**
+```
+Đang làm ──nộp──► Chờ duyệt ──► Hoàn thành
+   ▲                 │
+   └──── Làm lại ◄───┘          (BĐH có thể Hủy ở bất kỳ bước nào trước khi hoàn thành)
+```
+
+Tỉ lệ hoạt động = số task hoàn thành / tổng task (không tính task hủy), tính theo từng ban và từng kỳ, cập nhật khi sự kiện kết thúc. Kỳ bạn mới được duyệt vào CLB chưa bị tính.
+
+---
+
+## 5. Quỹ câu lạc bộ
+
+Trang **Quỹ câu lạc bộ** gồm:
+
+- **Khoản thu**: các khoản bạn phải đóng (quỹ tháng, quỹ kỳ, phí sự kiện…), kèm số phải đóng, đã đóng, còn thiếu và trạng thái (đã đóng / đóng một phần / chưa đóng / quá hạn / được miễn).
+- **Đóng tiền**: ở khoản thu cần đóng, chọn phương thức (tiền mặt / chuyển khoản / khác), nhập số tiền, mã giao dịch (nếu chuyển khoản) → **Gửi xác nhận thanh toán**. Giao dịch ở trạng thái **chờ xác nhận** cho tới khi Thủ quỹ duyệt.
+  - Không đóng được vượt số còn thiếu (tính cả các khoản đang chờ xác nhận).
+- **Danh sách đóng quỹ theo kỳ**: bạn chỉ thấy dòng của mình.
+- Nút **Xuất Excel**: thành viên chỉ nhận dữ liệu của chính mình.
+
+---
+
+## 6. Trợ lý AI
+
+Vào **Trợ lý AI**. Trợ lý trả lời các câu hỏi về dữ liệu CLB **trong phạm vi quyền của bạn**. Số liệu được lấy trực tiếp từ database, AI không tự bịa ra.
+
+### 6.1. Cuộc trò chuyện
+
+- **Chat mới**: tạo cuộc trò chuyện riêng. Tên tự đặt theo câu hỏi đầu tiên.
+- **Tùy chọn**: đổi tên hoặc **Lưu trữ cuộc trò chuyện**. Lưu trữ chỉ ẩn đi, không xóa. Mục **Đã lưu trữ** cho phép mở lại và **Khôi phục**.
+- Lịch sử tải 40 tin/trang, có liên kết xem tin cũ hơn và mới hơn.
+- Khung **Tiến trình xử lý** cho thấy hệ thống đang làm bước nào (gọi model, tra cứu, kiểm tra). Đây không phải "suy nghĩ" của AI.
+- Mỗi người được gửi tối đa khoảng 20 câu/phút.
+
+### 6.2. Một số câu hỏi mẫu
+
+| Bạn hỏi | Trợ lý trả lời |
+|---|---|
+| `Task của tôi đang làm là gì?` | Danh sách task đang làm của bạn |
+| `Tóm tắt dữ liệu của tôi` | Hồ sơ hiện tại của bạn |
+| `Tôi còn khoản quỹ nào chưa đóng?` | Các khoản chưa đóng hoặc quá hạn của bạn |
+| `Các sự kiện sắp diễn ra` | Sự kiện sắp tới |
+
+Khi câu hỏi nằm ngoài phạm vi hỗ trợ, trợ lý nói rõ là chưa hỗ trợ thay vì đoán. Không nên dùng câu trả lời AI làm căn cứ duy nhất cho quyết định quan trọng.
+
+---
+
+## 7. Ban điều hành: ai được làm gì
+
+| Quyền | Chủ nhiệm | Phó CN | Trưởng ban | Thư ký/Thủ quỹ | Thành viên |
+|---|:-:|:-:|:-:|:-:|:-:|
+| Xem danh sách chờ và duyệt đăng ký | ✔ | ✔ | – | – | – |
+| Quản lý thành viên (xem hồ sơ đầy đủ, sửa, lưu trữ, nhập file, cộng/trừ điểm, cấp mật khẩu tạm) | ✔ | ✔ | ✔ | – | – |
+| Sự kiện và task (tạo, giao, duyệt, điểm danh, đề xuất AI) | ✔ | ✔ | ✔ | ✔ | – |
+| Quỹ (mở kỳ, ghi thu chi, khoản thu, xác nhận thanh toán) | ✔ | ✔ | – | ✔ | – |
+| Phân vai trò cho người khác | ✔ | ✔* | – | – | – |
+| Nhường chức vụ của bản thân | ✔ | ✔ | ✔ | ✔ | – |
+| Báo cáo tổng hợp, nháp email AI | ✔ | ✔ | ✔ | ✔ | – |
+| Quản lý mail mẫu dùng chung | ✔ | ✔ | – | – | – |
+
+\* Phó chủ nhiệm chỉ gán được vai trò **thấp hơn** mình (Trưởng ban, Thư ký/Thủ quỹ, Thành viên). PCN không gán được Phó chủ nhiệm hay Chủ nhiệm, và không đổi được vai trò của Chủ nhiệm hay Phó chủ nhiệm khác.
+
+Số người tối đa mỗi chức vụ: 1 Chủ nhiệm, 2 Phó chủ nhiệm, 3 Trưởng ban, 1 Thư ký/Thủ quỹ. Hệ thống không cho hạ chức hay lưu trữ **thành viên BĐH cuối cùng**, để CLB không bị mất quyền quản trị.
+
+Nút nào không thuộc quyền của bạn sẽ bị ẩn. Kể cả khi gửi request trực tiếp, máy chủ vẫn kiểm tra lại quyền và trả lỗi 403.
+
+---
+
+## 8. Duyệt thành viên và quản lý hồ sơ
+
+### 8.1. Duyệt đơn đăng ký *(Chủ nhiệm, Phó chủ nhiệm)*
+
+1. Vào **ĐIỀU HÀNH → Phê duyệt**. Mỗi đơn hiển thị họ tên, MSSV, ngày sinh, SĐT, email, ban đăng ký, Facebook và ngày nộp.
+2. Kiểm tra thông tin (gợi ý: đối chiếu Facebook, MSSV; xem email đã xác minh chưa).
+3. Bấm **Duyệt** hoặc **Từ chối** → xác nhận trong hộp thoại.
+   - **Duyệt**: tài khoản dùng được ngay, được thêm vào danh sách đóng quỹ của kỳ hiện tại, nhận email thông báo.
+   - **Từ chối**: nhận email thông báo, không đăng nhập được nữa.
+4. Nếu gửi email thất bại (SMTP chưa cấu hình), hệ thống vẫn lưu quyết định và hiện cảnh báo đỏ. Khi đó hãy báo trực tiếp cho thành viên.
+
+### 8.2. Quản lý hồ sơ thành viên *(Chủ nhiệm, Phó chủ nhiệm, Trưởng ban)*
+
+- Trang **Thành viên**: lọc, sắp xếp, **Xuất danh sách** Excel kèm SĐT, email, tình trạng hoạt động.
+- Bấm vào một thành viên để xem hồ sơ đầy đủ.
+- Qua REST API (dành cho người biết dùng API): sửa tên/SĐT/ghi chú/tình trạng, lưu trữ thành viên rời CLB, nhập danh sách từ CSV/XLSX, cộng/trừ điểm hoạt động có lý do. Xem `docs/DEVELOPER_GUIDE.md` mục REST API.
+- Thành viên tạo qua file nhập sẽ bị **bắt đổi mật khẩu** ở lần đăng nhập đầu tiên.
+
+### 8.3. Cấp mật khẩu tạm
+
+Dùng khi thành viên quên mật khẩu mà không nhận được email đặt lại.
+
+1. Mở hồ sơ thành viên → phần **Hỗ trợ đăng nhập** → **Cấp mật khẩu tạm**. Có thể phải nhập lại mật khẩu của bạn.
+2. Mật khẩu tạm **chỉ hiển thị một lần**. Hãy gửi cho thành viên qua kênh riêng tư (tin nhắn trực tiếp), không đăng lên nhóm chung.
+3. Khi đăng nhập bằng mật khẩu tạm, thành viên bắt buộc đặt mật khẩu mới.
+4. Chỉ cấp được cho người **có cấp thấp hơn** bạn. Ví dụ Trưởng ban không cấp được cho Chủ nhiệm hay Thư ký/Thủ quỹ.
+
+---
+
+## 9. Vai trò, phân quyền và nhường chức vụ
+
+Vào **ĐIỀU HÀNH → Vai trò & phân quyền**.
+
+### 9.1. Gán chức vụ *(Chủ nhiệm, Phó chủ nhiệm)*
+
+1. Ở dòng của thành viên, bấm **Gán chức vụ**. Nút chỉ hiện với người có cấp thấp hơn bạn.
+2. Chọn **Chức vụ mới**. Nếu chọn **Trưởng ban** thì phải chọn thêm **Ban quản lý**.
+3. Bấm **Lưu chức vụ**. Hệ thống kiểm tra cấp bậc, số lượng tối đa và quy tắc "không hạ BĐH cuối cùng".
+4. Không gán trực tiếp được **Chủ nhiệm**. Chủ nhiệm chỉ thay đổi qua quy trình nhường chức vụ.
+
+### 9.2. Nhường chức vụ *(mọi chức vụ BĐH)*
+
+Dùng khi bàn giao nhiệm kỳ.
+
+1. Bấm **Nhượng chức vụ** (góc phải trên).
+2. Chọn **Người nhận**: phải là thành viên thường đã được duyệt. Nếu bạn là Trưởng ban, chọn thêm ban sẽ bàn giao.
+3. Bấm **Xác nhận chuyển giao**. Người nhận giữ chức vụ của bạn, còn bạn trở thành **thành viên thường** ngay lập tức.
+
+> ⚠️ Thao tác này không tự hoàn tác được. Muốn lấy lại chức vụ, phải nhờ người có quyền gán lại.
+
+---
+
+## 10. Quản lý sự kiện, task và điểm danh
+
+*(Chủ nhiệm, Phó chủ nhiệm, Trưởng ban, Thư ký/Thủ quỹ)*
+
+### 10.1. Tạo sự kiện
+
+1. **Sự kiện → Tạo sự kiện** (hoặc nút ở trang Tổng quan).
+2. Điền:
+   - **Tên sự kiện**.
+   - **Mã sự kiện**: chữ, số và `- _ .`, không trùng.
+   - **Thời gian bắt đầu**: phải ở tương lai theo giờ CLB.
+   - **Thời gian kết thúc**: sau giờ bắt đầu.
+   - **Địa điểm**, **Nội dung**.
+   - **Hạn đăng ký**: không được sau giờ bắt đầu.
+   - **Số người tối đa**: để trống nếu không giới hạn.
+3. Bấm **Tạo sự kiện**, sau đó thêm task con ở trang chi tiết.
+
+**Nhập từ CTFtime**: ở tab CTFtime, bấm **Tạo sự kiện FIA** trên cuộc thi muốn tham gia. Hệ thống xác minh thông tin với nguồn, đổi giờ về giờ CLB và chống tạo trùng. Lưu ý đây **không phải** đăng ký đội thi trên CTFtime.
+
+### 10.2. Giao và duyệt task
+
+1. Ở trang chi tiết sự kiện → **Giao nhiệm vụ mới**. Nhập tên task (≤150 ký tự), mô tả, **MSSV người phụ trách**, **ban** (người phụ trách phải thuộc ban đó) và **hạn** (không sau giờ kết thúc sự kiện).
+2. Người phụ trách nhận email. Đổi người dùng **Chỉ định lại**.
+3. Khi task ở trạng thái **Chờ duyệt**, mở **Cập nhật** → chọn **Hoàn thành**, **Làm lại** (bắt buộc ghi nhận xét) hoặc **Hủy**.
+4. Sự kiện đã kết thúc hoặc đã hủy thì không sửa task được nữa.
+
+### 10.3. Điểm danh
+
+- Trang chi tiết sự kiện có khung **Điểm danh sự kiện** với mã QR (15 phút; tải lại trang để lấy mã mới). Chiếu mã cho thành viên quét.
+- **Điểm danh thủ công**: ở bảng người tham gia, chọn Có mặt / Đi muộn / Có phép / Vắng, ghi chú nếu cần → **Lưu**.
+- Mẹo: mở web bằng địa chỉ mà điện thoại truy cập được (tên miền thật). Mã QR sinh từ `127.0.0.1` chỉ dùng được trên chính máy đó.
+
+### 10.4. Kết thúc sự kiện
+
+Bấm **Kết thúc sự kiện** khi sự kiện xong. Đây là lúc hệ thống **tính lại tỉ lệ hoạt động** của các thành viên có task trong sự kiện, theo kỳ chứa ngày kết thúc. Hãy duyệt hết task trước khi bấm.
+
+---
+
+## 11. Quản lý quỹ
+
+*(Chủ nhiệm, Phó chủ nhiệm, Thư ký/Thủ quỹ)*
+
+Hệ thống có **hai cách theo dõi quỹ** dùng song song:
+
+| | Quỹ theo kỳ (sổ thu chi) | Khoản thu (thu theo đợt) |
+|---|---|---|
+| Dùng cho | Sổ thu/chi tổng của CLB trong kỳ và đánh dấu ai đã đóng quỹ kỳ | Từng khoản thu cụ thể (quỹ tháng, phí sự kiện…) có số tiền và hạn |
+| Thao tác | Mở kỳ, ghi thu/chi, đánh dấu đã đóng | Tạo khoản thu, thành viên gửi thanh toán, Thủ quỹ xác nhận |
+
+Các thao tác nằm trong nút **Thao tác** ở góc phải trang Quỹ: Mở kỳ mới, Ghi nhận thu / chi, Xuất Excel (kỳ hiện tại), Xuất báo cáo khoản thu.
+
+### 11.1. Quỹ theo kỳ
+
+1. **Mở kỳ mới**: nhập tên kỳ (vd: Fall 2026), ngày bắt đầu, ngày kết thúc (nên nhập để hệ thống nhắc trước 30 ngày). Mở kỳ mới sẽ **tự đóng kỳ cũ** và tạo dòng "chưa đóng" cho mọi thành viên đang hoạt động.
+2. **Ghi nhận thu / chi**: danh mục (≤100 ký tự), nội dung, ngày, số tiền. Khoản thu nhập số dương, khoản chi nhập số âm (vd: `-120000`).
+3. **Danh sách đóng quỹ**: bấm **Đánh dấu đã đóng** / **Đánh dấu chưa đóng** cho từng người.
+4. **Nhắc đóng quỹ**: gửi email cho mọi người chưa đóng. Hệ thống báo đã gửi được bao nhiêu thư.
+5. **Xuất Excel**: sheet "Thu chi" và "Đóng quỹ".
+
+### 11.2. Khoản thu và xác nhận thanh toán
+
+1. **Tạo khoản thu**: tên, loại (tháng/kỳ/năm/sự kiện/tự nguyện/khác), số tiền, ngày bắt đầu, hạn đóng, mô tả → **Mở khoản thu**.
+2. Thành viên gửi thanh toán, giao dịch hiện ở **Giao dịch chờ xác nhận**.
+3. Kiểm tra (đối chiếu sao kê, mã giao dịch) → **Xác nhận** hoặc **Từ chối**. Nếu hai người cùng duyệt một giao dịch, chỉ lượt đầu được ghi nhận.
+4. **Xuất báo cáo khoản thu** (trong nút Thao tác): file Excel phải đóng / đã đóng / còn thiếu của từng người với từng khoản thu.
+5. Miễn/giảm cho từng thành viên và đóng/hủy khoản thu hiện thực hiện qua REST API (xem `docs/DEVELOPER_GUIDE.md`, mục REST API).
+
+---
+
+## 12. Trợ lý AI cho Ban điều hành
+
+### 12.1. Tóm tắt và báo cáo
+
+- **Tóm tắt hôm nay và báo cáo có nguồn**: task quá hạn hoặc sắp hạn, sự kiện 7 ngày tới, khoản thu quá hạn, đề xuất và nháp email đang chờ.
+- **Xem trước báo cáo tuần/tháng** → **Lưu bản xem trước** để cố định số liệu. Từ bản đã lưu, có thể **Tải Excel** đúng bản đó hoặc **Tạo nháp email báo cáo cho tôi**.
+- Có thể hỏi trong chat: `Hôm nay cần xử lý gì?`, `Báo cáo tuần này`, `Báo cáo tháng này`.
+
+### 12.2. Đề xuất sự kiện và task *(người có quyền Sự kiện & task)*
+
+AI chỉ tạo **đề xuất (bản xem trước)**. Không có gì được ghi vào dữ liệu thật cho tới khi bạn bấm **Duyệt và áp dụng**.
+
+- Nói tự nhiên, ví dụ:
+  - `Tạo sự kiện Workshop bảo mật ngày 15/11/2026 09:00 đến 15/11/2026 11:00`
+  - `Giao task thiết kế poster cho SV123 trong sự kiện Workshop bảo mật ban Truyền thông hạn 14/11/2026 18:00`
+
+  Nếu thiếu thông tin, AI hỏi lại (giữ tối đa 30 phút, gõ `hủy` để bỏ).
+- Hoặc dùng cú pháp cố định:
+  - `Đề xuất sự kiện: Workshop bảo mật | 2026-11-01 09:00 | 2026-11-01 11:00 | 1`
+  - `Chia task: 12 | 1 | 2026-11-01 08:00 | Chuẩn bị tài liệu; Kiểm tra thiết bị | python, mạng`
+- Chỉ ghi ngày/tháng thì hệ thống hiểu là **năm hiện tại**. Luôn đọc lại bản xem trước trước khi duyệt.
+
+### 12.3. Nháp email và mail mẫu
+
+- Trong chat: `Gửi mail cho SV123: nhắc nộp báo cáo trước thứ Sáu` hoặc `Gửi mail mẫu nhắc đóng quỹ cho Nguyễn Văn A`. AI chỉ tạo **nháp**.
+- Ở mục **Nháp email chờ BĐH duyệt**: sửa tiêu đề/nội dung nếu cần → **Duyệt và gửi** hoặc **Từ chối**. Gửi lỗi thì có nút **Thử gửi lại**.
+- Nếu việc gửi bị gián đoạn giữa chừng, hãy kiểm tra hộp thư đã gửi rồi chọn **Đã gửi (đã kiểm tra)** hoặc **Chưa gửi (đã kiểm tra)**. Hệ thống không tự gửi lại để tránh gửi trùng.
+- **Mail mẫu dùng chung** *(Chủ nhiệm, Phó chủ nhiệm)*: tạo mẫu có tên, tiêu đề, nội dung. Có thể dùng biến `{{ten}}`, `{{mssv}}`, `{{email}}`. Mẫu có thể tạm ngừng mà không ảnh hưởng nháp cũ.
+
+---
+
+## 13. Câu hỏi thường gặp và xử lý sự cố
+
+| Tình huống | Cách xử lý |
+|---|---|
+| "MSSV hoặc mật khẩu không đúng" dù nhập đúng | Có thể tài khoản đang bị khóa tạm do sai nhiều lần. Chờ 5 phút rồi thử lại, hoặc dùng **Quên mật khẩu**. Tài khoản bị từ chối hoặc đã rời CLB cũng không đăng nhập được. |
+| Bị đưa về trang "Đổi mật khẩu" liên tục | Bạn đang dùng mật khẩu tạm. Hãy đặt mật khẩu mới. |
+| Bị yêu cầu nhập lại mật khẩu | Thao tác nhạy cảm khi đang đăng nhập bằng "Ghi nhớ". Nhập mật khẩu để tiếp tục. |
+| "Phiên biểu mẫu không hợp lệ. Hãy tải lại trang." | Trang mở quá lâu hoặc đã đăng xuất ở tab khác. Tải lại trang (F5) rồi làm lại. |
+| "Quá nhiều yêu cầu. Vui lòng thử lại sau." (lỗi 429) | Bạn thao tác quá nhanh. Chờ khoảng 1 phút. |
+| Không nhận được email | Kiểm tra thư mục Spam. Nếu CLB chưa bật gửi email, hãy liên hệ BĐH. |
+| Không thấy nút Gán chức vụ / Phê duyệt | Chức vụ của bạn không có quyền đó (xem [mục 7](#7-ban-điều-hành-ai-được-làm-gì)). |
+| Quét QR báo "Chỉ được điểm danh trong thời gian diễn ra sự kiện" | Chỉ quét được từ 30 phút trước giờ bắt đầu đến giờ kết thúc. |
+| Quét QR báo "Mã QR đã hết hạn" | Nhờ BĐH tải lại trang để lấy mã mới. |
+| Trang báo lỗi kèm "Mã hỗ trợ: …" | Gửi mã này cho người quản trị để tra nhật ký lỗi. |
+
+**Giữ an toàn tài khoản:** không chia sẻ mật khẩu, không dùng chung mật khẩu với tài khoản khác, đăng xuất trên máy dùng chung, và báo ngay cho BĐH nếu thấy hoạt động lạ.

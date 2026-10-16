@@ -12,7 +12,7 @@ from app.models import (
 )
 from app.permissions import approved_required
 from app.services.common import club_now
-from app.services.access import is_board, is_treasurer, visible_members
+from app.services.access import can_manage_events, is_board, is_treasurer, visible_members
 from app.services.briefings import daily_digest
 
 main_bp = Blueprint("main", __name__)
@@ -22,12 +22,13 @@ TASK_STATUSES = ("dang_lam", "cho_duyet", "lam_lai", "hoan_thanh", "huy")
 
 def _task_scope(actor, query):
     """Admins see the club-wide task board; members see only their own tasks."""
-    if is_board(actor):
+    if can_manage_events(actor):
         return query
     return query.filter(Task.assignee_id == actor.id)
 
 
 def _recent_attendance_chart(now):
+    """Số lượt điểm danh có mặt của 6 tháng gần nhất và đường SVG cho biểu đồ trang Tổng quan."""
     month_floor = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     months = []
     for offset in range(-5, 1):
@@ -70,6 +71,7 @@ def _recent_attendance_chart(now):
 
 
 def _format_currency(value):
+    """Định dạng số tiền kiểu 1.000.000 ₫."""
     formatted = f"{Decimal(str(value or 0)):,.2f}"
     whole, fraction = formatted.split(".")
     fraction = fraction.rstrip("0")
@@ -80,6 +82,9 @@ def _format_currency(value):
 @login_required
 @approved_required
 def home():
+    """Trang Tổng quan: thông báo, sự kiện sắp tới, số liệu thành viên/task, số dư quỹ (người quản
+    lý quỹ), biểu đồ điểm danh.
+    """
     now = club_now()
     # Cot trai: thong bao (task chua hoan thanh, su kien/task cua CLB,...)
     notifications = (
@@ -156,6 +161,9 @@ def home():
 @login_required
 @approved_required
 def tasks():
+    """Bảng công việc: người quản lý sự kiện thấy mọi task, thành viên chỉ thấy task của mình; lọc
+    theo trạng thái, xem dạng bảng/danh sách.
+    """
     scoped_tasks = _task_scope(current_user, Task.query).order_by(Task.deadline.asc(), Task.id.asc()).all()
     counts = {status: 0 for status in TASK_STATUSES}
     for task in scoped_tasks:
@@ -175,5 +183,5 @@ def tasks():
         total_tasks=len(scoped_tasks),
         selected_status=selected_status,
         selected_view=selected_view,
-        is_board=is_board(current_user),
+        is_board=can_manage_events(current_user),
     )

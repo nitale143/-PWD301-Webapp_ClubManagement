@@ -9,8 +9,9 @@ from unittest.mock import patch
 
 from flask import g
 
+from tests.support import csrf_for
 from app import create_app, db
-from app.migrations import migrate_chat_conversations
+from app.legacy_sqlite import migrate_chat_conversations
 from app.models import (
     Ban,
     ChatConversation,
@@ -69,8 +70,7 @@ class ChatConversationTests(unittest.TestCase):
 
     def csrf(self):
         self.client.get("/ai")
-        with self.client.session_transaction() as session:
-            return session["_csrf_token"]
+        return csrf_for(self.client)
 
     def api(self, method, path, *, json=None, csrf=True):
         headers = {"X-CSRF-Token": self.csrf()} if csrf else None

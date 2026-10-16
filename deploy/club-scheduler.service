@@ -1,0 +1,14 @@
+# systemd unit chạy scheduler riêng (đặt SCHEDULER_IN_WEB=false trong .env)
+[Unit]
+Description=Club management webapp scheduler
+After=network.target
+
+[Service]
+User=club
+WorkingDirectory=/srv/club
+EnvironmentFile=/srv/club/.env
+ExecStart=/srv/club/.venv/bin/flask --app run.py run-scheduler
+Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

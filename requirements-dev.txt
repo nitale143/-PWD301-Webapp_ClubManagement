@@ -1,0 +1,4 @@
+# Công cụ cho developer (test, coverage, lint)
+-r requirements.txt
+coverage==7.16.2
+pyflakes==4.0.3

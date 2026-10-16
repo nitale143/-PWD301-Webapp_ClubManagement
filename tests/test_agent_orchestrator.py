@@ -8,6 +8,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import (
     AIProposal,
@@ -179,8 +180,7 @@ class AgentOrchestratorTests(unittest.TestCase):
 
     def _csrf(self):
         self.client.get("/ai")
-        with self.client.session_transaction() as session:
-            return session["_csrf_token"]
+        return csrf_for(self.client)
 
     def test_tool_observation_is_sent_to_next_call_and_answer_comes_from_verified_result(self):
         planner = FakePlanner([

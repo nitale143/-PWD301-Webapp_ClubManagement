@@ -10,6 +10,7 @@ member_bp = Blueprint("member", __name__)
 
 
 def _parse_filters():
+    """Đọc bộ lọc của trang Thành viên: q, ban_id, sort, status."""
     q = request.args.get("q", "").strip()
     ban_id = request.args.get("ban_id", type=int)
     sort_by = request.args.get("sort", "ho_ten")  # ho_ten | mssv
@@ -18,6 +19,7 @@ def _parse_filters():
 
 
 def _filtered_members():
+    """Danh sách thành viên trong phạm vi được xem, đã áp bộ lọc và sắp xếp."""
     q, ban_id, sort_by, status = _parse_filters()
 
     members = visible_members(current_user)
@@ -44,6 +46,9 @@ def _filtered_members():
 @login_required
 @approved_required
 def member_list():
+    """Trang Thành viên: người có MANAGE_MEMBERS thấy đầy đủ và liên hệ; thành viên khác chỉ thấy
+    chính mình.
+    """
     members = _filtered_members()
     bans = Ban.query.all()
     q, ban_id, sort_by, status = _parse_filters()
@@ -55,7 +60,7 @@ def member_list():
     follow_up_members = visible.filter(User.hoat_dong_status.in_(
         ["it_hoat_dong", "khong_hoat_dong", "ngung_hoat_dong"]
     )).count()
-    # BDH xem day du thong tin; thanh vien thuong chi xem ho ten/mssv/chuc vu/ban
+    # Người có quyền quản lý thành viên xem đầy đủ; thành viên thường chỉ thấy chính mình
     return render_template(
         "member.html",
         members=members,
@@ -75,18 +80,18 @@ def member_list():
 @login_required
 @approved_required
 def export_excel():
-    """Xuat danh sach thanh vien (theo bo loc hien tai) ra file Excel."""
+    """Xuất danh sách thành viên (theo bộ lọc hiện tại) ra file Excel."""
     from openpyxl import Workbook
 
     members = _filtered_members()
     wb = Workbook()
     ws = wb.active
-    ws.title = "Danh sach thanh vien"
+    ws.title = "Danh sách thành viên"
 
     if can_view_all_members(current_user):
-        headers = ["Ho ten", "MSSV", "Chuc vu", "Ban hoat dong", "SDT", "Email", "Tinh trang HD"]
+        headers = ["Họ tên", "MSSV", "Chức vụ", "Ban hoạt động", "SĐT", "Email", "Tình trạng hoạt động"]
     else:
-        headers = ["Ho ten", "MSSV", "Chuc vu", "Ban hoat dong"]
+        headers = ["Họ tên", "MSSV", "Chức vụ", "Ban hoạt động"]
     ws.append(headers)
 
     for m in members:

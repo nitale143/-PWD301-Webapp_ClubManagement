@@ -1,7 +1,13 @@
-"""JSON endpoints for the expanded club workflows; the existing pages stay intact."""
+"""REST API /api/v1 (Ch9): thành viên, quỹ, sự kiện, điểm danh, trợ lý AI, báo cáo.
+
+- Xác thực bằng session cookie của Flask-Login (cùng domain với giao diện web);
+  request ghi dữ liệu phải gửi header X-CSRFToken / X-CSRF-Token.
+- Lỗi nghiệp vụ ném DomainError → JSON {"error": "..."} kèm status phù hợp.
+- Danh sách có phân trang (?page=&page_size= tối đa 100) và rate limit theo IP.
+- Tài liệu chi tiết từng endpoint: docs/DEVELOPER_GUIDE.md, mục REST API.
+"""
 
 import csv
-from datetime import datetime
 from decimal import Decimal
 from io import BytesIO
 from io import StringIO
@@ -18,13 +24,13 @@ from sqlalchemy import or_
 
 from app import db
 from app.models import (
-    ActivityPoint, AIProposal, Attendance, AuditLog, Ban, ClubSetting, Event, EventDetail,
-    EventRegistration, EventTargetBan, FundCollection, FundPayment,
-    FundTargetBan, MemberRecord, PaymentEvidence, User, UserBan,
+    AIProposal, Attendance, Ban, ClubSetting, Event, EventDetail, EventRegistration, EventTargetBan,
+    FundCollection, FundPayment, MemberRecord, PaymentEvidence, Permission,
+    User, UserBan,
 )
 from app.services.access import (
     approved, can_manage_member, can_view_member, can_view_all_members,
-    is_admin, is_board, is_treasurer, require, visible_members, actor_scope_stamp,
+    can_manage_events, can_manage_members, is_treasurer, scoped_members, require, visible_members, actor_scope_stamp,
     set_member_left_safely,
 )
 from app.services.activities import activity_stats, manual_point, DEFAULT_POINTS, DEFAULT_THRESHOLDS
@@ -50,14 +56,19 @@ from app.services.funds import (
     target_members,
 )
 from app.security import require_csrf
+from app.limiter import limiter
 from app.validators import EMAIL_RE, MSSV_RE, PHONE_RE
+from app.timeutil import utcnow
 
 
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
+# Giới hạn tần suất cho toàn bộ REST API (Ch9 – slide 34), cấu hình bằng API_RATE_LIMIT
+limiter.limit(lambda: current_app.config.get("API_RATE_LIMIT", "120 per minute"))(api_bp)
 
 
 @api_bp.before_request
 def authenticate():
+    """Hook trước mọi request /api/v1: chưa đăng nhập → 401, tài khoản chưa duyệt/đã lưu trữ → 403."""
     if not current_user.is_authenticated:
         return jsonify(error="Vui lòng đăng nhập."), 401
     if not approved(current_user):
@@ -66,16 +77,19 @@ def authenticate():
 
 @api_bp.errorhandler(DomainError)
 def domain_error(error):
+    """Đổi DomainError thành JSON {"error": ...} với status tương ứng và rollback giao dịch."""
     db.session.rollback()
     return jsonify(error=str(error)), error.status
 
 
 @api_bp.errorhandler(404)
 def not_found(_error):
+    """Trả 404 dạng JSON cho API."""
     return jsonify(error="Không tìm thấy dữ liệu."), 404
 
 
 def body():
+    """Đọc body JSON của request; không phải object JSON → DomainError 400."""
     data = request.get_json(silent=True)
     if not isinstance(data, dict):
         raise DomainError("Dữ liệu JSON không hợp lệ.")
@@ -83,6 +97,7 @@ def body():
 
 
 def paginate(query):
+    """Phân trang query theo ?page= và ?page_size= (1–100)."""
     try:
         page = int(request.args.get("page", 1))
         per_page = int(request.args.get("page_size", 20))
@@ -94,11 +109,15 @@ def paginate(query):
 
 
 def listing(page, serializer):
+    """Đóng gói kết quả phân trang thành JSON {items, page, page_size, total, pages}."""
     return jsonify(items=[serializer(row) for row in page.items], page=page.page,
                    page_size=page.per_page, total=page.total, pages=page.pages)
 
 
 def member_json(user):
+    """Chuyển User thành JSON (gồm liên hệ, ban, trạng thái thành viên) – chỉ trả cho người có
+    quyền xem.
+    """
     record = member_record(user)
     return {"id": user.id, "code": user.mssv, "name": user.ho_ten,
             "email": user.email, "phone": user.sdt, "avatar": user.avatar_url,
@@ -109,7 +128,10 @@ def member_json(user):
 
 
 def _create_member(data):
-    require(is_board(current_user))
+    """Tạo thành viên đã duyệt từ dữ liệu JSON/CSV (quyền MANAGE_MEMBERS); bắt đổi mật khẩu ở lần
+    đăng nhập đầu.
+    """
+    require(can_manage_members(current_user))
     code = str(data.get("code", "")).strip()
     name = str(data.get("name", "")).strip()
     email = str(data.get("email", "")).strip()
@@ -134,9 +156,13 @@ def _create_member(data):
         raise DomainError("Danh sách ban không hợp lệ.") from None
     if not department_ids or Ban.query.filter(Ban.id.in_(department_ids)).count() != len(department_ids):
         raise DomainError("Danh sách ban không hợp lệ.")
-    user = User(mssv=code, ho_ten=name, ngay_sinh=birth, sdt=phone, email=email,
+    if User.query.filter_by(email=email.lower()).first():
+        raise DomainError("Email đã được dùng cho tài khoản khác.")
+    user = User(mssv=code, ho_ten=name, ngay_sinh=birth, sdt=phone, email=email.lower(),
                 status="approved", chuc_vu="THANH_VIEN")
     user.set_password(password)
+    # Mật khẩu ban đầu do BĐH đặt → thành viên phải đổi ở lần đăng nhập đầu tiên
+    user.must_change_password = True
     db.session.add(user)
     db.session.flush()
     db.session.add(MemberRecord(user_id=user.id, ngay_gia_nhap=joined,
@@ -149,6 +175,7 @@ def _create_member(data):
 
 
 def fund_json(fund, member=None):
+    """Chuyển khoản thu thành JSON; kèm số dư của `member` nếu có."""
     item = {"id": fund.id, "name": fund.ten_khoan_thu, "type": fund.loai,
             "amount": str(fund.so_tien), "start_date": fund.ngay_bat_dau.isoformat(),
             "due_date": fund.han_dong.isoformat(), "status": fund.trang_thai,
@@ -164,6 +191,7 @@ def fund_json(fund, member=None):
 
 
 def payment_json(payment):
+    """Chuyển một lần thanh toán thành JSON."""
     return {"id": payment.id, "fund_id": payment.fund_id, "member_id": payment.user_id,
             "amount": str(payment.so_tien), "paid_at": payment.ngay_dong.isoformat(),
             "method": payment.phuong_thuc, "transaction_code": payment.ma_giao_dich,
@@ -173,6 +201,7 @@ def payment_json(payment):
 
 
 def event_json(event):
+    """Chuyển sự kiện (và chi tiết) thành JSON."""
     detail = db.session.get(EventDetail, event.id)
     return {"id": event.id, "code": event.ma_su_kien, "name": event.ten_su_kien,
             "start_at": event.thoi_gian_bat_dau.isoformat(),
@@ -188,11 +217,15 @@ def event_json(event):
 
 
 def can_manage_event(event):
-    return is_admin(current_user)
+    """Người đang đăng nhập có quyền quản lý sự kiện (MANAGE_EVENTS)."""
+    return can_manage_events(current_user)
 
 
 @api_bp.get("/members")
 def members():
+    """GET /members – danh sách thành viên trong phạm vi được xem, lọc theo q, department_id,
+    status.
+    """
     query = visible_members(current_user)
     search = request.args.get("q", "").strip()
     if search:
@@ -210,6 +243,7 @@ def members():
 
 @api_bp.post("/members")
 def member_create():
+    """POST /members – tạo một thành viên (MANAGE_MEMBERS)."""
     data = body()
     if data.get("status", "active") not in {"active", "paused", "left"}:
         raise DomainError("Trạng thái thành viên không hợp lệ.")
@@ -220,7 +254,10 @@ def member_create():
 
 @api_bp.post("/members/import")
 def members_import():
-    require(is_board(current_user))
+    """POST /members/import – nhập tối đa 500 thành viên từ CSV/XLSX, nguyên tử (lỗi một dòng thì
+    không tạo dòng nào).
+    """
+    require(can_manage_members(current_user))
     upload = request.files.get("file")
     if not upload:
         raise DomainError("Vui lòng chọn tệp CSV hoặc XLSX.")
@@ -266,6 +303,7 @@ def members_import():
 
 @api_bp.get("/members/<int:user_id>")
 def member_detail(user_id):
+    """GET /members/<id> – hồ sơ một thành viên (chính mình hoặc người có MANAGE_MEMBERS)."""
     user = db.get_or_404(User, user_id)
     require(can_view_member(current_user, user))
     return jsonify(member_json(user))
@@ -273,6 +311,7 @@ def member_detail(user_id):
 
 @api_bp.patch("/members/<int:user_id>")
 def member_update(user_id):
+    """PATCH /members/<id> – sửa tên, SĐT, trạng thái, ghi chú của thành viên khác."""
     user = db.get_or_404(User, user_id)
     require(can_manage_member(current_user, user))
     data = body()
@@ -304,12 +343,13 @@ def member_update(user_id):
 
 @api_bp.post("/members/<int:user_id>/archive")
 def member_archive(user_id):
+    """POST /members/<id>/archive – lưu trữ thành viên (không cho lưu trữ BĐH cuối cùng)."""
     user = db.get_or_404(User, user_id)
-    require(is_admin(current_user) and user.id != current_user.id)
+    require(can_manage_members(current_user) and user.id != current_user.id)
     record = member_record(user)
     if record.luu_tru_luc:
         raise DomainError("Thành viên đã được lưu trữ.")
-    if not set_member_left_safely(user, record, datetime.utcnow()):
+    if not set_member_left_safely(user, record, utcnow()):
         raise DomainError("Không thể lưu trữ quản trị viên cuối cùng.", 409)
     audit(current_user, "member_archive", record, {"member_id": user.id})
     db.session.commit()
@@ -318,6 +358,7 @@ def member_archive(user_id):
 
 @api_bp.get("/members/<int:user_id>/activity")
 def member_activity(user_id):
+    """GET /members/<id>/activity – thống kê tham gia/điểm hoạt động."""
     user = db.get_or_404(User, user_id)
     require(can_view_member(current_user, user))
     result = activity_stats(user)
@@ -327,8 +368,9 @@ def member_activity(user_id):
 
 @api_bp.post("/members/<int:user_id>/points")
 def member_points(user_id):
+    """POST /members/<id>/points – cộng/trừ điểm hoạt động thủ công, bắt buộc lý do."""
     user = db.get_or_404(User, user_id)
-    require(is_board(current_user) and can_manage_member(current_user, user))
+    require(can_manage_member(current_user, user))
     data = body()
     event = db.get_or_404(Event, data["event_id"]) if data.get("event_id") else None
     point = manual_point(current_user, user, data.get("points"), data.get("reason"), event)
@@ -337,6 +379,9 @@ def member_points(user_id):
 
 @api_bp.get("/funds")
 def funds():
+    """GET /funds – khoản thu (người quản lý quỹ thấy tất cả, thành viên chỉ thấy khoản áp dụng cho
+    mình).
+    """
     query = FundCollection.query.order_by(FundCollection.id.desc())
     if not is_treasurer(current_user):
         fund_ids = [fund.id for fund in query if target_members(fund).filter(User.id == current_user.id).first()]
@@ -346,12 +391,14 @@ def funds():
 
 @api_bp.post("/funds")
 def fund_create():
+    """POST /funds – tạo khoản thu (MANAGE_FUNDS)."""
     fund = create_collection(current_user, body())
     return jsonify(fund_json(fund)), 201
 
 
 @api_bp.get("/funds/<int:fund_id>")
 def fund_detail(fund_id):
+    """GET /funds/<id> – chi tiết khoản thu kèm số dư của người xem."""
     fund = db.get_or_404(FundCollection, fund_id)
     require(is_treasurer(current_user) or target_members(fund).filter(User.id == current_user.id).first() is not None)
     return jsonify(fund_json(fund, current_user))
@@ -359,6 +406,9 @@ def fund_detail(fund_id):
 
 @api_bp.patch("/funds/<int:fund_id>/status")
 def fund_status(fund_id):
+    """PATCH /funds/<id>/status – chuyển trạng thái khoản thu theo luồng
+    draft→open→closed/cancelled.
+    """
     require(is_treasurer(current_user))
     fund = db.get_or_404(FundCollection, fund_id)
     status = body().get("status")
@@ -374,6 +424,7 @@ def fund_status(fund_id):
 
 @api_bp.get("/funds/<int:fund_id>/balances")
 def fund_balances(fund_id):
+    """GET /funds/<id>/balances – số phải đóng/đã đóng/còn thiếu của từng thành viên."""
     require(is_treasurer(current_user))
     fund = db.get_or_404(FundCollection, fund_id)
     query = target_members(fund).order_by(User.id)
@@ -383,6 +434,7 @@ def fund_balances(fund_id):
 
 @api_bp.post("/funds/<int:fund_id>/payments")
 def payment_create(fund_id):
+    """POST /funds/<id>/payments – ghi nhận một lần đóng tiền (chờ xác nhận)."""
     fund = db.get_or_404(FundCollection, fund_id)
     data = body()
     member = db.get_or_404(User, data.get("member_id", current_user.id))
@@ -392,6 +444,7 @@ def payment_create(fund_id):
 
 @api_bp.get("/payments")
 def payments():
+    """GET /payments – danh sách thanh toán (thành viên chỉ thấy của mình), lọc theo trạng thái."""
     query = FundPayment.query
     if not is_treasurer(current_user):
         query = query.filter_by(user_id=current_user.id)
@@ -402,6 +455,7 @@ def payments():
 
 @api_bp.post("/payments/<int:payment_id>/review")
 def payment_review(payment_id):
+    """POST /payments/<id>/review – xác nhận hoặc từ chối thanh toán (MANAGE_FUNDS)."""
     payment = db.get_or_404(FundPayment, payment_id)
     data = body()
     review_payment(current_user, payment, data.get("decision"), data.get("note", ""))
@@ -410,6 +464,9 @@ def payment_review(payment_id):
 
 @api_bp.post("/payments/<int:payment_id>/evidence")
 def payment_evidence_upload(payment_id):
+    """POST /payments/<id>/evidence – tải ảnh minh chứng (PNG/JPEG/WebP ≤ 3MB), lưu ngoài thư mục
+    static.
+    """
     payment = db.get_or_404(FundPayment, payment_id)
     require(payment.user_id == current_user.id or is_treasurer(current_user))
     if payment.trang_thai != "pending":
@@ -444,6 +501,7 @@ def payment_evidence_upload(payment_id):
 
 @api_bp.get("/payments/evidence/<int:evidence_id>")
 def payment_evidence_download(evidence_id):
+    """GET /payments/evidence/<id> – tải ảnh minh chứng (chủ thanh toán hoặc người quản lý quỹ)."""
     evidence = db.get_or_404(PaymentEvidence, evidence_id)
     payment = db.get_or_404(FundPayment, evidence.payment_id)
     require(payment.user_id == current_user.id or is_treasurer(current_user))
@@ -453,6 +511,7 @@ def payment_evidence_download(evidence_id):
 
 @api_bp.put("/funds/<int:fund_id>/adjustments/<int:user_id>")
 def fund_adjustment(fund_id, user_id):
+    """PUT /funds/<id>/adjustments/<user_id> – miễn/giảm khoản thu cho một thành viên."""
     fund = db.get_or_404(FundCollection, fund_id)
     user = db.get_or_404(User, user_id)
     adjustment = adjust_fund(current_user, fund, user, body())
@@ -461,6 +520,7 @@ def fund_adjustment(fund_id, user_id):
 
 @api_bp.get("/events")
 def events():
+    """GET /events – danh sách sự kiện, lọc theo status."""
     query = Event.query.order_by(Event.thoi_gian_bat_dau.desc())
     if request.args.get("status"):
         query = query.filter_by(trang_thai=request.args["status"])
@@ -469,7 +529,8 @@ def events():
 
 @api_bp.post("/events")
 def event_create():
-    require(is_board(current_user))
+    """POST /events – tạo sự kiện kèm chi tiết, ban áp dụng, người phụ trách (MANAGE_EVENTS)."""
+    require(can_manage_events(current_user))
     data = body()
     name = str(data.get("name", "")).strip()
     code = str(data.get("code", "")).strip()
@@ -492,7 +553,7 @@ def event_create():
         raise DomainError("Danh sách ban tham gia không hợp lệ.")
     manager_id = data.get("manager_id", current_user.id)
     manager = db.get_or_404(User, manager_id)
-    require(is_board(manager), "Người phụ trách phải thuộc ban chủ nhiệm.")
+    require(can_manage_events(manager), "Người phụ trách phải có quyền quản lý sự kiện.")
     fund_id = data.get("fund_id")
     if fund_id:
         db.get_or_404(FundCollection, fund_id)
@@ -515,11 +576,13 @@ def event_create():
 
 @api_bp.get("/events/<int:event_id>")
 def event_detail(event_id):
+    """GET /events/<id> – chi tiết sự kiện."""
     return jsonify(event_json(db.get_or_404(Event, event_id)))
 
 
 @api_bp.patch("/events/<int:event_id>")
 def event_update(event_id):
+    """PATCH /events/<id> – sửa sự kiện (sức chứa không được nhỏ hơn số đã đăng ký)."""
     event = db.get_or_404(Event, event_id)
     require(can_manage_event(event))
     if event_is_terminal(event):
@@ -563,6 +626,7 @@ def event_update(event_id):
 
 @api_bp.post("/events/<int:event_id>/copy")
 def event_copy(event_id):
+    """POST /events/<id>/copy – nhân bản sự kiện sang thời gian mới."""
     source = db.get_or_404(Event, event_id)
     require(can_manage_event(source))
     data = body()
@@ -594,6 +658,7 @@ def event_copy(event_id):
 
 @api_bp.post("/events/<int:event_id>/cancel")
 def event_cancel(event_id):
+    """POST /events/<id>/cancel – hủy sự kiện."""
     event = db.get_or_404(Event, event_id)
     require(can_manage_event(event))
     if event_is_terminal(event):
@@ -609,6 +674,7 @@ def event_cancel(event_id):
 
 @api_bp.post("/events/<int:event_id>/registrations")
 def event_register(event_id):
+    """POST /events/<id>/registrations – đăng ký tham gia (hết chỗ thì vào danh sách chờ)."""
     event = db.get_or_404(Event, event_id)
     data = body()
     member = db.get_or_404(User, data["member_id"]) if data.get("member_id") else current_user
@@ -618,6 +684,7 @@ def event_register(event_id):
 
 @api_bp.post("/registrations/<int:registration_id>/cancel")
 def registration_cancel(registration_id):
+    """POST /registrations/<id>/cancel – hủy đăng ký; người đầu danh sách chờ được đôn lên."""
     registration = db.get_or_404(EventRegistration, registration_id)
     promoted = cancel_registration(current_user, registration)
     return jsonify(status="cancelled", promoted_id=promoted.id if promoted else None)
@@ -625,8 +692,11 @@ def registration_cancel(registration_id):
 
 @api_bp.get("/events/<int:event_id>/registrations")
 def event_registrations(event_id):
+    """GET /events/<id>/registrations – danh sách đăng ký và điểm danh (MANAGE_EVENTS hoặc người
+    phụ trách).
+    """
     event = db.get_or_404(Event, event_id)
-    require(is_board(current_user) or (event.detail and event.detail.phu_trach_id == current_user.id))
+    require(can_manage_events(current_user) or (event.detail and event.detail.phu_trach_id == current_user.id))
     query = EventRegistration.query.filter_by(event_id=event_id).order_by(EventRegistration.id)
     return listing(paginate(query), lambda row: {"id": row.id, "member_id": row.user_id,
                     "status": row.trang_thai, "attendance": row.attendance.trang_thai if row.attendance else "pending"})
@@ -634,12 +704,14 @@ def event_registrations(event_id):
 
 @api_bp.get("/events/<int:event_id>/qr")
 def event_qr(event_id):
+    """GET /events/<id>/qr – token QR điểm danh (hiệu lực 15 phút)."""
     event = db.get_or_404(Event, event_id)
     return jsonify(token=qr_token(current_user, event), expires_in=900)
 
 
 @api_bp.get("/events/<int:event_id>/qr.png")
 def event_qr_png(event_id):
+    """GET /events/<id>/qr.png – ảnh QR chứa link điểm danh."""
     event = db.get_or_404(Event, event_id)
     token = qr_token(current_user, event)
     stream = BytesIO()
@@ -650,6 +722,7 @@ def event_qr_png(event_id):
 
 @api_bp.post("/attendance/checkin")
 def event_checkin():
+    """POST /attendance/checkin – điểm danh bằng token QR."""
     attendance = qr_checkin(current_user, body().get("token"))
     return jsonify(id=attendance.id, status=attendance.trang_thai,
                    checked_in_at=attendance.checkin_luc.isoformat())
@@ -657,6 +730,7 @@ def event_checkin():
 
 @api_bp.put("/registrations/<int:registration_id>/attendance")
 def attendance_manual(registration_id):
+    """PUT /registrations/<id>/attendance – điểm danh thủ công (có mặt/muộn/có phép/vắng)."""
     registration = db.get_or_404(EventRegistration, registration_id)
     data = body()
     attendance = manual_attendance(current_user, registration, data.get("status"), data.get("note", ""))
@@ -665,6 +739,7 @@ def attendance_manual(registration_id):
 
 @api_bp.post("/events/<int:event_id>/feedback")
 def event_feedback(event_id):
+    """POST /events/<id>/feedback – đánh giá sự kiện sau khi kết thúc."""
     event = db.get_or_404(Event, event_id)
     data = body()
     row = feedback(current_user, event, data.get("rating"), data.get("comment", ""))
@@ -673,6 +748,9 @@ def event_feedback(event_id):
 
 @api_bp.post("/assistant")
 def assistant():
+    """POST /assistant – hỏi trợ lý AI (chế độ thường hoặc Agent); lưu câu hỏi/trả lời vào cuộc trò
+    chuyện.
+    """
     data = body()
     if "agent" in data and not isinstance(data["agent"], bool):
         raise DomainError("Chế độ Agent phải là true hoặc false.")
@@ -721,6 +799,7 @@ def assistant():
 
 @api_bp.route("/assistant/conversations", methods=["GET", "POST"])
 def assistant_conversations():
+    """GET/POST /assistant/conversations – liệt kê hoặc tạo cuộc trò chuyện."""
     if request.method == "POST":
         require_csrf()
         conversation = create_conversation(current_user, body().get("title"))
@@ -734,6 +813,7 @@ def assistant_conversations():
 
 @api_bp.get("/assistant/conversations/<int:conversation_id>/messages")
 def assistant_conversation_messages(conversation_id):
+    """GET /assistant/conversations/<id>/messages – tin nhắn theo trang (before/after)."""
     conversation = owned_conversation(current_user, conversation_id)
     rows, older, newer = message_page(current_user, conversation,
         before=request.args.get("before"), after=request.args.get("after"))
@@ -745,28 +825,31 @@ def assistant_conversation_messages(conversation_id):
 
 @api_bp.patch("/assistant/conversations/<int:conversation_id>")
 def assistant_conversation_rename(conversation_id):
+    """PATCH /assistant/conversations/<id> – đổi tên cuộc trò chuyện."""
     require_csrf()
     conversation = owned_conversation(current_user, conversation_id)
     conversation.title = checked_title(body().get("title"))
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
     db.session.commit()
     return jsonify(conversation_json(conversation))
 
 
 @api_bp.post("/assistant/conversations/<int:conversation_id>/archive")
 def assistant_conversation_archive(conversation_id):
+    """POST /assistant/conversations/<id>/archive – lưu trữ/khôi phục cuộc trò chuyện."""
     require_csrf()
     conversation = owned_conversation(current_user, conversation_id)
     archived = body().get("archived", True)
     if not isinstance(archived, bool):
         raise DomainError("Trạng thái lưu trữ không hợp lệ.")
     conversation.archived = archived
-    conversation.updated_at = datetime.utcnow()
+    conversation.updated_at = utcnow()
     db.session.commit()
     return jsonify(conversation_json(conversation))
 
 
 def proposal_json(proposal):
+    """Chuyển đề xuất AI thành JSON (kèm bản xem trước)."""
     return {"id": proposal.id, "kind": proposal.kind, "status": proposal.status,
             "provider": proposal.provider, "preview": proposal_preview(proposal),
             "payload": proposal.payload, "result_ids": proposal.result_ids,
@@ -776,7 +859,8 @@ def proposal_json(proposal):
 
 @api_bp.get("/assistant/proposals")
 def assistant_proposals():
-    require(is_board(current_user))
+    """GET /assistant/proposals – danh sách đề xuất AI (MANAGE_EVENTS)."""
+    require(can_manage_events(current_user))
     query = AIProposal.query.order_by(AIProposal.id.desc())
     if request.args.get("status"):
         query = query.filter_by(status=request.args["status"])
@@ -785,6 +869,7 @@ def assistant_proposals():
 
 @api_bp.post("/assistant/proposals")
 def assistant_proposal_create():
+    """POST /assistant/proposals – tạo đề xuất AI."""
     require_csrf()
     proposal = create_proposal(current_user, body())
     return jsonify(proposal_json(proposal)), 201
@@ -792,6 +877,7 @@ def assistant_proposal_create():
 
 @api_bp.post("/assistant/proposals/<int:proposal_id>/review")
 def assistant_proposal_review(proposal_id):
+    """POST /assistant/proposals/<id>/review – duyệt/từ chối đề xuất AI."""
     require_csrf()
     proposal = db.get_or_404(AIProposal, proposal_id)
     data = body()
@@ -801,14 +887,16 @@ def assistant_proposal_review(proposal_id):
 
 @api_bp.get("/settings/activity")
 def activity_settings():
-    require(is_admin(current_user))
+    """GET /settings/activity – bảng điểm và ngưỡng xếp loại hoạt động (MANAGE_MEMBERS)."""
+    require(can_manage_members(current_user))
     return jsonify(points=(db.session.get(ClubSetting, "activity_point_rules") or ClubSetting(value=DEFAULT_POINTS)).value,
                    thresholds=(db.session.get(ClubSetting, "activity_thresholds") or ClubSetting(value=DEFAULT_THRESHOLDS)).value)
 
 
 @api_bp.put("/settings/activity")
 def activity_settings_update():
-    require(is_admin(current_user))
+    """PUT /settings/activity – cập nhật bảng điểm/ngưỡng hoạt động."""
+    require(can_manage_members(current_user))
     data = body()
     for field, key, defaults in (("points", "activity_point_rules", DEFAULT_POINTS),
                                  ("thresholds", "activity_thresholds", DEFAULT_THRESHOLDS)):
@@ -835,12 +923,16 @@ def activity_settings_update():
 
 @api_bp.get("/dashboard")
 def dashboard():
+    """GET /dashboard – số liệu tổng quan: thành viên, hoạt động, tình hình quỹ, sự kiện sắp tới
+    (theo phạm vi quyền).
+    """
     members = visible_members(current_user).all()
     stats = [activity_stats(member) for member in members]
     open_funds = FundCollection.query.filter_by(trang_thai="open").all()
+    fund_members = scoped_members(current_user, Permission.MANAGE_FUNDS).all()
     balances = []
     for fund in open_funds:
-        for member in members:
+        for member in fund_members:
             try:
                 balances.append((member, fund, balance(fund, member)))
             except DomainError:
@@ -861,6 +953,7 @@ def dashboard():
 
 @api_bp.get("/reports/funds.xlsx")
 def fund_report():
+    """GET /reports/funds.xlsx – báo cáo tình trạng đóng quỹ (MANAGE_FUNDS)."""
     require(is_treasurer(current_user))
     wb = Workbook()
     sheet = wb.active
@@ -880,7 +973,8 @@ def fund_report():
 
 @api_bp.get("/reports/members.xlsx")
 def member_report():
-    require(is_board(current_user) or can_view_all_members(current_user))
+    """GET /reports/members.xlsx – danh sách thành viên (MANAGE_MEMBERS)."""
+    require(can_view_all_members(current_user))
     wb = Workbook()
     sheet = wb.active
     sheet.title = "Thanh vien"

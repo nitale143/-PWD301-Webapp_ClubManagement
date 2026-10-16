@@ -6,29 +6,34 @@ from sqlalchemy.exc import IntegrityError
 
 from app import db
 from app.models import Event, EventDetail, EventRegistration, EventFeedback, Task, User, Ban
-from app.permissions import approved_required, bdh_required
+from app.forms import EventForm
+from app.models import Permission
+from app.permissions import approved_required, permission_required
 from app.security import require_csrf
 from app.mail import send_email
 from app.activity import cap_nhat_hoat_dong_khi_event_ket_thuc
 from app.services.common import DomainError, club_now, parse_datetime
-from app.services.access import is_admin, is_board
+from app.services.access import can_manage_events
 from app.services.events import (
     cancel_registration, eligible, event_is_terminal, feedback, manual_attendance,
     qr_checkin, register, registration_open,
 )
 from app.services.ctftime import CalendarUnavailable, SOURCE_URL, calendar_data, event_by_id
+from app.timeutil import utcnow
 
 event_bp = Blueprint("event", __name__)
 
 
 def _can_manage_task(task):
-    return is_admin(current_user)
+    """Người đang đăng nhập được quản lý task (quyền MANAGE_EVENTS)."""
+    return can_manage_events(current_user)
 
 
 @event_bp.route("/event")
 @login_required
 @approved_required
 def event_list():
+    """Trang danh sách sự kiện (kèm tab lịch CTFtime)."""
     events = Event.query.order_by(Event.thoi_gian_bat_dau.desc()).all()
     return render_template("event.html", events=events)
 
@@ -51,8 +56,7 @@ def ctftime_events():
 
 @event_bp.post("/event/import/ctftime")
 @login_required
-@approved_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def ctftime_import():
     """Create an FIA event from a server-verified public CTFtime calendar row."""
     require_csrf()
@@ -129,68 +133,49 @@ def ctftime_import():
 
 @event_bp.route("/event/new", methods=["GET", "POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def event_new():
-    if request.method == "POST":
-        require_csrf()
-        ma = request.form.get("ma_su_kien", "").strip()
-        name = request.form.get("ten_su_kien", "").strip()
-        try:
-            starts = datetime.strptime(request.form.get("thoi_gian_bat_dau", ""), "%Y-%m-%dT%H:%M")
-            ends = datetime.strptime(request.form.get("thoi_gian_ket_thuc", ""), "%Y-%m-%dT%H:%M")
-            deadline_raw = request.form.get("han_dang_ky", "").strip()
-            deadline = datetime.strptime(deadline_raw, "%Y-%m-%dT%H:%M") if deadline_raw else None
-            capacity_raw = request.form.get("so_nguoi_toi_da", "").strip()
-            capacity = int(capacity_raw) if capacity_raw else None
-        except ValueError:
-            flash("Thời gian hoặc số người tối đa không hợp lệ.", "error")
-            return render_template("event_form.html", form=request.form)
-        if not name or not ma:
-            flash("Vui lòng nhập tên và mã sự kiện.", "error")
-            return render_template("event_form.html", form=request.form)
-        if starts <= club_now():
-            flash("Thời gian bắt đầu phải sau thời điểm hiện tại (giờ CLB).", "error")
-            return render_template("event_form.html", form=request.form)
-        if ends <= starts:
-            flash("Thời gian kết thúc phải sau thời gian bắt đầu.", "error")
-            return render_template("event_form.html", form=request.form)
-        if deadline and deadline > starts:
-            flash("Hạn đăng ký không được sau thời gian bắt đầu.", "error")
-            return render_template("event_form.html", form=request.form)
-        if capacity is not None and capacity <= 0:
-            flash("Số người tối đa phải lớn hơn 0.", "error")
-            return render_template("event_form.html", form=request.form)
-        if Event.query.filter_by(ma_su_kien=ma).first():
-            flash("Ma su kien da ton tai, vui long chon ma khac.", "error")
-            return render_template("event_form.html", form=request.form)
-
+    """Tạo sự kiện bằng EventForm (Flask-WTF). Validate xong mới ghi database."""
+    form = EventForm()
+    if form.validate_on_submit():
+        if form.thoi_gian_bat_dau.data <= club_now():
+            form.thoi_gian_bat_dau.errors.append("Thời gian bắt đầu phải sau thời điểm hiện tại (giờ CLB).")
+            return render_template("event_form.html", form=form)
         ev = Event(
-            ten_su_kien=name,
-            ma_su_kien=ma,
-            thoi_gian_bat_dau=starts,
-            thoi_gian_ket_thuc=ends,
+            ten_su_kien=form.ten_su_kien.data,
+            ma_su_kien=form.ma_su_kien.data,
+            thoi_gian_bat_dau=form.thoi_gian_bat_dau.data,
+            thoi_gian_ket_thuc=form.thoi_gian_ket_thuc.data,
             trang_thai="sap_dien_ra",
             tao_boi_id=current_user.id,
         )
         db.session.add(ev)
         db.session.flush()
         db.session.add(EventDetail(event_id=ev.id, loai="other",
-                                   noi_dung=request.form.get("noi_dung", "").strip(),
-                                   dia_diem=request.form.get("dia_diem", "").strip(),
-                                   han_dang_ky=deadline, so_nguoi_toi_da=capacity,
+                                   noi_dung=form.noi_dung.data or "",
+                                   dia_diem=form.dia_diem.data or "",
+                                   han_dang_ky=form.han_dang_ky.data,
+                                   so_nguoi_toi_da=form.so_nguoi_toi_da.data,
                                    phu_trach_id=current_user.id, tat_ca_thanh_vien=True))
         db.session.commit()
-        flash("Da tao su kien. Tiep tuc them task con.", "success")
+        flash("Đã tạo sự kiện. Tiếp tục thêm task con.", "success")
         return redirect(url_for("event.event_detail", event_id=ev.id))
-
-    return render_template("event_form.html", form={})
+    if request.method == "POST":
+        for errors in form.errors.values():
+            for message in errors:
+                flash(message, "error")
+        return render_template("event_form.html", form=form)
+    return render_template("event_form.html", form=form)
 
 
 @event_bp.route("/event/<int:event_id>")
 @login_required
 @approved_required
 def event_detail(event_id):
-    ev = Event.query.get_or_404(event_id)
+    """Trang chi tiết sự kiện: đăng ký, điểm danh, phản hồi, danh sách task (thành viên chỉ thấy
+    task của mình).
+    """
+    ev = db.get_or_404(Event, event_id)
     bans = Ban.query.all()
     registration = EventRegistration.query.filter_by(event_id=event_id, user_id=current_user.id).first()
     registrations = EventRegistration.query.filter_by(event_id=event_id).order_by(EventRegistration.dang_ky_luc).all()
@@ -198,8 +183,8 @@ def event_detail(event_id):
     prior_feedback = EventFeedback.query.filter_by(event_id=event_id, user_id=current_user.id).first()
     return render_template(
         "event_detail.html", event=ev, bans=bans,
-        is_bdh=is_board(current_user),
-        is_board=is_board(current_user),
+        is_bdh=can_manage_events(current_user),
+        is_board=can_manage_events(current_user),
         registration=registration, registrations=registrations, detail=detail,
         can_register=registration_open(ev, detail) and eligible(ev, current_user),
         prior_feedback=prior_feedback,
@@ -210,6 +195,7 @@ def event_detail(event_id):
 @login_required
 @approved_required
 def event_register(event_id):
+    """Thành viên tự đăng ký tham gia sự kiện."""
     require_csrf()
     event = db.get_or_404(Event, event_id)
     try:
@@ -225,6 +211,7 @@ def event_register(event_id):
 @login_required
 @approved_required
 def event_cancel_registration(event_id):
+    """Thành viên hủy đăng ký của mình."""
     require_csrf()
     registration = EventRegistration.query.filter_by(event_id=event_id, user_id=current_user.id).first_or_404()
     try:
@@ -240,6 +227,7 @@ def event_cancel_registration(event_id):
 @login_required
 @approved_required
 def event_qr_checkin(event_id, token):
+    """Trang xác nhận và xử lý điểm danh bằng link QR."""
     event = db.get_or_404(Event, event_id)
     if request.method == "POST":
         require_csrf()
@@ -255,8 +243,9 @@ def event_qr_checkin(event_id, token):
 
 @event_bp.post("/event/<int:event_id>/attendance/<int:registration_id>")
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def event_manual_attendance(event_id, registration_id):
+    """Người quản lý sự kiện điểm danh thủ công cho một lượt đăng ký."""
     require_csrf()
     registration = EventRegistration.query.filter_by(id=registration_id, event_id=event_id).first_or_404()
     try:
@@ -272,6 +261,7 @@ def event_manual_attendance(event_id, registration_id):
 @login_required
 @approved_required
 def event_feedback(event_id):
+    """Thành viên gửi đánh giá sự kiện đã tham gia."""
     require_csrf()
     event = db.get_or_404(Event, event_id)
     try:
@@ -285,42 +275,42 @@ def event_feedback(event_id):
 
 @event_bp.route("/event/<int:event_id>/task/new", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def task_new(event_id):
-    """
-    Tao task con. Nguoi phu trach BAT BUOC phai duoc chi dinh ngay tu dau
-    (khong con co che mo cho thanh vien xung phong).
-    """
-    ev = Event.query.get_or_404(event_id)
+    """Tạo task con. Người phụ trách BẮT BUỘC được chỉ định ngay từ đầu
+    (không có cơ chế thành viên tự xung phong)."""
+    ev = db.get_or_404(Event, event_id)
     if event_is_terminal(ev):
         abort(400)
 
     assignee_mssv = request.form.get("assignee_mssv", "").strip()
     assignee = User.query.filter_by(mssv=assignee_mssv, status="approved").first()
     if not assignee:
-        flash("Khong tim thay thanh vien voi MSSV nay. Task phai co nguoi phu trach ngay tu dau.", "error")
+        flash("Không tìm thấy thành viên với MSSV này. Task phải có người phụ trách ngay từ đầu.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
 
     ban_id = request.form.get("ban_id", type=int)
-    if not ban_id or not Ban.query.get(ban_id):
-        flash("Ban hoat dong khong hop le.", "error")
+    if not ban_id or not db.session.get(Ban, ban_id):
+        flash("Ban hoạt động không hợp lệ.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
     if not any(link.ban_id == ban_id for link in assignee.ban_links):
-        flash("Nguoi phu trach khong thuoc ban cua task.", "error")
+        flash("Người phụ trách không thuộc ban của task.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
     try:
         deadline = datetime.strptime(request.form.get("deadline", ""), "%Y-%m-%dT%H:%M")
     except ValueError:
-        flash("Han task khong hop le.", "error")
+        flash("Hạn task không hợp lệ.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
-    if not request.form.get("ten_task", "").strip() or deadline > ev.thoi_gian_ket_thuc:
-        flash("Ten task hoac han task khong hop le.", "error")
+    ten_task = request.form.get("ten_task", "").strip()
+    mo_ta = request.form.get("mo_ta", "").strip()
+    if not ten_task or len(ten_task) > 150 or len(mo_ta) > 5000 or deadline > ev.thoi_gian_ket_thuc:
+        flash("Tên task (tối đa 150 ký tự), mô tả (tối đa 5000 ký tự) hoặc hạn task không hợp lệ.", "error")
         return redirect(url_for("event.event_detail", event_id=ev.id))
 
     task = Task(
         event_id=ev.id,
-        ten_task=request.form.get("ten_task", "").strip(),
-        mo_ta=request.form.get("mo_ta", "").strip(),
+        ten_task=ten_task,
+        mo_ta=mo_ta,
         deadline=deadline,
         assignee_id=assignee.id,
         ban_id=ban_id,
@@ -331,22 +321,22 @@ def task_new(event_id):
 
     send_email(
         task.assignee.email,
-        f"[CLB] Ban duoc giao task moi: {task.ten_task}",
-        f"Chao {task.assignee.ho_ten},\n\nBan duoc giao task \"{task.ten_task}\" "
-        f"thuoc su kien \"{ev.ten_su_kien}\", han hoan thanh: "
-        f"{task.deadline.strftime('%d/%m/%Y %H:%M')}.\n\n-- AI Agent CLB",
+        f"[CLB] Bạn được giao task mới: {task.ten_task}",
+        f"Chào {task.assignee.ho_ten},\n\nBạn được giao task \"{task.ten_task}\" "
+        f"thuộc sự kiện \"{ev.ten_su_kien}\", hạn hoàn thành: "
+        f"{task.deadline.strftime('%d/%m/%Y %H:%M')}.\n\n-- CLB",
     )
 
-    flash("Da them task moi.", "success")
+    flash("Đã thêm task mới.", "success")
     return redirect(url_for("event.event_detail", event_id=ev.id))
 
 
 @event_bp.route("/task/<int:task_id>/chi-dinh-lai", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def task_reassign(task_id):
-    """BDH doi lai nguoi phu trach mot task da ton tai (van la chi dinh, khong phai xung phong)."""
-    task = Task.query.get_or_404(task_id)
+    """Đổi người phụ trách một task đã tồn tại (vẫn là chỉ định, không phải xung phong)."""
+    task = db.get_or_404(Task, task_id)
     if not _can_manage_task(task):
         abort(403)
     if event_is_terminal(task.event) or task.trang_thai in {"hoan_thanh", "huy"}:
@@ -354,10 +344,10 @@ def task_reassign(task_id):
     mssv = request.form.get("assignee_mssv", "").strip()
     assignee = User.query.filter_by(mssv=mssv, status="approved").first()
     if not assignee:
-        flash("Khong tim thay thanh vien voi MSSV nay.", "error")
+        flash("Không tìm thấy thành viên với MSSV này.", "error")
         return redirect(url_for("event.event_detail", event_id=task.event_id))
     if task.ban_id and not any(link.ban_id == task.ban_id for link in assignee.ban_links):
-        flash("Nguoi phu trach moi khong thuoc ban cua task.", "error")
+        flash("Người phụ trách mới không thuộc ban của task.", "error")
         return redirect(url_for("event.event_detail", event_id=task.event_id))
 
     task.assignee_id = assignee.id
@@ -365,13 +355,13 @@ def task_reassign(task_id):
 
     send_email(
         assignee.email,
-        f"[CLB] Ban duoc chi dinh task: {task.ten_task}",
-        f"Chao {assignee.ho_ten},\n\nBan da duoc chi dinh phu trach task "
-        f"\"{task.ten_task}\", han hoan thanh: "
-        f"{task.deadline.strftime('%d/%m/%Y %H:%M')}.\n\n-- AI Agent CLB",
+        f"[CLB] Bạn được chỉ định task: {task.ten_task}",
+        f"Chào {assignee.ho_ten},\n\nBạn đã được chỉ định phụ trách task "
+        f"\"{task.ten_task}\", hạn hoàn thành: "
+        f"{task.deadline.strftime('%d/%m/%Y %H:%M')}.\n\n-- CLB",
     )
 
-    flash("Da chi dinh lai nguoi phu trach task.", "success")
+    flash("Đã chỉ định lại người phụ trách task.", "success")
     return redirect(url_for("event.event_detail", event_id=task.event_id))
 
 
@@ -379,43 +369,46 @@ def task_reassign(task_id):
 @login_required
 @approved_required
 def task_submit(task_id):
-    """Chi nguoi duoc giao task moi duoc nop va tu doi trang thai -> cho_duyet."""
-    task = Task.query.get_or_404(task_id)
+    """Chỉ người được giao task mới được nộp; nộp xong trạng thái chuyển sang cho_duyet."""
+    task = db.get_or_404(Task, task_id)
     if task.assignee_id != current_user.id:
         abort(403)
     if task.trang_thai not in {"dang_lam", "lam_lai"} or event_is_terminal(task.event):
         abort(400)
 
     noi_dung_moi = request.form.get("noi_dung_nop", "").strip()
-    # "Neu chua co thay doi trong o nop san pham thi trang thai khong duoc doi."
+    # Nội dung nộp không thay đổi thì trạng thái giữ nguyên
+    if len(noi_dung_moi) > 10000:
+        flash("Nội dung nộp tối đa 10000 ký tự.", "error")
+        return redirect(url_for("event.event_detail", event_id=task.event_id))
     if noi_dung_moi and noi_dung_moi != (task.noi_dung_nop or ""):
         task.noi_dung_nop = noi_dung_moi
-        task.lan_nop_gan_nhat = datetime.utcnow()
+        task.lan_nop_gan_nhat = utcnow()
         task.trang_thai = "cho_duyet"
         db.session.commit()
 
-        nguoi_tao = User.query.get(task.event.tao_boi_id)
+        nguoi_tao = db.session.get(User, task.event.tao_boi_id)
         if nguoi_tao:
             send_email(
                 nguoi_tao.email,
-                f"[CLB] Co san pham cho task \"{task.ten_task}\" cho duyet",
-                f"Chao {nguoi_tao.ho_ten},\n\n{current_user.ho_ten} vua nop san pham "
-                f"cho task \"{task.ten_task}\" (su kien \"{task.event.ten_su_kien}\"), "
-                "dang cho BDH duyet.\n\n-- AI Agent CLB",
+                f"[CLB] Có sản phẩm cho task \"{task.ten_task}\" chờ duyệt",
+                f"Chào {nguoi_tao.ho_ten},\n\n{current_user.ho_ten} vừa nộp sản phẩm "
+                f"cho task \"{task.ten_task}\" (sự kiện \"{task.event.ten_su_kien}\"), "
+                "đang chờ BĐH duyệt.\n\n-- CLB",
             )
 
-        flash("Da nop san pham, cho BDH duyet.", "success")
+        flash("Đã nộp sản phẩm, chờ BĐH duyệt.", "success")
     else:
-        flash("Chua co thay doi noi dung nop, trang thai giu nguyen.", "error")
+        flash("Chưa có thay đổi nội dung nộp, trạng thái giữ nguyên.", "error")
     return redirect(url_for("event.event_detail", event_id=task.event_id))
 
 
 @event_bp.route("/task/<int:task_id>/cap-nhat-trang-thai", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def task_update_status(task_id):
-    """BDH doi trang thai: lam_lai (can nhan xet) / hoan_thanh / huy. Khong duoc tu dat 'dang_lam' hay 'cho_duyet'."""
-    task = Task.query.get_or_404(task_id)
+    """Duyệt task: lam_lai (bắt buộc nhận xét) / hoan_thanh / huy. Không được đặt 'dang_lam' hay 'cho_duyet'."""
+    task = db.get_or_404(Task, task_id)
     if not _can_manage_task(task):
         abort(403)
     if event_is_terminal(task.event) or task.trang_thai in {"hoan_thanh", "huy"}:
@@ -428,37 +421,35 @@ def task_update_status(task_id):
     if new_status in {"lam_lai", "hoan_thanh"} and task.trang_thai != "cho_duyet":
         abort(400)
     if new_status == "lam_lai" and not nhan_xet:
-        flash("Phai nhap nhan xet khi yeu cau lam lai.", "error")
+        flash("Phải nhập nhận xét khi yêu cầu làm lại.", "error")
         return redirect(url_for("event.event_detail", event_id=task.event_id))
 
     task.trang_thai = new_status
     task.nhan_xet_bdh = nhan_xet or task.nhan_xet_bdh
     db.session.commit()
 
-    status_label = {"lam_lai": "Lam lai", "hoan_thanh": "Hoan thanh", "huy": "Huy"}[new_status]
+    status_label = {"lam_lai": "Làm lại", "hoan_thanh": "Hoàn thành", "huy": "Hủy"}[new_status]
     body = (
-        f"Chao {task.assignee.ho_ten},\n\nTask \"{task.ten_task}\" "
-        f"(su kien \"{task.event.ten_su_kien}\") vua duoc BDH cap nhat trang thai: "
+        f"Chào {task.assignee.ho_ten},\n\nTask \"{task.ten_task}\" "
+        f"(sự kiện \"{task.event.ten_su_kien}\") vừa được BĐH cập nhật trạng thái: "
         f"{status_label}."
     )
     if nhan_xet:
-        body += f"\n\nNhan xet cua BDH: {nhan_xet}"
-    body += "\n\n-- AI Agent CLB"
-    send_email(task.assignee.email, f"[CLB] Cap nhat task: {task.ten_task}", body)
+        body += f"\n\nNhận xét của BĐH: {nhan_xet}"
+    body += "\n\n-- CLB"
+    send_email(task.assignee.email, f"[CLB] Cập nhật task: {task.ten_task}", body)
 
-    flash("Da cap nhat trang thai task.", "success")
+    flash("Đã cập nhật trạng thái task.", "success")
     return redirect(url_for("event.event_detail", event_id=task.event_id))
 
 
 @event_bp.route("/event/<int:event_id>/ket-thuc", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def event_end(event_id):
-    """
-    BDH danh dau su kien da ket thuc. Day la thoi diem duy nhat tinh
-    trang hoat dong cua cac thanh vien lien quan (theo ban) duoc cap nhat lai.
-    """
-    ev = Event.query.get_or_404(event_id)
+    """Đánh dấu sự kiện đã kết thúc. Đây là thời điểm duy nhất tình trạng
+    hoạt động của các thành viên liên quan (theo ban) được tính lại."""
+    ev = db.get_or_404(Event, event_id)
     if event_is_terminal(ev):
         abort(400)
     ev.trang_thai = "da_ket_thuc"
@@ -466,5 +457,5 @@ def event_end(event_id):
 
     cap_nhat_hoat_dong_khi_event_ket_thuc(ev)
 
-    flash("Da danh dau su kien ket thuc va cap nhat lai tinh trang hoat dong lien quan.", "success")
+    flash("Đã đánh dấu sự kiện kết thúc và cập nhật lại tình trạng hoạt động liên quan.", "success")
     return redirect(url_for("event.event_detail", event_id=ev.id))

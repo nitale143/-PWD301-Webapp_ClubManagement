@@ -4,7 +4,7 @@
 {% block content %}
 {% set event_status_labels = {'sap_dien_ra': 'Sắp diễn ra', 'dang_dien_ra': 'Đang diễn ra', 'da_ket_thuc': 'Đã kết thúc'} %}
 {% set accent = ['indigo', 'orange', 'violet', 'teal'][event.id % 4] %}
-{% set visible_tasks = event.tasks if current_user.is_bdh() else event.tasks|selectattr('assignee_id', 'equalto', current_user.id)|list %}
+{% set visible_tasks = event.tasks if can(Permission.MANAGE_EVENTS) else event.tasks|selectattr('assignee_id', 'equalto', current_user.id)|list %}
 {% set registered_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|list|length %}
 {% set waitlist_count = registrations|selectattr('trang_thai', 'equalto', 'waitlist')|list|length %}
 {% set attended_count = registrations|selectattr('trang_thai', 'equalto', 'registered')|selectattr('attendance.trang_thai', 'in', ['on_time', 'late'])|list|length %}
@@ -106,7 +106,7 @@
         <div class="task-list">
             {% for task in visible_tasks %}
             {% set task_status_labels = {'dang_lam': 'Đang làm', 'cho_duyet': 'Chờ duyệt', 'lam_lai': 'Cần làm lại', 'hoan_thanh': 'Hoàn thành', 'huy': 'Đã hủy'} %}
-            {% set can_manage_task = current_user.is_bdh() %}
+            {% set can_manage_task = can(Permission.MANAGE_EVENTS) %}
             <details class="task-card detail-task-card">
                 <summary class="row task-card-title"><span class="grow"><strong>{{ task.ten_task }}</strong><span class="small muted">{{ task.ban.ten_ban if task.ban else 'Chưa gắn ban' }} · {{ task.assignee.ho_ten }}</span></span>{{ badge(task_status_labels.get(task.trang_thai, task.trang_thai), {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'}.get(task.trang_thai, 'neutral')) }}</summary>
                 <div class="detail-task-body">

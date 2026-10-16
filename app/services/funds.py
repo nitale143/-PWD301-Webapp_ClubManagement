@@ -1,4 +1,3 @@
-from datetime import datetime
 from decimal import Decimal
 
 from app import db
@@ -8,6 +7,7 @@ from app.models import (
 )
 from .access import approved, is_treasurer, require
 from .common import DomainError, audit, club_now, parse_date, parse_money
+from app.timeutil import utcnow
 
 
 COLLECTION_TYPES = {"monthly", "semester", "yearly", "event", "voluntary", "other"}
@@ -16,6 +16,9 @@ PAYMENT_METHODS = {"cash", "transfer", "other"}
 
 
 def target_members(fund):
+    """Query thành viên phải đóng khoản thu (tất cả hoặc theo ban áp dụng), bỏ người đã rời/lưu
+    trữ.
+    """
     query = User.query.filter_by(status="approved").outerjoin(
         MemberRecord, User.id == MemberRecord.user_id
     ).filter(MemberRecord.luu_tru_luc.is_(None)).filter(
@@ -28,10 +31,12 @@ def target_members(fund):
 
 
 def applies_to_member(fund, member):
+    """True nếu khoản thu áp dụng cho thành viên."""
     return target_members(fund).filter(User.id == member.id).first() is not None
 
 
 def create_collection(actor, data):
+    """Tạo khoản thu mới sau khi kiểm tra tên, loại, số tiền, ngày, ban áp dụng (MANAGE_FUNDS)."""
     require(is_treasurer(actor))
     name = str(data.get("name", "")).strip()
     kind = str(data.get("type", "")).strip()
@@ -72,6 +77,9 @@ def create_collection(actor, data):
 
 
 def balance(fund, member, as_of=None):
+    """Số phải đóng (sau miễn/giảm), đã đóng (đã xác nhận), còn thiếu và trạng thái
+    (exempt/paid/partial/overdue/unpaid) của một thành viên.
+    """
     if not applies_to_member(fund, member):
         raise DomainError("Thành viên không thuộc đối tượng đóng khoản thu này.", 404)
     adjustment = FundAdjustment.query.filter_by(fund_id=fund.id, user_id=member.id).first()
@@ -102,6 +110,9 @@ def balance(fund, member, as_of=None):
 
 
 def record_payment(actor, fund, member, data):
+    """Ghi nhận một lần đóng tiền (pending); chặn khi khoản thu không mở, sai phương thức, hoặc số
+    tiền vượt phần còn thiếu (tính cả khoản đang chờ xác nhận).
+    """
     require(approved(actor) and (actor.id == member.id or is_treasurer(actor)))
     if fund.trang_thai != "open":
         raise DomainError("Khoản thu hiện không mở nhận thanh toán.")
@@ -122,7 +133,7 @@ def record_payment(actor, fund, member, data):
     payment = FundPayment(
         fund_id=fund.id, user_id=member.id,
         so_tien=amount,
-        ngay_dong=datetime.utcnow(), phuong_thuc=method,
+        ngay_dong=utcnow(), phuong_thuc=method,
         ma_giao_dich=str(data.get("transaction_code", "")).strip()[:100],
         ghi_chu=str(data.get("note", "")).strip(), trang_thai="pending",
     )
@@ -134,6 +145,9 @@ def record_payment(actor, fund, member, data):
 
 
 def review_payment(actor, payment, decision, note=""):
+    """Xác nhận/từ chối thanh toán đang chờ bằng UPDATE có điều kiện (chống hai người duyệt cùng
+    lúc).
+    """
     require(is_treasurer(actor))
     if payment.trang_thai != "pending":
         raise DomainError("Chỉ có thể duyệt giao dịch đang chờ xác nhận.")
@@ -147,7 +161,7 @@ def review_payment(actor, payment, decision, note=""):
         raise DomainError("Giao dịch đã được xử lý.")
     payment.trang_thai = decision
     payment.xac_nhan_boi_id = actor.id
-    payment.xac_nhan_luc = datetime.utcnow()
+    payment.xac_nhan_luc = utcnow()
     payment.ghi_chu = str(note).strip() or payment.ghi_chu
     audit(actor, f"fund_payment_{decision}", payment, {"amount": str(payment.so_tien)})
     db.session.commit()
@@ -155,6 +169,7 @@ def review_payment(actor, payment, decision, note=""):
 
 
 def adjust_fund(actor, fund, member, data):
+    """Miễn hoặc giảm khoản thu cho một thành viên, bắt buộc lý do."""
     require(is_treasurer(actor))
     if not applies_to_member(fund, member):
         raise DomainError("Thành viên không thuộc đối tượng của khoản thu.")
@@ -175,7 +190,7 @@ def adjust_fund(actor, fund, member, data):
     adjustment.so_tien = Decimal("0.00") if kind == "exempt" else amount
     adjustment.ly_do = reason
     adjustment.tao_boi_id = actor.id
-    adjustment.tao_luc = datetime.utcnow()
+    adjustment.tao_luc = utcnow()
     db.session.flush()
     audit(actor, "fund_adjustment", adjustment, {"type": kind, "amount": str(adjustment.so_tien), "reason": reason})
     db.session.commit()

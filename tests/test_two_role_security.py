@@ -6,12 +6,13 @@ from unittest.mock import patch
 
 from flask import g
 
+from tests.support import sign_csrf
 from app import create_app, db
-from app.models import Ban, Event, MemberRecord, Task, User, UserBan
+from app.models import Ban, Event, MemberRecord, Permission, Task, User, UserBan
 from app.services.access import (
     can_manage_member,
     can_view_all_members,
-    is_admin,
+    has_permission,
     is_board,
     is_treasurer,
     set_member_left_safely,
@@ -22,6 +23,7 @@ from app.permissions import can_assign_role
 
 
 class TwoRoleSecurityTests(unittest.TestCase):
+    """Kiểm thử chính sách phân quyền theo chức vụ (Role/Permission)."""
     ADMIN_ROLES = ((1, "CN"), (2, "PCN"), (3, "TB"), (4, "THUKY_THUQUY"))
 
     def setUp(self):
@@ -69,31 +71,69 @@ class TwoRoleSecurityTests(unittest.TestCase):
         with self.client.session_transaction() as session:
             session["_user_id"] = str(user_id)
             session["_fresh"] = True
-            session["_csrf_token"] = self.csrf_token
+            session["csrf_token"] = self.csrf_token
         g.pop("_login_user", None)
 
     @property
     def csrf_headers(self):
-        return {"X-CSRF-Token": self.csrf_token}
+        return {"X-CSRF-Token": sign_csrf(self.app, self.csrf_token)}
 
-    def test_all_four_designations_share_global_admin_access(self):
-        for user_id, _role in self.ADMIN_ROLES:
+    # Bảng quyền đã thống nhất với CLB (xem app/models.py DEFAULT_ROLES):
+    #                    CN  PCN  TB  TK/TQ  TV
+    # Xem/duyệt TV       x   x    -   -      -
+    # Quản lý TV         x   x    x   -      -
+    # Sự kiện & task     x   x    x   x      -
+    # Quỹ (ghi/duyệt)    x   x    -   x      -
+    # Phân vai trò       x   x*   -   -      -   (* PCN không gán PCN/CN)
+    # Nhường chức vụ     x   x    x   x      -
+    MATRIX = {
+        "CN": {"approve": True, "members": True, "events": True, "funds": True, "assign": True, "handoff": True},
+        "PCN": {"approve": True, "members": True, "events": True, "funds": True, "assign": True, "handoff": True},
+        "TB": {"approve": False, "members": True, "events": True, "funds": False, "assign": False, "handoff": True},
+        "THUKY_THUQUY": {"approve": False, "members": False, "events": True, "funds": True, "assign": False, "handoff": True},
+        "THANH_VIEN": {"approve": False, "members": False, "events": False, "funds": False, "assign": False, "handoff": False},
+    }
+
+    def test_permission_matrix_matches_club_policy(self):
+        for user_id, role in (*self.ADMIN_ROLES, (5, "THANH_VIEN")):
             actor = db.session.get(User, user_id)
-            self.assertTrue(is_admin(actor))
-            self.assertTrue(is_board(actor))
-            self.assertTrue(is_treasurer(actor))
-            self.assertTrue(can_view_all_members(actor))
-            self.assertTrue(can_manage_member(actor, db.session.get(User, 5)))
-            self.assertEqual({row.id for row in visible_members(actor)}, set(range(1, 7)))
-            self.assertTrue(can_assign_role(actor, db.session.get(User, 5), "PCN", {})[0])
+            expected = self.MATRIX[role]
+            checks = {
+                "approve": has_permission(actor, Permission.APPROVE_MEMBERS),
+                "members": has_permission(actor, Permission.MANAGE_MEMBERS),
+                "events": has_permission(actor, Permission.MANAGE_EVENTS),
+                "funds": has_permission(actor, Permission.MANAGE_FUNDS),
+                "assign": has_permission(actor, Permission.ASSIGN_ROLES),
+                "handoff": has_permission(actor, Permission.HANDOFF_ROLE),
+            }
+            self.assertEqual(checks, expected, role)
+            self.assertEqual(is_board(actor), role != "THANH_VIEN", role)
+            self.assertEqual(is_treasurer(actor), expected["funds"], role)
+            self.assertEqual(can_view_all_members(actor), expected["members"], role)
+            self.assertEqual(can_manage_member(actor, db.session.get(User, 6)), expected["members"], role)
+            expected_ids = set(range(1, 7)) if expected["members"] else {user_id}
+            self.assertEqual({row.id for row in visible_members(actor)}, expected_ids, role)
 
             self.login(user_id)
-            self.assertEqual(self.client.get("/admin/roles").status_code, 200)
+            self.assertEqual(self.client.get("/admin/roles").status_code,
+                             200 if expected["handoff"] else 403, role)
+            self.assertEqual(self.client.get("/admin/approve").status_code,
+                             200 if expected["approve"] else 403, role)
             response = self.client.get("/api/v1/members")
             self.assertEqual(response.status_code, 200)
-            self.assertEqual({row["id"] for row in response.json["items"]}, set(range(1, 7)))
+            self.assertEqual({row["id"] for row in response.json["items"]}, expected_ids, role)
+            self.assertEqual(self.client.get("/api/v1/reports/funds.xlsx").status_code,
+                             200 if expected["funds"] else 403, role)
 
         self.assertFalse(can_assign_role(db.session.get(User, 1), db.session.get(User, 5), "CN", {})[0])
+
+    def test_template_management_is_limited_to_cn_and_pcn(self):
+        for user_id, role in self.ADMIN_ROLES:
+            self.login(user_id)
+            response = self.client.post("/ai/email-templates", data={
+                "name": f"Mau {user_id}", "subject": "Tieu de", "body": "Noi dung"},
+                headers=self.csrf_headers)
+            self.assertEqual(response.status_code, 302 if role in {"CN", "PCN"} else 403, role)
 
     def test_member_listing_and_member_ids_stay_in_own_scope(self):
         self.login(5)
@@ -108,28 +148,56 @@ class TwoRoleSecurityTests(unittest.TestCase):
         self.assertEqual(self.client.patch("/api/v1/members/5", json={"status": "left"},
                                            headers=self.csrf_headers).status_code, 403)
 
-    def test_role_assignment_has_no_rank_gate_and_cn_uses_the_transfer_workflow(self):
-        self.login(4)
-        assigned = self.client.post("/admin/roles/5/assign",
-                                    data={"chuc_vu": "PCN"},
-                                    headers=self.csrf_headers)
-        self.assertEqual(assigned.status_code, 302)
-        self.assertEqual(db.session.get(User, 5).chuc_vu, "PCN")
+    def test_role_assignment_follows_rank_and_cn_uses_the_transfer_workflow(self):
+        # Thư ký/Thủ quỹ và Trưởng ban không có quyền phân vai trò
+        for user_id in (3, 4):
+            self.login(user_id)
+            denied = self.client.post("/admin/roles/5/assign", data={"chuc_vu": "THUKY_THUQUY"},
+                                      headers=self.csrf_headers)
+            self.assertEqual(denied.status_code, 403)
+        self.assertEqual(db.session.get(User, 5).chuc_vu, "THANH_VIEN")
 
-        direct_cn = self.client.post("/admin/roles/5/assign",
-                                     data={"chuc_vu": "CN"},
+        # PCN không được gán PCN/CN và không đổi vai trò của CN/PCN khác
+        self.login(2)
+        for new_role in ("PCN", "CN"):
+            refused = self.client.post("/admin/roles/5/assign", data={"chuc_vu": new_role},
+                                       headers=self.csrf_headers)
+            self.assertEqual(refused.status_code, 302)
+            self.assertEqual(db.session.get(User, 5).chuc_vu, "THANH_VIEN")
+        self.client.post("/admin/roles/1/assign", data={"chuc_vu": "THANH_VIEN"}, headers=self.csrf_headers)
+        self.assertEqual(db.session.get(User, 1).chuc_vu, "CN")
+        # ... nhưng gán được vai trò thấp hơn mình
+        demoted = self.client.post("/admin/roles/4/assign", data={"chuc_vu": "THANH_VIEN"},
+                                   headers=self.csrf_headers)
+        self.assertEqual(demoted.status_code, 302)
+        self.assertEqual(db.session.get(User, 4).chuc_vu, "THANH_VIEN")
+
+        # CN gán được PCN; CN chỉ chuyển qua quy trình nhường quyền
+        self.login(1)
+        promoted = self.client.post("/admin/roles/6/assign", data={"chuc_vu": "THUKY_THUQUY"},
+                                    headers=self.csrf_headers)
+        self.assertEqual(promoted.status_code, 302)
+        self.assertEqual(db.session.get(User, 6).chuc_vu, "THUKY_THUQUY")
+        direct_cn = self.client.post("/admin/roles/5/assign", data={"chuc_vu": "CN"},
                                      headers=self.csrf_headers)
         self.assertEqual(direct_cn.status_code, 302)
-        self.assertEqual(db.session.get(User, 5).chuc_vu, "PCN")
+        self.assertEqual(db.session.get(User, 5).chuc_vu, "THANH_VIEN")
 
-        self.login(1)
         handoff = self.client.post("/admin/roles/nhuong-quyen",
-                                   data={"target_id": "6"},
+                                   data={"target_id": "5"},
                                    headers=self.csrf_headers)
         self.assertEqual(handoff.status_code, 302)
         self.assertEqual(db.session.get(User, 1).chuc_vu, "THANH_VIEN")
-        self.assertEqual(db.session.get(User, 6).chuc_vu, "CN")
+        self.assertEqual(db.session.get(User, 5).chuc_vu, "CN")
         self.assertEqual(User.query.filter_by(status="approved", chuc_vu="CN").count(), 1)
+
+    def test_every_board_role_can_hand_off_its_own_designation(self):
+        self.login(4)
+        handoff = self.client.post("/admin/roles/nhuong-quyen", data={"target_id": "6"},
+                                   headers=self.csrf_headers)
+        self.assertEqual(handoff.status_code, 302)
+        self.assertEqual(db.session.get(User, 4).chuc_vu, "THANH_VIEN")
+        self.assertEqual(db.session.get(User, 6).chuc_vu, "THUKY_THUQUY")
 
     def test_last_active_admin_cannot_be_archived_left_or_downgraded(self):
         for user_id in (2, 3, 4):

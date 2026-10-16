@@ -3,11 +3,12 @@
 import re
 
 from app.models import Task, User
-from .access import is_board, require, visible_members
+from .access import board_members as visible_members, can_manage_events, require
 from .assistant import _normalize
 
 
 def member_query_kind(message):
+    """Nhận diện câu hỏi xem hồ sơ (member) hay task (tasks) của một thành viên."""
     text = _normalize(message).strip()
     if re.search(r"^(?:(?:ai oi|hay|giup|toi muon)\s+)*(?:tao|chia|giao|phan cong|de xuat|sua|cap nhat|xoa)\b", text):
         return None
@@ -21,6 +22,7 @@ def member_query_kind(message):
 
 
 def _member(actor, message):
+    """Tìm đúng một thành viên được nhắc trong câu (MSSV/họ tên), trong phạm vi tra cứu."""
     text = _normalize(message)
     members = visible_members(actor).order_by(User.id).all()
     codes = [row for row in members if re.search(
@@ -49,6 +51,9 @@ def _member(actor, message):
 
 
 def maybe_answer_member_query(actor, message):
+    """Trả lời hồ sơ/task của thành viên bằng truy vấn kiểm chứng; mốc thời gian chưa hỗ trợ thì
+    báo rõ.
+    """
     kind = member_query_kind(message)
     if not kind:
         return None
@@ -75,8 +80,8 @@ def maybe_answer_member_query(actor, message):
                 f"Hồ sơ hiện tại: {member.ho_ten} ({member.mssv}).\n"
                 f"Chức vụ: {member.chuc_vu}; trạng thái tài khoản: {member.status}; ban: {bans}.\n"
                 f"Nguồn: user #{member.id} và liên kết ban hiện tại trong database CLB."}
-    require(is_board(actor) or member.id == actor.id,
-            "Bạn chỉ được xem task của mình hoặc task trong phạm vi BDH quản lý.")
+    require(can_manage_events(actor) or member.id == actor.id,
+            "Bạn chỉ được xem task của mình hoặc task trong phạm vi bạn quản lý.")
     text = _normalize(message)
     completed = ("hoan thanh" in text or "da xong" in text) and not any(
         phrase in text for phrase in ("chua hoan thanh", "khong hoan thanh", "chua xong"))

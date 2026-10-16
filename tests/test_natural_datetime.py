@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from flask import g
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import (
     AIProposal,
@@ -190,8 +191,7 @@ class NaturalDateTimeTests(unittest.TestCase):
 
     def csrf(self):
         self.client.get("/ai")
-        with self.client.session_transaction() as session:
-            return session["_csrf_token"]
+        return csrf_for(self.client)
 
     def _assistant(self, question, conversation_id, csrf=True):
         headers = {"X-CSRF-Token": self.csrf()} if csrf else None

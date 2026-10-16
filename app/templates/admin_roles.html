@@ -3,14 +3,13 @@
 {% block title %}{{ workspace_title }}{% endblock %}
 
 {% macro role_label(value) -%}
-    {% set labels = {'CN': 'Chủ nhiệm', 'PCN': 'Phó Chủ nhiệm', 'TB': 'Trưởng ban', 'THUKY_THUQUY': 'Thư ký / Thủ quỹ', 'THANH_VIEN': 'Thành viên'} %}
-    {{ labels.get(value, value) }}
+    {{ role_labels.get(value, value) }}
 {%- endmacro %}
 
 {% block content %}
 {% set transfer_targets = namespace(count=0) %}
 {% for m in members %}
-    {% if m.id != current_user.id and current_user.outranks(m) and (current_user.chuc_vu != 'THUKY_THUQUY' or m.chuc_vu == 'THANH_VIEN') and (m.member_record is none or (m.member_record.luu_tru_luc is none and m.member_record.tinh_trang != 'left')) %}
+    {% if current_user.can(Permission.HANDOFF_ROLE) and m.id != current_user.id and current_user.outranks(m) and (current_user.chuc_vu != 'THUKY_THUQUY' or m.chuc_vu == 'THANH_VIEN') and (m.member_record is none or (m.member_record.luu_tru_luc is none and m.member_record.tinh_trang != 'left')) %}
         {% set transfer_targets.count = transfer_targets.count + 1 %}
     {% endif %}
 {% endfor %}
@@ -24,7 +23,7 @@
     </div>
 
     <div class="card card-body preview-role-guidance">
-        <div class="row">{{ icon('shield') }}<div><strong>Giới hạn vai trò</strong><p class="muted small">Chủ nhiệm tối đa 1 · Phó Chủ nhiệm tối đa 2 · Trưởng ban tối đa 3 · Thư ký / Thủ quỹ tối đa 1. Chỉ người có quyền cao hơn mới được chỉ định xuống.</p></div></div>
+        <div class="row">{{ icon('shield') }}<div><strong>Giới hạn vai trò</strong><p class="muted small">Chủ nhiệm tối đa 1 · Phó Chủ nhiệm tối đa 2 · Trưởng ban tối đa 3 · Thư ký / Thủ quỹ tối đa 1. Chủ nhiệm và Phó Chủ nhiệm được phân vai trò, nhưng chỉ gán vai trò thấp hơn cấp của mình (Phó Chủ nhiệm không gán Phó Chủ nhiệm/Chủ nhiệm). Mọi chức vụ BĐH đều có thể nhường chức vụ của chính mình.</p></div></div>
     </div>
 
     <section class="card">
@@ -45,7 +44,7 @@
                     <td>{{ m.mssv }}</td>
                     <td>{{ team_names or '—' }}</td>
                     <td>{{ badge(role_label(m.chuc_vu), 'neutral' if m.chuc_vu == 'THANH_VIEN' else 'indigo') }}</td>
-                    <td>{% if current_user.is_bdh() and m.id != current_user.id %}<button class="btn btn-secondary btn-sm" type="button" data-dialog-open="role-assign-{{ m.id }}">{{ icon('edit') }} Gán chức vụ</button>{% endif %}</td>
+                    <td>{% if m.id in assignable_ids %}<button class="btn btn-secondary btn-sm" type="button" data-dialog-open="role-assign-{{ m.id }}">{{ icon('edit') }} Gán chức vụ</button>{% endif %}</td>
                 </tr>
                 {% endfor %}
                 </tbody>
@@ -58,7 +57,7 @@
 
     <p class="small muted">{{ icon('shield') }} Các thay đổi chức vụ chỉ được lưu sau khi bạn xác nhận biểu mẫu.</p>
 
-    {% for m in members if current_user.is_bdh() and m.id != current_user.id %}
+    {% for m in members if m.id in assignable_ids %}
     {% set current_team_lead = m.ban_links|selectattr('is_truong_ban', 'equalto', true)|first %}
     <dialog class="dialog parity-finance-dialog" id="role-assign-{{ m.id }}" aria-labelledby="role-assign-title-{{ m.id }}">
         <div class="dialog-heading"><div><p class="eyebrow">BAN ĐIỀU HÀNH · PHÂN QUYỀN</p><h2 id="role-assign-title-{{ m.id }}">Gán chức vụ · {{ m.ho_ten }}</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
@@ -67,10 +66,7 @@
             <div class="field"><span class="field-label">Thành viên</span><div class="input parity-readonly-field">{{ m.ho_ten }} · {{ m.mssv }}</div></div>
             <label class="field"><span class="field-label">Chức vụ mới</span>
                 <select class="select" name="chuc_vu" required data-role-select>
-                    <option value="PCN"{% if m.chuc_vu == 'PCN' %} selected{% endif %}>Phó Chủ nhiệm</option>
-                    <option value="TB"{% if m.chuc_vu == 'TB' %} selected{% endif %}>Trưởng ban</option>
-                    <option value="THUKY_THUQUY"{% if m.chuc_vu == 'THUKY_THUQUY' %} selected{% endif %}>Thư ký / Thủ quỹ</option>
-                    <option value="THANH_VIEN"{% if m.chuc_vu == 'THANH_VIEN' %} selected{% endif %}>Thành viên</option>
+                    {% for role in assignable_roles %}<option value="{{ role }}"{% if m.chuc_vu == role %} selected{% endif %}>{{ role_labels[role] }}</option>{% endfor %}
                 </select>
             </label>
             <label class="field"><span class="field-label">Ban quản lý (nếu là Trưởng ban)</span>

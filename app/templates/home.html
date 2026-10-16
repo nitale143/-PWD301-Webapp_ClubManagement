@@ -10,7 +10,7 @@
             <p class="muted">Những cập nhật và đầu việc mới nhất trong phạm vi bạn có thể xem.</p>
             <div class="toolbar">
                 <div class="toolbar-left">
-                    {% if current_user.is_bdh() %}
+                    {% if can(Permission.MANAGE_EVENTS) %}
                     <a class="btn btn-primary" href="{{ url_for('event.event_new') }}">{{ icon('plus') }} Tạo sự kiện</a>
                     {% endif %}
                     <a class="btn btn-secondary" href="{{ url_for('member.member_list') }}">{{ icon('users') }} Xem thành viên</a>

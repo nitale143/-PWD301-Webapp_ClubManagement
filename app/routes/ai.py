@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 import json
 from uuid import uuid4
 
@@ -8,7 +8,8 @@ from flask_login import login_required, current_user
 
 from app import db
 from app.models import AIProposal, AIReportSnapshot, AIUsageLog, Ban, EmailProposal, EmailTemplate, Event
-from app.permissions import approved_required, bdh_required, role_required
+from app.models import Permission
+from app.permissions import approved_required, bdh_required, permission_required
 from app.security import require_csrf
 from app.services.agent import check_chat_rate, respond, respond_events
 from app.services.access import is_board, actor_scope_stamp
@@ -23,6 +24,7 @@ from app.services.email_templates import save_template, set_template_active
 from app.services.briefings import (can_access_report, daily_digest, report_data,
                                     report_email_draft, report_text, report_workbook,
                                     save_report)
+from app.timeutil import utcnow
 
 ai_bp = Blueprint("ai", __name__)
 
@@ -113,6 +115,9 @@ def ai_stream():
 @login_required
 @approved_required
 def ai_chat():
+    """Trang Trợ lý AI: lịch sử hội thoại, danh sách cuộc trò chuyện; với BĐH thêm tóm tắt ngày,
+    báo cáo, đề xuất và nháp email chờ duyệt.
+    """
     if request.method == "POST":
         require_csrf()
         content = request.form.get("message", "").strip()
@@ -176,7 +181,7 @@ def ai_chat():
         ).order_by(EmailProposal.created_at.desc())
         email_proposals = [draft for draft in email_query.limit(30) if can_review_email(current_user, draft)]
         usage_query = AIUsageLog.query.filter(
-            AIUsageLog.created_at >= datetime.utcnow() - timedelta(days=1))
+            AIUsageLog.created_at >= utcnow() - timedelta(days=1))
         usage = usage_query.all()
         usage_summary = {"calls": len(usage),
                          "tokens": sum(row.total_tokens for row in usage),
@@ -206,6 +211,7 @@ def ai_chat():
 @login_required
 @approved_required
 def conversation_new():
+    """Tạo cuộc trò chuyện AI mới cho người đang đăng nhập."""
     require_csrf()
     try:
         conversation = create_conversation(current_user, request.form.get("title"))
@@ -218,6 +224,7 @@ def conversation_new():
 
 
 def _change_conversation(conversation_id, action):
+    """Đổi tên / lưu trữ / khôi phục một cuộc trò chuyện thuộc sở hữu của người dùng."""
     require_csrf()
     try:
         conversation = owned_conversation(current_user, conversation_id)
@@ -225,7 +232,7 @@ def _change_conversation(conversation_id, action):
             conversation.title = checked_title(request.form.get("title"))
         else:
             conversation.archived = action == "archive"
-        conversation.updated_at = datetime.utcnow()
+        conversation.updated_at = utcnow()
         db.session.commit()
         flash("Đã lưu thay đổi cuộc trò chuyện.", "success")
         return redirect(url_for("ai.ai_chat", chat=conversation.id,
@@ -242,6 +249,7 @@ def _change_conversation(conversation_id, action):
 @login_required
 @approved_required
 def conversation_rename(conversation_id):
+    """Đổi tên cuộc trò chuyện."""
     return _change_conversation(conversation_id, "rename")
 
 
@@ -249,6 +257,7 @@ def conversation_rename(conversation_id):
 @login_required
 @approved_required
 def conversation_archive(conversation_id):
+    """Lưu trữ (ẩn) cuộc trò chuyện."""
     return _change_conversation(conversation_id, "archive")
 
 
@@ -256,6 +265,7 @@ def conversation_archive(conversation_id):
 @login_required
 @approved_required
 def conversation_restore(conversation_id):
+    """Khôi phục cuộc trò chuyện đã lưu trữ."""
     return _change_conversation(conversation_id, "restore")
 
 
@@ -263,6 +273,7 @@ def conversation_restore(conversation_id):
 @login_required
 @bdh_required
 def report_save(period):
+    """Lưu bản chụp báo cáo tuần/tháng (AIReportSnapshot) để tải Excel hoặc tạo nháp email."""
     require_csrf()
     try:
         saved = save_report(current_user, period)
@@ -277,6 +288,7 @@ def report_save(period):
 @login_required
 @bdh_required
 def report_export(report_id):
+    """Tải file Excel của đúng bản báo cáo đã lưu."""
     snapshot = db.get_or_404(AIReportSnapshot, report_id)
     if not can_access_report(current_user, snapshot):
         abort(403)
@@ -290,6 +302,7 @@ def report_export(report_id):
 @login_required
 @bdh_required
 def report_draft_email(report_id):
+    """Tạo nháp email chứa báo cáo gửi tới email hồ sơ của chính người dùng (chưa gửi)."""
     require_csrf()
     snapshot = db.get_or_404(AIReportSnapshot, report_id)
     if not can_access_report(current_user, snapshot):
@@ -305,8 +318,9 @@ def report_draft_email(report_id):
 
 @ai_bp.post("/ai/email-templates")
 @login_required
-@role_required("CN", "PCN")
+@permission_required(Permission.MANAGE_TEMPLATES)
 def email_template_create():
+    """Tạo mail mẫu dùng chung (quyền MANAGE_TEMPLATES)."""
     require_csrf()
     try:
         save_template(current_user, request.form.get("name"), request.form.get("subject"),
@@ -320,8 +334,9 @@ def email_template_create():
 
 @ai_bp.post("/ai/email-templates/<int:template_id>/update")
 @login_required
-@role_required("CN", "PCN")
+@permission_required(Permission.MANAGE_TEMPLATES)
 def email_template_update(template_id):
+    """Sửa mail mẫu; nháp cũ giữ nguyên nội dung đã xem trước."""
     require_csrf()
     template = db.get_or_404(EmailTemplate, template_id)
     try:
@@ -336,8 +351,9 @@ def email_template_update(template_id):
 
 @ai_bp.post("/ai/email-templates/<int:template_id>/active")
 @login_required
-@role_required("CN", "PCN")
+@permission_required(Permission.MANAGE_TEMPLATES)
 def email_template_active(template_id):
+    """Bật/tắt mail mẫu."""
     require_csrf()
     template = db.get_or_404(EmailTemplate, template_id)
     set_template_active(current_user, template, request.form.get("active") == "yes")
@@ -349,6 +365,7 @@ def email_template_active(template_id):
 @login_required
 @bdh_required
 def email_proposal_review(draft_id, decision):
+    """Duyệt và gửi (approved) hoặc từ chối (rejected) một nháp email do AI tạo."""
     require_csrf()
     draft = db.get_or_404(EmailProposal, draft_id)
     try:
@@ -370,6 +387,7 @@ def email_proposal_review(draft_id, decision):
 @login_required
 @bdh_required
 def email_proposal_edit(draft_id):
+    """Sửa tiêu đề/nội dung nháp email trước khi gửi."""
     require_csrf()
     draft = db.get_or_404(EmailProposal, draft_id)
     try:
@@ -386,6 +404,7 @@ def email_proposal_edit(draft_id):
 @login_required
 @bdh_required
 def email_proposal_reconcile(draft_id, outcome):
+    """Xác nhận thủ công kết quả một lần gửi email bị gián đoạn (sent/failed), không tự gửi lại."""
     require_csrf()
     draft = db.get_or_404(EmailProposal, draft_id)
     try:
@@ -399,8 +418,9 @@ def email_proposal_reconcile(draft_id, outcome):
 
 @ai_bp.route("/ai/proposals/new", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def proposal_new():
+    """Tạo đề xuất AI (sự kiện/task) từ form; chỉ là bản xem trước, chưa ghi dữ liệu thật."""
     require_csrf()
     try:
         create_proposal(current_user, request.form)
@@ -413,10 +433,11 @@ def proposal_new():
 
 @ai_bp.route("/ai/proposals/<int:proposal_id>/<decision>", methods=["POST"])
 @login_required
-@bdh_required
+@permission_required(Permission.MANAGE_EVENTS)
 def proposal_review(proposal_id, decision):
+    """Duyệt đề xuất AI (tạo sự kiện/task thật) hoặc từ chối (quyền MANAGE_EVENTS)."""
     require_csrf()
-    proposal = AIProposal.query.get_or_404(proposal_id)
+    proposal = db.get_or_404(AIProposal, proposal_id)
     try:
         review_proposal(current_user, proposal, decision)
         flash("Đã duyệt và áp dụng đề xuất." if decision == "approved" else "Đã từ chối đề xuất.", "success")

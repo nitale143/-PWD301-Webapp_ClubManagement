@@ -1,72 +1,64 @@
 import io
-from datetime import datetime
 from flask import Blueprint, render_template, request, redirect, url_for, flash, send_file, abort
 from flask_login import login_required, current_user
 
 from app import db
 from app.models import FundCollection, FundPayment, FundPeriod, FundTransaction, FundDue, User
-from app.permissions import approved_required
+from app.forms import FundPeriodForm, FundTransactionForm
+from app.models import Permission
+from app.permissions import approved_required, permission_required
 from app.security import require_csrf
 from app.mail import send_email
-from app.services.access import approved, is_admin, visible_members
-from app.services.common import DomainError, audit, club_now, parse_money
+from app.services.access import active_members, approved, can_manage_funds
+from app.services.common import DomainError, audit, club_now
 from app.services.export_security import safe_excel_row
 from app.services.funds import balance, create_collection, record_payment, review_payment, target_members
 
 funds_bp = Blueprint("funds", __name__)
 
 
+def _flash_form_errors(form):
+    """Hiển thị mọi lỗi validate của form dưới dạng flash."""
+    for errors in form.errors.values():
+        for message in errors:
+            flash(message, "error")
+
+
 def _is_thu_quy():
-    return is_admin(current_user)
+    """Người đang đăng nhập có quyền quản lý quỹ (MANAGE_FUNDS)."""
+    return can_manage_funds(current_user)
 
 
 @funds_bp.route("/funds/period/new", methods=["POST"])
 @login_required
-@approved_required
+@permission_required(Permission.MANAGE_FUNDS)
 def period_new():
-    """
-    Thu quy tao ky moi (Spring/Summer/Fall...). Ky cu (neu co) tu dong bi
-    dong lai (is_current=False) - tai 1 thoi diem chi co dung 1 ky dang mo.
-    """
-    if not _is_thu_quy():
-        abort(403)
-
-    ten_ky = request.form.get("ten_ky", "").strip()
-    try:
-        ngay_bat_dau = datetime.strptime(request.form.get("ngay_bat_dau"), "%Y-%m-%d").date()
-        ngay_ket_thuc_raw = request.form.get("ngay_ket_thuc", "").strip()
-        ngay_ket_thuc = (
-            datetime.strptime(ngay_ket_thuc_raw, "%Y-%m-%d").date() if ngay_ket_thuc_raw else None
-        )
-    except ValueError:
-        flash("Ngay khong hop le.", "error")
+    """Mở kỳ quỹ mới (Spring/Summer/Fall…). Kỳ đang mở tự đóng lại – tại một
+    thời điểm chỉ có đúng một kỳ hiện tại."""
+    form = FundPeriodForm()
+    if not form.validate_on_submit():
+        _flash_form_errors(form)
         return redirect(url_for("funds.funds_home"))
 
-    if not ten_ky:
-        flash("Vui long nhap ten ky (vd: Spring 2027).", "error")
-        return redirect(url_for("funds.funds_home"))
-
-    # Dong ky dang mo (neu co) truoc khi mo ky moi
     FundPeriod.query.filter_by(is_current=True).update({"is_current": False})
-
     period = FundPeriod(
-        ten_ky=ten_ky,
-        ngay_bat_dau=ngay_bat_dau,
-        ngay_ket_thuc=ngay_ket_thuc,
+        ten_ky=form.ten_ky.data,
+        ngay_bat_dau=form.ngay_bat_dau.data,
+        ngay_ket_thuc=form.ngay_ket_thuc.data,
         is_current=True,
         da_nhac_ky_moi=False,
     )
     db.session.add(period)
     db.session.flush()
 
-    # Tao san ban ghi FundDue (chua dong) cho tat ca thanh vien dang hoat dong
-    for member in visible_members(current_user).all():
+    # Tạo sẵn bản ghi FundDue (chưa đóng) cho mọi thành viên đang hoạt động
+    for member in active_members().all():
         if approved(member):
             db.session.add(FundDue(period_id=period.id, user_id=member.id, da_dong=False))
 
     audit(current_user, "legacy_period_create", period)
     db.session.commit()
-    flash(f"Da mo ky moi: {ten_ky}.", "success")
+    flash(f"Đã mở kỳ mới: {period.ten_ky}.", "success")
     return redirect(url_for("funds.funds_home"))
 
 
@@ -74,6 +66,9 @@ def period_new():
 @login_required
 @approved_required
 def funds_home():
+    """Trang Quỹ: kỳ hiện tại, sổ thu chi (người quản lý quỹ), tình trạng đóng quỹ, khoản thu và
+    thanh toán chờ xác nhận.
+    """
     period = FundPeriod.query.filter_by(is_current=True).first()
     transactions, dues, so_du, tong_thu, tong_chi = [], [], 0, 0, 0
 
@@ -117,6 +112,8 @@ def funds_home():
         tong_thu=tong_thu,
         tong_chi=tong_chi,
         is_thu_quy=_is_thu_quy(),
+        period_form=FundPeriodForm(),
+        tx_form=FundTransactionForm(),
     )
 
 
@@ -124,6 +121,7 @@ def funds_home():
 @login_required
 @approved_required
 def collection_new():
+    """Mở khoản thu mới từ form trên trang Quỹ (MANAGE_FUNDS, kiểm tra trong service)."""
     require_csrf()
     try:
         create_collection(current_user, {
@@ -143,6 +141,7 @@ def collection_new():
 @login_required
 @approved_required
 def collection_pay(fund_id):
+    """Thành viên khai báo đã đóng tiền cho khoản thu (chờ xác nhận)."""
     require_csrf()
     fund = db.get_or_404(FundCollection, fund_id)
     try:
@@ -158,6 +157,7 @@ def collection_pay(fund_id):
 @login_required
 @approved_required
 def collection_payment_review(payment_id):
+    """Người quản lý quỹ xác nhận/từ chối một lần thanh toán."""
     require_csrf()
     payment = db.get_or_404(FundPayment, payment_id)
     try:
@@ -171,51 +171,38 @@ def collection_payment_review(payment_id):
 
 @funds_bp.route("/funds/transaction/new", methods=["POST"])
 @login_required
-@approved_required
+@permission_required(Permission.MANAGE_FUNDS)
 def transaction_new():
-    if not _is_thu_quy():
-        abort(403)
+    """Ghi một giao dịch vào sổ thu chi của kỳ đang mở (FundTransactionForm)."""
     period = FundPeriod.query.filter_by(is_current=True).first()
     if not period:
-        flash("Chua co ky quy nao dang mo.", "error")
+        flash("Chưa có kỳ quỹ nào đang mở.", "error")
         return redirect(url_for("funds.funds_home"))
-
-    try:
-        raw_amount = str(request.form.get("so_tien", "")).strip()
-        if raw_amount.startswith("-"):
-            so_tien = -parse_money(raw_amount[1:])
-        else:
-            so_tien = parse_money(raw_amount)
-        ngay = datetime.strptime(request.form.get("ngay", ""), "%Y-%m-%d").date()
-    except (DomainError, ValueError):
-        flash("Số tiền hoặc ngày giao dịch không hợp lệ.", "error")
-        return redirect(url_for("funds.funds_home"))
-    danh_muc = request.form.get("danh_muc", "").strip()
-    if not danh_muc:
-        flash("Vui lòng nhập danh mục giao dịch.", "error")
+    form = FundTransactionForm()
+    if not form.validate_on_submit():
+        _flash_form_errors(form)
         return redirect(url_for("funds.funds_home"))
     tx = FundTransaction(
         period_id=period.id,
-        danh_muc=danh_muc,
-        noi_dung=request.form.get("noi_dung", "").strip(),
-        ngay=ngay,
-        so_tien=so_tien,
+        danh_muc=form.danh_muc.data,
+        noi_dung=form.noi_dung.data or "",
+        ngay=form.ngay.data,
+        so_tien=form.amount,
         tao_boi_id=current_user.id,
     )
     db.session.add(tx)
     db.session.flush()
-    audit(current_user, "legacy_fund_transaction", tx, {"amount": str(so_tien)})
+    audit(current_user, "legacy_fund_transaction", tx, {"amount": str(form.amount)})
     db.session.commit()
-    flash("Da ghi nhan giao dich.", "success")
+    flash("Đã ghi nhận giao dịch.", "success")
     return redirect(url_for("funds.funds_home"))
 
 
 @funds_bp.route("/funds/due/<int:user_id>/toggle", methods=["POST"])
 @login_required
-@approved_required
+@permission_required(Permission.MANAGE_FUNDS)
 def toggle_due(user_id):
-    if not _is_thu_quy():
-        abort(403)
+    """Đánh dấu đã đóng / chưa đóng quỹ kỳ hiện tại cho một thành viên."""
     period = FundPeriod.query.filter_by(is_current=True).first()
     if not period:
         abort(400)
@@ -238,26 +225,29 @@ def toggle_due(user_id):
 
 @funds_bp.route("/funds/nhac-dong-quy", methods=["POST"])
 @login_required
-@approved_required
+@permission_required(Permission.MANAGE_FUNDS)
 def remind_unpaid():
-    """Thu quy yeu cau gui mail nhac cac thanh vien chua dong quy trong ky hien tai."""
-    if not _is_thu_quy():
-        abort(403)
+    """Gửi mail nhắc các thành viên chưa đóng quỹ trong kỳ hiện tại."""
     period = FundPeriod.query.filter_by(is_current=True).first()
     if not period:
-        flash("Chua co ky quy nao dang mo.", "error")
+        flash("Chưa có kỳ quỹ nào đang mở.", "error")
         return redirect(url_for("funds.funds_home"))
 
     unpaid_dues = FundDue.query.filter_by(period_id=period.id, da_dong=False).all()
+    sent = 0
     for due in unpaid_dues:
-        send_email(
+        sent += bool(send_email(
             due.user.email,
-            f"[CLB] Nhac dong quy ky {period.ten_ky}",
-            f"Chao {due.user.ho_ten},\n\nBan chua dong quy CLB cho ky \"{period.ten_ky}\". "
-            "Vui long lien he thu quy de hoan tat.\n\n-- AI Agent CLB",
-        )
-
-    flash(f"Da gui nhac nho toi {len(unpaid_dues)} thanh vien chua dong quy.", "success")
+            f"[CLB] Nhắc đóng quỹ kỳ {period.ten_ky}",
+            f"Chào {due.user.ho_ten},\n\nBạn chưa đóng quỹ CLB cho kỳ \"{period.ten_ky}\". "
+            "Vui lòng liên hệ thủ quỹ để hoàn tất.\n\n-- CLB",
+        ))
+    audit(current_user, "legacy_fund_reminder", period, {"recipients": len(unpaid_dues), "sent": sent})
+    db.session.commit()
+    if sent == len(unpaid_dues):
+        flash(f"Đã gửi nhắc nhở tới {sent} thành viên chưa đóng quỹ.", "success")
+    else:
+        flash(f"Đã gửi {sent}/{len(unpaid_dues)} email nhắc. Kiểm tra cấu hình SMTP cho các thư chưa gửi.", "error")
     return redirect(url_for("funds.funds_home"))
 
 
@@ -265,25 +255,28 @@ def remind_unpaid():
 @login_required
 @approved_required
 def export_funds_excel():
+    """Xuất Excel kỳ hiện tại: sổ thu chi (chỉ người quản lý quỹ) và tình trạng đóng quỹ (thành
+    viên chỉ thấy dòng của mình).
+    """
     from openpyxl import Workbook
 
     period = FundPeriod.query.filter_by(is_current=True).first()
     wb = Workbook()
     ws = wb.active
     ws.title = "Thu chi"
-    ws.append(safe_excel_row(["Ngay", "Danh muc", "Noi dung", "So tien"]))
+    ws.append(safe_excel_row(["Ngày", "Danh mục", "Nội dung", "Số tiền"]))
     if period and _is_thu_quy():
         for tx in FundTransaction.query.filter_by(period_id=period.id):
             ws.append(safe_excel_row([tx.ngay.isoformat(), tx.danh_muc, tx.noi_dung, tx.so_tien]))
 
-    ws2 = wb.create_sheet("Dong quy")
-    ws2.append(safe_excel_row(["Ho ten", "MSSV", "Da dong"]))
+    ws2 = wb.create_sheet("Đóng quỹ")
+    ws2.append(safe_excel_row(["Họ tên", "MSSV", "Đã đóng"]))
     if period:
         due_query = FundDue.query.filter_by(period_id=period.id)
         if not _is_thu_quy():
             due_query = due_query.filter_by(user_id=current_user.id)
         for due in due_query:
-            ws2.append(safe_excel_row([due.user.ho_ten, due.user.mssv, "Co" if due.da_dong else "Chua"]))
+            ws2.append(safe_excel_row([due.user.ho_ten, due.user.mssv, "Có" if due.da_dong else "Chưa"]))
 
     buf = io.BytesIO()
     wb.save(buf)

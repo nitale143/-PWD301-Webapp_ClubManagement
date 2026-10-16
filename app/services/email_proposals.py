@@ -2,17 +2,18 @@
 
 import json
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import current_app
 
 from app import db
 from app.mail import send_email
 from app.models import EmailProposal, EmailTemplate, User
-from .access import approved, is_board, require, visible_members
+from .access import approved, board_members as visible_members, is_board, require
 from .assistant import AnthropicProvider, _normalize, get_provider
 from .common import DomainError, audit
 from .email_templates import render_template
+from app.timeutil import utcnow
 
 
 _EMAIL_COMMAND = re.compile(r"^\s*(?:gửi|gui)\s*(?:mail|email|thư|thu)\s+(?:cho\s+)?(.+)$", re.IGNORECASE)
@@ -24,6 +25,7 @@ _EMAIL_SCHEMA = {"type": "object", "properties": {
 
 
 def _split_command(message):
+    """Tách lệnh "gửi mail cho X: nội dung" thành (người nhận, mục đích)."""
     match = _EMAIL_COMMAND.match(message)
     if not match:
         return None
@@ -37,6 +39,7 @@ def _split_command(message):
 
 
 def is_email_write_command(message):
+    """True nếu câu chat là yêu cầu soạn email (lệnh trực tiếp hoặc dùng mail mẫu)."""
     parsed = _split_command(message)
     if parsed and parsed[1]:
         return True
@@ -49,6 +52,7 @@ def is_email_write_command(message):
 
 
 def _is_template_request(message):
+    """Nhận diện câu dạng "gửi/soạn mail … mẫu …"."""
     text = _normalize(message).strip()
     text = re.sub(r"^ai oi[,!]*\s*", "", text)
     text = re.sub(r"^(?:(?:hay|nho|giup|lam on|toi muon|cho toi|ban)\s+)+", "", text)
@@ -57,6 +61,7 @@ def _is_template_request(message):
 
 
 def _mentioned_template(message):
+    """Mail mẫu đang bật được nhắc tên trong câu (nếu nhiều mẫu khớp thì yêu cầu chọn)."""
     text = " ".join(_normalize(message).split())
     matches = []
     for template in EmailTemplate.query.filter_by(active=True).all():
@@ -86,6 +91,9 @@ def _mentioned_template(message):
 
 
 def _mentioned_recipient(actor, message):
+    """Xác định người nhận từ câu: một địa chỉ email ngoài CLB, hoặc một thành viên theo MSSV/họ
+    tên.
+    """
     addresses = list(dict.fromkeys(_EMAIL_IN_TEXT.findall(message)))
     if len(addresses) > 1:
         raise DomainError("Hãy chọn một địa chỉ nhận cho mỗi bản nháp email.")
@@ -137,6 +145,7 @@ def _mentioned_recipient(actor, message):
 
 
 def _draft_from_template(actor, message):
+    """Tạo nháp email từ mail mẫu cho người nhận được nhắc trong câu."""
     if not _is_template_request(message):
         return None
     template = _mentioned_template(message)
@@ -170,6 +179,7 @@ def _draft_from_template(actor, message):
 
 
 def _recipient(actor, name):
+    """Tìm đúng một thành viên theo MSSV hoặc họ tên; trùng tên thì yêu cầu dùng MSSV."""
     members = visible_members(actor).all()
     code_matches = [member for member in members if member.mssv.casefold() == name.casefold()]
     normalized = [member for member in members if _normalize(member.ho_ten) == _normalize(name)]
@@ -187,6 +197,7 @@ def _recipient(actor, name):
 
 
 def _validate_address(value):
+    """Kiểm tra địa chỉ email người nhận."""
     address = str(value or "").strip()
     if len(address) > 120 or not _EMAIL_ADDRESS.fullmatch(address):
         raise DomainError("Địa chỉ email người nhận không hợp lệ.")
@@ -194,6 +205,7 @@ def _validate_address(value):
 
 
 def _draft_text(display_name, purpose, provider=None):
+    """Soạn tiêu đề/nội dung email (dùng model nếu có, không thì mẫu cố định)."""
     subject = "Thông báo từ CLB"
     body = f"Chào {display_name},\n\n{purpose}\n\nTrân trọng,\nBan điều hành CLB"
     provider = provider if provider is not None else get_provider()
@@ -231,6 +243,9 @@ def _draft_text(display_name, purpose, provider=None):
 
 
 def maybe_create_email_draft(actor, message, provider=None):
+    """Nếu câu chat là yêu cầu email: tạo EmailProposal trạng thái pending (không gửi) và trả lời
+    xem trước.
+    """
     parsed = _split_command(message)
     if parsed is None and not _is_template_request(message):
         return None
@@ -277,10 +292,12 @@ def maybe_create_email_draft(actor, message, provider=None):
 
 
 def can_review_email(actor, draft):
+    """Người được sửa/duyệt/gửi nháp email (thành viên BĐH)."""
     return is_board(actor)
 
 
 def edit_email_draft(actor, draft, subject, body):
+    """Sửa tiêu đề/nội dung một nháp chưa gửi."""
     require(can_review_email(actor, draft))
     if draft.status != "pending":
         raise DomainError("Chỉ có thể sửa bản nháp chưa gửi.")
@@ -301,12 +318,12 @@ def reconcile_email_draft(actor, draft, outcome):
     require(can_review_email(actor, draft))
     if draft.status != "sending" or outcome not in {"sent", "failed"}:
         raise DomainError("Bản nháp không ở trạng thái gửi dở.")
-    if not draft.reviewed_at or datetime.utcnow() - draft.reviewed_at < timedelta(minutes=2):
+    if not draft.reviewed_at or utcnow() - draft.reviewed_at < timedelta(minutes=2):
         raise DomainError("Hãy đợi ít nhất 2 phút rồi kiểm tra hộp thư đã gửi.")
     claimed = db.session.execute(
         db.update(EmailProposal).where(EmailProposal.id == draft.id,
                                        EmailProposal.status == "sending")
-        .values(status=outcome, sent_at=datetime.utcnow() if outcome == "sent" else None)
+        .values(status=outcome, sent_at=utcnow() if outcome == "sent" else None)
     )
     if claimed.rowcount != 1:
         raise DomainError("Bản nháp này đã được xử lý.")
@@ -315,6 +332,9 @@ def reconcile_email_draft(actor, draft, outcome):
 
 
 def review_email_draft(actor, draft, decision, confirm_retry=False):
+    """Duyệt và gửi nháp (chống gửi trùng bằng UPDATE có điều kiện) hoặc từ chối; gửi lỗi thì cho
+    phép thử lại.
+    """
     require(can_review_email(actor, draft))
     if decision not in {"approved", "rejected"}:
         raise DomainError("Quyết định không hợp lệ.")
@@ -336,7 +356,7 @@ def review_email_draft(actor, draft, decision, confirm_retry=False):
         db.update(EmailProposal).where(EmailProposal.id == draft.id,
                                        EmailProposal.status == draft.status)
         .values(status="rejected" if decision == "rejected" else "sending",
-                reviewed_by_id=actor.id, reviewed_at=datetime.utcnow())
+                reviewed_by_id=actor.id, reviewed_at=utcnow())
     )
     if claimed.rowcount != 1:
         raise DomainError("Bản nháp này đã được xử lý.")
@@ -348,7 +368,7 @@ def review_email_draft(actor, draft, decision, confirm_retry=False):
     db.session.commit()
     sent = send_email(draft.recipient_email, draft.subject, draft.body)
     draft.status = "sent" if sent else "failed"
-    draft.sent_at = datetime.utcnow() if sent else None
+    draft.sent_at = utcnow() if sent else None
     audit(actor, "email_draft_sent" if sent else "email_draft_failed", draft)
     db.session.commit()
     return sent

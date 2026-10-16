@@ -8,6 +8,7 @@ from io import BytesIO
 from pathlib import Path
 from unittest.mock import patch
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import (
     Attendance,
@@ -93,13 +94,7 @@ class AIAssistantReliabilityTests(unittest.TestCase):
             session["_fresh"] = True
 
     def _ask(self, question):
-        self.client.get("/login")
-        with self.client.session_transaction() as session:
-            token = session.get("_csrf_token")
-        if not token:
-            self.client.get("/ai")
-            with self.client.session_transaction() as session:
-                token = session["_csrf_token"]
+        token = csrf_for(self.client)
         return self.client.post("/api/v1/assistant", json={"question": question},
                                 headers={"X-CSRF-Token": token})
 

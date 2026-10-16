@@ -1,9 +1,10 @@
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app import db
-from app.models import ActivityPoint, Attendance, ClubSetting, Event, EventDetail, EventRegistration, EventTargetBan, UserBan
-from .access import is_board, require
+from app.models import ActivityPoint, Attendance, ClubSetting, Event, EventDetail, EventRegistration, EventTargetBan
+from .access import can_manage_members, require
 from .common import DomainError, audit
+from app.timeutil import utcnow
 
 
 DEFAULT_POINTS = {"on_time": 10, "late": 6, "excused": 0, "absent": -5, "pending": 0}
@@ -11,11 +12,13 @@ DEFAULT_THRESHOLDS = {"active": 75, "normal": 40, "inactive_days": 60}
 
 
 def setting(key, defaults):
+    """Đọc cấu hình ClubSetting và trộn với giá trị mặc định."""
     row = db.session.get(ClubSetting, key)
     return {**defaults, **(row.value if row and isinstance(row.value, dict) else {})}
 
 
 def sync_attendance_point(attendance, actor):
+    """Cập nhật điểm hoạt động tương ứng trạng thái điểm danh (mỗi sự kiện một dòng điểm)."""
     registration = db.session.get(EventRegistration, attendance.registration_id)
     rules = setting("activity_point_rules", DEFAULT_POINTS)
     points = int(rules.get(attendance.trang_thai, 0))
@@ -28,12 +31,13 @@ def sync_attendance_point(attendance, actor):
     point.so_diem = points
     point.ly_do = f"Điểm danh: {attendance.trang_thai}"
     point.tao_boi_id = actor.id
-    point.tao_luc = datetime.utcnow()
+    point.tao_luc = utcnow()
     return point
 
 
 def manual_point(actor, member, points, reason, event=None, kind="manual"):
-    require(is_board(actor))
+    """Cộng/trừ điểm thủ công cho thành viên (MANAGE_MEMBERS), bắt buộc có lý do."""
+    require(can_manage_members(actor))
     if kind not in {"manual", "special"}:
         raise DomainError("Loại điểm không hợp lệ.")
     reason = str(reason or "").strip()
@@ -57,9 +61,12 @@ def manual_point(actor, member, points, reason, event=None, kind="manual"):
 
 
 def activity_stats(member, now=None):
+    """Thống kê hoạt động của một thành viên: số sự kiện đủ điều kiện, đã tham gia, tỉ lệ, điểm,
+    xếp loại, lần hoạt động gần nhất.
+    """
     from .common import club_now
     event_now = now or club_now()
-    audit_now = datetime.utcnow()
+    audit_now = utcnow()
     member_bans = {link.ban_id for link in member.ban_links}
     eligible_count = 0
     events = Event.query.filter(

@@ -31,3 +31,18 @@
 {% macro stat(label, value, glyph='wallet', note='', tone='green') -%}
 <article class="stat-card"><div class="stat-icon {{ tone }}">{{ icon(glyph) }}</div><div class="stat-value">{{ value }}</div><div class="stat-label">{{ label }}</div>{% if note %}<div class="stat-note">{{ note }}</div>{% endif %}</article>
 {%- endmacro %}
+{#- Hiển thị một field WTForms kèm nhãn, gợi ý và lỗi validate (Ch4 – slide 44).
+    Ví dụ: {{ form_field(form.email, placeholder='ban@example.com') }} -#}
+{% macro form_field(field, help=None, wrapper_class='field') -%}
+<div class="{{ wrapper_class }}">
+    {% if field.type == 'BooleanField' %}
+    <label class="checkbox-row">{{ field(**kwargs) }} <span>{{ field.label.text }}</span></label>
+    {% else %}
+    {{ field.label(class_='field-label') }}
+    {% set css = 'select' if field.type in ('SelectField', 'SelectMultipleField') else ('textarea' if field.type == 'TextAreaField' else 'input') %}
+    {{ field(class_=css ~ (' is-invalid' if field.errors else ''), **kwargs) }}
+    {% endif %}
+    {% if help %}<span class="field-help">{{ help }}</span>{% endif %}
+    {% for error in field.errors %}<p class="field-error" role="alert">{{ error }}</p>{% endfor %}
+</div>
+{%- endmacro %}

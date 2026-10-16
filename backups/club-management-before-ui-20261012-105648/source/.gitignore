@@ -1,8 +1,0 @@
-__pycache__/
-*.pyc
-instance/
-.venv/
-venv/
-.env
-app/static/uploads/
-docs/AI_RELIABILITY.md

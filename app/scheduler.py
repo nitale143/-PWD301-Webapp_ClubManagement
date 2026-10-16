@@ -1,16 +1,16 @@
-"""
-Scheduler chay ngam trong tien trinh Flask (dung APScheduler) de kiem tra
-moi ngay xem task nao con dung DEADLINE_WARNING_DAYS (mac dinh 7 ngay)
-nua la den han, va gui mail canh bao cho nguoi phu trach.
+"""Job định kỳ bằng APScheduler.
 
-Vi day la scheduler chay "trong" tien trinh web (khong phai tien trinh
-rieng), luu y 2 diem khi trien khai that:
-  1. Flask debug reloader khoi dong app 2 lan -> code duoi da chan bang
-     bien moi truong WERKZEUG_RUN_MAIN de scheduler chi chay 1 lan.
-  2. Neu chay nhieu worker (vd gunicorn -w 4), scheduler se chay lap lai
-     trong tung worker -> gui mail trung nhieu lan. Khi do nen tach
-     scheduler ra thanh 1 tien trinh/cron job rieng, hoac dung
-     Celery beat, thay vi chay chung trong web process.
+- `check_deadlines`: mỗi ngày 07:00 gửi mail cho người phụ trách task còn đúng
+  DEADLINE_WARNING_DAYS ngày (mặc định 7) là đến hạn.
+- `check_period_reminder`: mỗi ngày 07:05 nhắc người quản lý quỹ khi kỳ quỹ hiện
+  tại sắp kết thúc (trong PERIOD_REMINDER_DAYS ngày) để mở kỳ kế tiếp.
+
+Hai cách chạy:
+1. Trong tiến trình web (mặc định, SCHEDULER_IN_WEB=true) – hợp với 1 process
+   (`python run.py` hoặc Gunicorn 1 worker).
+2. Tiến trình riêng (`flask --app run.py run-scheduler`) và đặt
+   SCHEDULER_IN_WEB=false cho web – BẮT BUỘC khi Gunicorn chạy nhiều worker,
+   nếu không mỗi worker sẽ chạy job một lần → gửi mail trùng (Ch11).
 """
 import os
 from datetime import timedelta
@@ -24,40 +24,31 @@ from app.services.common import club_now
 _scheduler = None
 
 
-def init_scheduler(app):
+def init_scheduler(app, force=False):
+    """Khởi động scheduler (một lần cho mỗi process)."""
     global _scheduler
     if _scheduler is not None:
-        return  # da khoi tao roi, tranh tao 2 scheduler
+        return _scheduler
 
-    # Chi chay o tien trinh chinh khi dang debug (tranh Flask reloader chay 2 lan)
-    if app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
-        return
+    # Flask debug reloader chạy app 2 lần → chỉ chạy ở tiến trình con thật
+    if not force and app.debug and os.environ.get("WERKZEUG_RUN_MAIN") != "true":
+        return None
 
     _scheduler = BackgroundScheduler(daemon=True, timezone=app.config["APP_TIMEZONE"])
-    _scheduler.add_job(
-        func=lambda: check_deadlines(app),
-        trigger="cron",
-        hour=7,
-        minute=0,
-        id="check_deadlines",
-        replace_existing=True,
-    )
-    _scheduler.add_job(
-        func=lambda: check_period_reminder(app),
-        trigger="cron",
-        hour=7,
-        minute=5,
-        id="check_period_reminder",
-        replace_existing=True,
-    )
+    _scheduler.add_job(func=lambda: check_deadlines(app), trigger="cron", hour=7, minute=0,
+                       id="check_deadlines", replace_existing=True)
+    _scheduler.add_job(func=lambda: check_period_reminder(app), trigger="cron", hour=7, minute=5,
+                       id="check_period_reminder", replace_existing=True)
     _scheduler.start()
-    print("[SCHEDULER] Da khoi dong: kiem tra deadline + nhac ky moi moi ngay luc 07:00.")
+    app.logger.info("Scheduler started: deadline check 07:00, period reminder 07:05")
+    return _scheduler
 
 
 def check_deadlines(app):
-    """Job chay moi ngay: tim task sap den han va gui mail canh bao."""
-    from app.models import Task  # import tre de tranh circular import
+    """Tìm task sắp đến hạn và gửi mail cảnh báo cho người phụ trách. Trả về số mail đã gửi."""
+    from app.models import Task  # import trễ để tránh circular import
 
+    sent = 0
     with app.app_context():
         warn_days = app.config["DEADLINE_WARNING_DAYS"]
         target_date = (club_now() + timedelta(days=warn_days)).date()
@@ -65,49 +56,47 @@ def check_deadlines(app):
         tasks = Task.query.filter(Task.trang_thai.in_(["dang_lam", "lam_lai"])).all()
         for task in tasks:
             if task.assignee and task.deadline.date() == target_date:
-                send_email(
+                sent += bool(send_email(
                     task.assignee.email,
-                    f"[CLB] Con {warn_days} ngay nua den han: {task.ten_task}",
+                    f"[CLB] Còn {warn_days} ngày nữa đến hạn: {task.ten_task}",
                     (
-                        f"Chao {task.assignee.ho_ten},\n\n"
-                        f"Task \"{task.ten_task}\" thuoc su kien "
-                        f"\"{task.event.ten_su_kien}\" se den han vao luc "
+                        f"Chào {task.assignee.ho_ten},\n\n"
+                        f"Task \"{task.ten_task}\" thuộc sự kiện "
+                        f"\"{task.event.ten_su_kien}\" sẽ đến hạn vào lúc "
                         f"{task.deadline.strftime('%d/%m/%Y %H:%M')} "
-                        f"(con {warn_days} ngay nua).\n\n"
-                        "Vui long hoan thanh va nop san pham dung han.\n\n"
-                        "-- AI Agent CLB"
+                        f"(còn {warn_days} ngày nữa).\n\n"
+                        "Vui lòng hoàn thành và nộp sản phẩm đúng hạn.\n\n-- CLB"
                     ),
-                )
+                ))
+    return sent
 
 
 def check_period_reminder(app):
-    """
-    Job chay moi ngay: neu ky quy hien tai sap ket thuc (trong vong
-    PERIOD_REMINDER_DAYS ngay) ma chua nhac, tao Notification cho tat ca
-    BDH de ho kip nhap thoi gian cho ky ke tiep (Spring/Summer/Fall).
-    Danh dau da_nhac_ky_moi=True de khong nhac lap lai moi ngay.
-    """
-    from app.models import FundPeriod, User, Notification
+    """Kỳ quỹ hiện tại sắp kết thúc mà chưa nhắc → tạo Notification + mail cho
+    người có quyền quản lý quỹ. Đánh dấu `da_nhac_ky_moi` để không nhắc lặp lại.
+    Trả về số người được nhắc."""
+    from app.models import FundPeriod, Notification, Permission, User
+    from app.services.access import has_permission
 
     with app.app_context():
         period = FundPeriod.query.filter_by(is_current=True).first()
         if not period or not period.ngay_ket_thuc or period.da_nhac_ky_moi:
-            return
+            return 0
 
         so_ngay_con_lai = (period.ngay_ket_thuc - club_now().date()).days
         if so_ngay_con_lai > app.config["PERIOD_REMINDER_DAYS"]:
-            return
+            return 0
 
-        bdh_members = User.query.filter(
-            User.status == "approved", User.chuc_vu != "THANH_VIEN"
-        ).all()
+        managers = [user for user in User.query.filter(User.status == "approved").all()
+                    if has_permission(user, Permission.MANAGE_FUNDS)]
         noi_dung = (
-            f"Ky \"{period.ten_ky}\" se ket thuc vao {period.ngay_ket_thuc.strftime('%d/%m/%Y')} "
-            f"(con {so_ngay_con_lai} ngay). Vui long chuan bi nhap thong tin cho ky ke tiep."
+            f"Kỳ \"{period.ten_ky}\" sẽ kết thúc vào {period.ngay_ket_thuc.strftime('%d/%m/%Y')} "
+            f"(còn {so_ngay_con_lai} ngày). Vui lòng chuẩn bị nhập thông tin cho kỳ kế tiếp."
         )
-        for member in bdh_members:
+        for member in managers:
             db.session.add(Notification(user_id=member.id, noi_dung=noi_dung))
-            send_email(member.email, "[CLB] Nhac chuan bi ky moi", noi_dung + "\n\n-- AI Agent CLB")
+            send_email(member.email, "[CLB] Nhắc chuẩn bị kỳ mới", noi_dung + "\n\n-- CLB")
 
         period.da_nhac_ky_moi = True
         db.session.commit()
+        return len(managers)

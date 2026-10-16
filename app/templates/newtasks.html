@@ -6,7 +6,7 @@
 {% set status_tones = {'dang_lam': 'indigo', 'cho_duyet': 'warning', 'lam_lai': 'violet', 'hoan_thanh': 'success', 'huy': 'danger'} %}
 {% set status_order = ['dang_lam', 'cho_duyet', 'lam_lai', 'hoan_thanh', 'huy'] %}
 {% macro task_card(task, compact=false) %}
-{% set can_manage_task = current_user.is_bdh() %}
+{% set can_manage_task = can(Permission.MANAGE_EVENTS) %}
 <article class="task-card {{ 'task-card-compact' if compact else '' }}">
     <div class="row task-card-title"><strong>{{ task.ten_task }}</strong><a class="btn btn-ghost btn-sm task-more" href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}" aria-label="Mở nhiệm vụ trong sự kiện">{{ icon('more') }}</a></div>
     <p class="small muted"><a href="{{ url_for('event.event_detail', event_id=task.event_id, tab='tasks') }}">{{ task.event.ten_su_kien }}</a></p>

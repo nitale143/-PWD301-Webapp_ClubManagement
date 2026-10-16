@@ -1,56 +1,58 @@
-"""Session-backed CSRF guard for every unsafe browser request."""
+"""Bảo vệ CSRF (Flask-WTF) và các chốt chặn tài khoản dùng chung.
 
-import hmac
-import secrets
+CSRF (Ch4 – slide 20-22, 42): `CSRFProtect` được bật cho toàn app trong
+`create_app()`; mọi request POST/PUT/PATCH/DELETE phải gửi token qua field
+`csrf_token` của form hoặc header `X-CSRFToken` / `X-CSRF-Token` (AJAX).
+Template lấy token bằng `{{ csrf_token() }}` hoặc `{{ form.hidden_tag() }}`.
+"""
+from flask import jsonify, redirect, request, url_for
+from flask_login import current_user
+from flask_wtf.csrf import generate_csrf
 
-from flask import abort, request, session
+from app import csrf
 
-UNSAFE_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
-CSRF_ERROR = "Phiên biểu mẫu không hợp lệ. Hãy tải lại trang."
+# Các endpoint vẫn dùng được khi tài khoản đang bị buộc đổi mật khẩu
+_PASSWORD_CHANGE_ALLOWED = frozenset({
+    "auth.change_password", "auth.logout", "auth.reauthenticate", "auth.pending", "static",
+})
 
 
 def csrf_token():
-    """Return a stable, unpredictable token for the current (including anonymous) session."""
-    token = session.get("_csrf_token")
-    if not token:
-        token = secrets.token_urlsafe(32)
-        session["_csrf_token"] = token
-    return token
-
-
-def _csrf_token_is_valid():
-    supplied = request.form.get("csrf_token") or request.headers.get("X-CSRF-Token", "")
-    expected = session.get("_csrf_token", "")
-    return bool(
-        isinstance(supplied, str)
-        and isinstance(expected, str)
-        and supplied
-        and expected
-        and supplied.isascii()
-        and expected.isascii()
-        and len(supplied) <= 256
-        and hmac.compare_digest(supplied, expected)
-    )
+    """Token CSRF cho session hiện tại (giữ tên cũ cho code/test đang gọi)."""
+    return generate_csrf()
 
 
 def require_csrf():
-    """Explicit guard for callers that also use this helper outside the global hook."""
-    if not _csrf_token_is_valid():
-        abort(400, description=CSRF_ERROR)
+    """Kiểm tra CSRF tường minh trong view.
 
-
-def install_csrf(app):
-    """Require a session token on every unsafe method, including anonymous routes.
-
-    Tokens are accepted in regular form fields or the X-CSRF-Token header. Origin
-    headers are deliberately not used as an alternate authorization mechanism.
+    CSRFProtect đã kiểm tra trước mọi view; hàm này giữ lại để các view nhạy
+    cảm thể hiện rõ yêu cầu và vẫn an toàn nếu sau này view được `csrf.exempt`.
     """
-    if app.extensions.get("session_csrf_guard"):
-        return
+    if request.method in {"POST", "PUT", "PATCH", "DELETE"}:
+        csrf.protect()
+
+
+def install_account_guards(app):
+    """Hook trước mỗi request:
+
+    - CSRFProtect bỏ qua URL không khớp route nào; hook này vẫn đòi token cho
+      mọi request ghi dữ liệu để hành vi đồng nhất (trả 400 thay vì 404).
+    - Tài khoản bị đánh dấu `must_change_password` (mật khẩu tạm / tài khoản
+      import) chỉ được vào trang đổi mật khẩu.
+    """
 
     @app.before_request
-    def _protect_unsafe_requests():
-        if request.method in UNSAFE_METHODS and not _csrf_token_is_valid():
-            abort(400, description=CSRF_ERROR)
+    def _csrf_for_unmatched_routes():
+        if (request.endpoint is None and request.method in {"POST", "PUT", "PATCH", "DELETE"}
+                and app.config.get("WTF_CSRF_ENABLED", True)):
+            csrf.protect()
 
-    app.extensions["session_csrf_guard"] = True
+    @app.before_request
+    def _force_password_change():
+        if not current_user.is_authenticated or not getattr(current_user, "must_change_password", False):
+            return None
+        if request.endpoint in _PASSWORD_CHANGE_ALLOWED:
+            return None
+        if request.path.startswith("/api/"):
+            return jsonify(error="Bạn cần đổi mật khẩu trước khi tiếp tục."), 403
+        return redirect(url_for("auth.change_password"))

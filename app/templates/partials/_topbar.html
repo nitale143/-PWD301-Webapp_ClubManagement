@@ -1,0 +1,17 @@
+{# Thanh trên cùng: menu mobile, tìm nhanh, thông báo, avatar #}
+<header class="topbar">
+    <div class="row">{% if approved %}<button class="icon-button mobile-menu" id="menu-toggle" aria-label="Mở menu" aria-controls="sidebar" aria-expanded="false">{{ icon('grid') }}</button><span class="topbar-workspace">Workspace <span>/</span> <strong>{{ workspace_title }}</strong></span>{% else %}<a class="auth-top-brand" href="{{ url_for('auth.index') }}">FIA<span class="brand-dot">.</span></a>{% endif %}</div>
+    <div class="topbar-actions">
+        {% if approved %}
+        <button class="search-trigger" type="button" id="global-search">{{ icon('search') }}<span>Tìm nhanh trong workspace</span><kbd>Ctrl K</kbd></button>
+        <span class="preview-tag">FIA · WORKSPACE</span>
+        <details class="live-notifications">
+            <summary class="icon-button" aria-label="Xem thông báo">{{ icon('bell') }}{% if shell_unread %}<i></i>{% endif %}</summary>
+            <div class="live-notification-panel"><strong>Thông báo của bạn</strong>{% for item in shell_notifications %}<p>{{ item.noi_dung }}<small>{{ item.thoi_gian.strftime('%d/%m/%Y %H:%M') }}</small></p>{% else %}<p class="muted">Chưa có thông báo.</p>{% endfor %}<a href="{{ url_for('main.home') }}">Xem tổng quan {{ icon('arrow') }}</a></div>
+        </details>
+        <a href="{{ url_for('profile.view_profile') }}" class="avatar small-avatar indigo" aria-label="Xem hồ sơ">{{ current_user.ho_ten[:1]|upper }}</a>
+        {% else %}
+        <a class="btn btn-secondary btn-sm" href="{{ url_for('auth.index') }}">Về trang FIA {{ icon('arrow') }}</a>
+        {% endif %}
+    </div>
+</header>

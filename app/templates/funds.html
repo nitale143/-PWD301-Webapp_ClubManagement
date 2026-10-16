@@ -1,5 +1,5 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon, badge, avatar, stat %}
+{% from "_ui.html" import icon, badge, avatar, stat, form_field %}
 {% block title %}{{ workspace_title }}{% endblock %}
 
 {% macro money(value) -%}{{ '{:,.0f}'.format(value|float).replace(',', '.') }} đ{%- endmacro %}
@@ -236,9 +236,9 @@
     <dialog class="dialog parity-finance-dialog" id="fund-period-dialog" aria-labelledby="fund-period-title">
         <div class="dialog-heading"><div><p class="eyebrow">TÀI CHÍNH · KỲ QUỸ</p><h2 id="fund-period-title">Mở kỳ mới</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
         <form method="post" action="{{ url_for('funds.period_new') }}" class="dialog-body page-stack">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label class="field"><span class="field-label">Tên kỳ</span><input class="input" type="text" name="ten_ky" required maxlength="50" placeholder="Ví dụ: Spring 2027"></label>
-            <div class="form-grid"><label class="field"><span class="field-label">Ngày bắt đầu</span><input class="input" type="date" name="ngay_bat_dau" required></label><label class="field"><span class="field-label">Ngày kết thúc</span><input class="input" type="date" name="ngay_ket_thuc"></label></div>
+            {{ period_form.hidden_tag() }}
+            {{ form_field(period_form.ten_ky, required=true, maxlength=50, placeholder='Ví dụ: Spring 2027') }}
+            <div class="form-grid">{{ form_field(period_form.ngay_bat_dau, required=true) }}{{ form_field(period_form.ngay_ket_thuc) }}</div>
             <p class="form-note">Mở kỳ mới sẽ tự động đóng kỳ đang mở hiện tại (nếu có).</p>
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Mở kỳ mới</button></div>
         </form>
@@ -248,11 +248,11 @@
     <dialog class="dialog parity-finance-dialog" id="fund-transaction-dialog" aria-labelledby="fund-transaction-title">
         <div class="dialog-heading"><div><p class="eyebrow">{{ period.ten_ky }}</p><h2 id="fund-transaction-title">Ghi nhận thu / chi</h2></div><button class="btn btn-ghost btn-sm" type="button" aria-label="Đóng" data-dialog-close>{{ icon('close') }}</button></div>
         <form method="post" action="{{ url_for('funds.transaction_new') }}" class="dialog-body page-stack">
-            <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-            <label class="field"><span class="field-label">Danh mục</span><input class="input" type="text" name="danh_muc" maxlength="100" required></label>
-            <label class="field"><span class="field-label">Nội dung</span><input class="input" type="text" name="noi_dung" maxlength="255"></label>
-            <label class="field"><span class="field-label">Ngày</span><input class="input" type="date" name="ngay" required></label>
-            <label class="field"><span class="field-label">Số tiền (₫)</span><input class="input" type="number" step="1" name="so_tien" required><span class="small muted">Thu nhập dùng số dương, chi phí dùng số âm.</span></label>
+            {{ tx_form.hidden_tag() }}
+            {{ form_field(tx_form.danh_muc, required=true, maxlength=100) }}
+            {{ form_field(tx_form.noi_dung, maxlength=255) }}
+            {{ form_field(tx_form.ngay, required=true) }}
+            {{ form_field(tx_form.so_tien, help='Thu nhập dùng số dương, chi phí dùng số âm.', type='number', step=1, required=true) }}
             <div class="dialog-footer"><button class="btn btn-secondary" type="button" data-dialog-close>Hủy</button><button class="btn btn-primary" type="submit">Lưu giao dịch</button></div>
         </form>
     </dialog>

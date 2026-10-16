@@ -22,6 +22,14 @@
                     <div class="list-item">{{ badge('Tiếp theo', 'neutral') }}<span>Thông báo kết quả xét duyệt</span></div>
                 </div>
             </div>
+            {% if not current_user.email_confirmed %}
+            <div class="card"><div class="card-body page-stack">
+                <p class="small">Email <strong>{{ current_user.email }}</strong> chưa được xác minh. Hãy mở liên kết trong thư xác minh; nếu chưa nhận được, bấm gửi lại.</p>
+                <form method="post" action="{{ url_for('auth.resend_confirmation') }}">{{ resend_form.hidden_tag() }}<button class="btn btn-secondary btn-sm" type="submit">{{ icon('mail') }} Gửi lại email xác minh</button></form>
+            </div></div>
+            {% else %}
+            <p class="small muted">{{ icon('check') }} Email đã được xác minh.</p>
+            {% endif %}
             <div class="pending-actions"><form method="post" action="{{ url_for('auth.logout') }}"><input type="hidden" name="csrf_token" value="{{ csrf_token() }}"><button class="btn btn-secondary" type="submit">{{ icon('logout') }} Đăng xuất</button></form></div>
         </div>
     </section>

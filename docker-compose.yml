@@ -1,0 +1,43 @@
+# Triển khai bằng Docker Compose: web (Gunicorn) + scheduler riêng + Redis (rate limit).
+# Đặt Nginx (deploy/nginx.conf) phía trước để có HTTPS.
+#   cp .env.example .env  # điền SECRET_KEY, TRUSTED_HOSTS, ...
+#   docker compose up -d --build
+#   docker compose exec web flask --app run.py create-cn
+services:
+  web:
+    build: .
+    env_file: .env
+    environment:
+      APP_ENV: production
+      SCHEDULER_IN_WEB: "false"
+      TRUST_PROXY_HOPS: "1"
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/instance/clb.db}
+      FORWARDED_ALLOW_IPS: "*"
+    ports:
+      - "127.0.0.1:8000:8000"     # chỉ mở cho Nginx trên cùng máy
+    volumes:
+      - instance:/app/instance
+      - uploads:/app/app/static/uploads
+    depends_on: [redis]
+    restart: unless-stopped
+
+  scheduler:
+    build: .
+    env_file: .env
+    environment:
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/instance/clb.db}
+    command: ["flask", "--app", "run.py", "run-scheduler"]
+    volumes:
+      - instance:/app/instance
+    depends_on: [web]
+    restart: unless-stopped
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+volumes:
+  instance:
+  uploads:

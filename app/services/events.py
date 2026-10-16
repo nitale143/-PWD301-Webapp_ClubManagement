@@ -1,5 +1,5 @@
 import secrets
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from flask import current_app
 from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
@@ -7,11 +7,12 @@ from itsdangerous import BadSignature, SignatureExpired, URLSafeTimedSerializer
 from app import db
 from app.models import (
     Attendance, Event, EventDetail, EventFeedback, EventRegistration,
-    EventTargetBan, QRCheckinLog, User,
+    EventTargetBan, QRCheckinLog,
 )
-from .access import approved, is_board, require
+from .access import approved, can_manage_events, require
 from .activities import sync_attendance_point
 from .common import DomainError, audit, club_now
+from app.timeutil import utcnow
 
 
 QR_TTL_SECONDS = 15 * 60
@@ -21,14 +22,17 @@ TERMINAL_EVENT_STATES = frozenset({"da_ket_thuc", "cancelled"})
 
 
 def _serializer():
+    """Bộ ký token QR điểm danh (itsdangerous, salt riêng)."""
     return URLSafeTimedSerializer(current_app.secret_key, salt="event-checkin")
 
 
 def event_is_terminal(event):
+    """Sự kiện đã kết thúc hoặc bị hủy (không cho sửa task/đăng ký)."""
     return bool(event and event.trang_thai in TERMINAL_EVENT_STATES)
 
 
 def registration_open(event, detail, now=None):
+    """Sự kiện còn mở đăng ký: chưa bắt đầu, chưa quá hạn đăng ký, chưa kết thúc/hủy."""
     now = now or club_now()
     return (not event_is_terminal(event)
             and event.trang_thai in {"sap_dien_ra", "open"}
@@ -37,6 +41,7 @@ def registration_open(event, detail, now=None):
 
 
 def eligible(event, member):
+    """Thành viên thuộc đối tượng được đăng ký (mọi người, hoặc thuộc ban áp dụng)."""
     detail = db.session.get(EventDetail, event.id)
     if not detail or detail.tat_ca_thanh_vien:
         return True
@@ -45,8 +50,11 @@ def eligible(event, member):
 
 
 def register(actor, event, member=None):
+    """Đăng ký tham gia (cho mình, hoặc người quản lý sự kiện đăng ký hộ); hết chỗ thì vào danh
+    sách chờ.
+    """
     member = member or actor
-    require(approved(actor) and (actor.id == member.id or is_board(actor)))
+    require(approved(actor) and (actor.id == member.id or can_manage_events(actor)))
     if not approved(member):
         raise DomainError("Thành viên chưa được duyệt.")
     detail = db.session.get(EventDetail, event.id)
@@ -64,7 +72,7 @@ def register(actor, event, member=None):
         registration = EventRegistration(event_id=event.id, user_id=member.id)
         db.session.add(registration)
     registration.trang_thai = state
-    registration.dang_ky_luc = datetime.utcnow()
+    registration.dang_ky_luc = utcnow()
     registration.huy_luc = None
     db.session.flush()
     audit(actor, "event_registration", registration, {"event_id": event.id, "member_id": member.id, "state": state})
@@ -73,14 +81,15 @@ def register(actor, event, member=None):
 
 
 def cancel_registration(actor, registration):
-    require(approved(actor) and (actor.id == registration.user_id or is_board(actor)))
+    """Hủy đăng ký (không cho hủy sau khi đã điểm danh) và đôn người đầu danh sách chờ."""
+    require(approved(actor) and (actor.id == registration.user_id or can_manage_events(actor)))
     if registration.trang_thai == "cancelled":
         return None
     if registration.attendance and registration.attendance.trang_thai != "pending":
         raise DomainError("Không thể hủy đăng ký sau khi đã điểm danh.")
     freed_slot = registration.trang_thai == "registered"
     registration.trang_thai = "cancelled"
-    registration.huy_luc = datetime.utcnow()
+    registration.huy_luc = utcnow()
     promoted = None
     if freed_slot:
         promoted = EventRegistration.query.filter_by(
@@ -94,11 +103,15 @@ def cancel_registration(actor, registration):
 
 
 def qr_token(actor, event):
-    require(is_board(actor))
+    """Tạo token QR điểm danh có chữ ký (MANAGE_EVENTS)."""
+    require(can_manage_events(actor))
     return _serializer().dumps({"event_id": event.id, "nonce": secrets.token_urlsafe(12)})
 
 
 def qr_checkin(actor, token, now=None, expected_event_id=None):
+    """Điểm danh bằng token QR: kiểm tra chữ ký, hạn 15 phút, đúng sự kiện, đã đăng ký, trong thời
+    gian sự kiện; xác định đúng giờ/muộn.
+    """
     require(approved(actor))
     try:
         payload = _serializer().loads(str(token or ""), max_age=QR_TTL_SECONDS)
@@ -124,9 +137,9 @@ def qr_checkin(actor, token, now=None, expected_event_id=None):
         attendance = Attendance(registration_id=registration.id)
         db.session.add(attendance)
     attendance.trang_thai = "late" if now > event.thoi_gian_bat_dau else "on_time"
-    attendance.checkin_luc = datetime.utcnow()
+    attendance.checkin_luc = utcnow()
     attendance.checkin_boi_id = actor.id
-    db.session.add(QRCheckinLog(event_id=event.id, user_id=actor.id, account_id=actor.id, checkin_luc=datetime.utcnow()))
+    db.session.add(QRCheckinLog(event_id=event.id, user_id=actor.id, account_id=actor.id, checkin_luc=utcnow()))
     sync_attendance_point(attendance, actor)
     db.session.flush()
     audit(actor, "qr_checkin", attendance, {"event_id": event.id})
@@ -135,7 +148,8 @@ def qr_checkin(actor, token, now=None, expected_event_id=None):
 
 
 def manual_attendance(actor, registration, state, note=""):
-    require(is_board(actor))
+    """Điểm danh thủ công cho lượt đăng ký chính thức và đồng bộ điểm hoạt động."""
+    require(can_manage_events(actor))
     if state not in ATTENDANCE_STATES:
         raise DomainError("Trạng thái điểm danh không hợp lệ.")
     if registration.trang_thai != "registered":
@@ -146,7 +160,7 @@ def manual_attendance(actor, registration, state, note=""):
         db.session.add(attendance)
     attendance.trang_thai = state
     attendance.checkin_boi_id = actor.id
-    attendance.checkin_luc = datetime.utcnow() if state in {"on_time", "late"} else None
+    attendance.checkin_luc = utcnow() if state in {"on_time", "late"} else None
     attendance.ghi_chu = str(note or "").strip()
     sync_attendance_point(attendance, actor)
     db.session.flush()
@@ -156,6 +170,7 @@ def manual_attendance(actor, registration, state, note=""):
 
 
 def feedback(actor, event, rating, comment=""):
+    """Lưu/cập nhật đánh giá 1–5 sao của người đã tham gia, sau khi sự kiện kết thúc."""
     require(approved(actor))
     if event.trang_thai not in {"da_ket_thuc", "completed"}:
         raise DomainError("Chỉ phản hồi sau khi sự kiện kết thúc.")

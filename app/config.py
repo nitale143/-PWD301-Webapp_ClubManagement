@@ -1,10 +1,26 @@
+"""Cấu hình ứng dụng, đọc từ biến môi trường / file .env (Ch11 – slide 18).
+
+Không bao giờ ghi secret (SECRET_KEY, mật khẩu SMTP, API key) trực tiếp vào code.
+Xem `.env.example` để biết danh sách biến.
+"""
 import os
 from datetime import timedelta
 
 BASE_DIR = os.path.abspath(os.path.dirname(os.path.dirname(__file__)))
 
 
+def _env_bool(name, default):
+    """Đọc biến môi trường kiểu true/false; trả `default` nếu biến không đặt hoặc rỗng."""
+    value = os.environ.get(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
 class Config:
+    """Toàn bộ cấu hình ứng dụng, đọc từ biến môi trường (.env). Xem .env.example để biết ý nghĩa
+    từng biến.
+    """
     SECRET_KEY = os.environ.get("SECRET_KEY")
     APP_ENV = os.environ.get("APP_ENV", "development").lower()
     SECURITY_TRUSTED_HOSTS = [host.strip().lower() for host in os.environ.get(
@@ -21,21 +37,53 @@ class Config:
     MAX_FORM_MEMORY_SIZE = 128 * 1024
     APP_TIMEZONE = os.environ.get("APP_TIMEZONE", "Asia/Bangkok")
     SESSION_COOKIE_SAMESITE = "Lax"
+    # Flask-Login: "strong" đăng xuất khi IP hoặc trình duyệt thay đổi (Ch6 – slide 71)
+    SESSION_PROTECTION = os.environ.get("SESSION_PROTECTION", "strong")
+    # Cookie "Ghi nhớ đăng nhập" (Ch6 – slide 113-114)
+    REMEMBER_COOKIE_DURATION = timedelta(days=int(os.environ.get("REMEMBER_DAYS", 14)))
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = "Lax"
+    REMEMBER_COOKIE_SECURE = APP_ENV == "production"
+    REMEMBER_COOKIE_NAME = "fia_remember"
+    # Thời hạn token gửi qua email (giây)
+    EMAIL_CONFIRM_MAX_AGE = 48 * 3600
+    PASSWORD_RESET_MAX_AGE = 3600
+
+    # --- Flask-WTF (Ch4) ---
+    WTF_CSRF_ENABLED = True
+    WTF_CSRF_TIME_LIMIT = None          # token sống theo session (session tự hết hạn sau 8 giờ)
+    WTF_CSRF_HEADERS = ["X-CSRFToken", "X-CSRF-Token"]
+
+    # --- Flask-Limiter (Ch9) ---
+    RATELIMIT_ENABLED = _env_bool("RATELIMIT_ENABLED", True)
+    RATELIMIT_STORAGE_URI = os.environ.get("RATELIMIT_STORAGE_URI", "memory://")
+    RATELIMIT_HEADERS_ENABLED = True
+    API_RATE_LIMIT = os.environ.get("API_RATE_LIMIT", "120 per minute")
+    AUTH_RATE_LIMIT = os.environ.get("AUTH_RATE_LIMIT", "20 per minute")
+
+    # --- Triển khai sau reverse proxy (Ch10 – ProxyFix, Ch11 – Nginx) ---
+    # Số proxy tin cậy đứng trước app (Nginx = 1). 0 = chạy trực tiếp, không tin header X-Forwarded-*.
+    TRUST_PROXY_HOPS = int(os.environ.get("TRUST_PROXY_HOPS", 0))
+
+    # --- Database ---
+    # Tạo bảng bằng create_all thay vì migration. Chỉ dành cho test/demo nhanh;
+    # mặc định bật khi TESTING. Môi trường thật dùng `flask db upgrade`.
+    AUTO_CREATE_TABLES = _env_bool("AUTO_CREATE_TABLES", None)
     SQLALCHEMY_DATABASE_URI = os.environ.get(
         "DATABASE_URL", "sqlite:///" + os.path.join(BASE_DIR, "instance", "clb.db")
     )
     SQLALCHEMY_TRACK_MODIFICATIONS = False
 
-    # Danh sach chuc vu (thu tu quyen han giam dan)
+    # Danh sách chức vụ (thứ tự quyền hạn giảm dần). Quyền chi tiết: app.models.DEFAULT_ROLES
     ROLE_ORDER = ["CN", "PCN", "TB", "THUKY_THUQUY", "THANH_VIEN"]
     ROLE_LABELS = {
-        "CN": "Chu nhiem",
-        "PCN": "Pho chu nhiem",
-        "TB": "Truong ban",
-        "THUKY_THUQUY": "Thu ky / Thu quy",
-        "THANH_VIEN": "Thanh vien",
+        "CN": "Chủ nhiệm",
+        "PCN": "Phó chủ nhiệm",
+        "TB": "Trưởng ban",
+        "THUKY_THUQUY": "Thư ký / Thủ quỹ",
+        "THANH_VIEN": "Thành viên",
     }
-    # Gioi han so luong theo chuc vu (BDH)
+    # Giới hạn số lượng theo chức vụ (BĐH)
     ROLE_LIMITS = {"CN": 1, "PCN": 2, "TB": 3, "THUKY_THUQUY": 1}
 
     MEMBER_STATUS = ["pending", "approved", "rejected"]
@@ -46,7 +94,7 @@ class Config:
         "khong_hoat_dong",# 0%
         "ngung_hoat_dong",# BDH chi dinh
     ]
-    # Nguong % de xep loai tinh trang hoat dong (tinh theo tung ban/ky)
+    # Ngưỡng % để xếp loại tình trạng hoạt động (tính theo từng ban/kỳ)
     ACTIVITY_THRESHOLDS = [
         (80, "tich_cuc"),
         (50, "hoat_dong"),
@@ -56,9 +104,10 @@ class Config:
     TASK_STATUS = ["dang_lam", "cho_duyet", "lam_lai", "hoan_thanh", "huy"]
     EVENT_STATUS = ["sap_dien_ra", "dang_dien_ra", "da_ket_thuc", "cancelled"]
 
-    # --- Cau hinh gui mail (SMTP) ---
-    # Mac dinh MAIL_ENABLED=False: webapp van chay binh thuong, email se
-    # duoc in ra console thay vi gui that. Set bien moi truong de bat that.
+    # --- Cấu hình gửi mail (SMTP) ---
+    # Mặc định MAIL_ENABLED=False: webapp vẫn chạy, email không được gửi.
+    # Khi phát triển có thể đặt MAIL_OUTBOX=true để lưu email thành file .eml
+    # trong instance/mail_outbox/ (chỉ dùng ở development).
     MAIL_ENABLED = os.environ.get("MAIL_ENABLED", "false").lower() == "true"
     MAIL_SERVER = os.environ.get("MAIL_SERVER", "smtp.gmail.com")
     MAIL_PORT = int(os.environ.get("MAIL_PORT", 587))
@@ -67,16 +116,19 @@ class Config:
     MAIL_USERNAME = os.environ.get("MAIL_USERNAME", "")
     MAIL_PASSWORD = os.environ.get("MAIL_PASSWORD", "")
     MAIL_DEFAULT_SENDER = os.environ.get("MAIL_DEFAULT_SENDER", MAIL_USERNAME)
+    MAIL_OUTBOX = _env_bool("MAIL_OUTBOX", False)
 
     # --- Scheduler ---
     SCHEDULER_ENABLED = os.environ.get("SCHEDULER_ENABLED", "true").lower() == "true"
+    # False khi chạy nhiều worker Gunicorn: scheduler chạy riêng bằng `flask run-scheduler`
+    SCHEDULER_IN_WEB = _env_bool("SCHEDULER_IN_WEB", True)
     DEADLINE_WARNING_DAYS = 7
-    # So ngay truoc khi ky hien tai ket thuc thi bat dau nhac BDH nhap ky moi
+    # Số ngày trước khi kỳ hiện tại kết thúc thì bắt đầu nhắc BĐH nhập kỳ mới
     PERIOD_REMINDER_DAYS = 30
 
     # --- AI Agent ---
-    # Dung 1 API key CHUNG do CLB quan ly (khong cho tung user tu nhap key
-    # rieng, de tranh phai luu/ma hoa key ca nhan va de kiem soat chi phi).
+    # Dùng 1 API key CHUNG do CLB quản lý (không cho từng user tự nhập key
+    # riêng, để tránh phải lưu/mã hóa key cá nhân và để kiểm soát chi phí).
     AI_PROVIDER = os.environ.get("AI_PROVIDER", "gemini")
     AI_API_KEY = os.environ.get("AI_API_KEY", "")
     AI_MODEL = os.environ.get("AI_MODEL", "claude-sonnet-4-6")
@@ -94,7 +146,7 @@ class Config:
     AI_AGENT_MAX_STEPS = int(os.environ.get("AI_AGENT_MAX_STEPS", 3))
     AI_AGENT_MAX_SECONDS = int(os.environ.get("AI_AGENT_MAX_SECONDS", 90))
 
-    # --- Upload avatar (luu truc tiep tren server, phuc vu demo) ---
+    # --- Upload avatar (lưu trực tiếp trên server) ---
     UPLOAD_FOLDER = os.path.join(BASE_DIR, "app", "static", "uploads", "avatars")
     ALLOWED_AVATAR_EXTENSIONS = {"png", "jpg", "jpeg", "gif", "webp"}
-    MAX_CONTENT_LENGTH = 3 * 1024 * 1024  # 3MB moi request
+    MAX_CONTENT_LENGTH = 3 * 1024 * 1024  # 3MB mỗi request

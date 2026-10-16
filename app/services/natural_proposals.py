@@ -5,18 +5,21 @@ an unconstrained model answer. Ambiguity produces a question, not a write.
 """
 
 import re
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app import db
-from app.models import AIProposal, AssistantPending, ConversationPending, Ban, Event, User
-from .access import is_board, visible_members, require
+from app.models import AIProposal, AssistantPending, ConversationPending, Ban, Event
+from .access import can_manage_events, require, scoped_members
+from app.models import Permission
 from .assistant import RulesProvider, _normalize
 from .common import DomainError
 from .proposals import create_proposal
 from .natural_datetime import parse_natural_datetimes
+from app.timeutil import utcnow
 
 
 def _kind(message):
+    """Nhận diện câu chat là yêu cầu tạo sự kiện (event) hay giao task (task)."""
     text = _normalize(message).strip()
     text = re.sub(r"^(?:ai oi[,!]*\s*|hay\s+|giup\s+|toi muon\s+)+", "", text)
     if re.search(r"\b(?:chia|giao|phan cong|tao|de xuat)\b", text) and re.search(
@@ -29,6 +32,7 @@ def _kind(message):
 
 
 def _pending(actor, conversation=None):
+    """Đề xuất đang chờ bổ sung thông tin của người dùng (theo cuộc trò chuyện)."""
     if conversation is not None:
         from .chat_conversations import owned_conversation
         owned_conversation(actor, conversation.id, active=True)
@@ -37,6 +41,7 @@ def _pending(actor, conversation=None):
 
 
 def _new_pending(actor, kind, text, conversation=None):
+    """Tạo bản ghi đề xuất đang chờ bổ sung."""
     if conversation is not None:
         return ConversationPending(user_id=actor.id, conversation_id=conversation.id,
                                    kind=kind, text=text)
@@ -44,6 +49,7 @@ def _new_pending(actor, kind, text, conversation=None):
 
 
 def is_natural_proposal_command(message, actor=None, conversation=None):
+    """True nếu câu chat là yêu cầu tạo đề xuất hoặc đang có đề xuất chờ bổ sung."""
     if _kind(message):
         return True
     return bool(actor and _pending(actor, conversation))
@@ -53,7 +59,7 @@ def is_pending_deadline_reply(actor, message, conversation=None):
     """Recognize an explicit deadline continuation, not a task lookup."""
     pending = _pending(actor, conversation)
     if (not pending or pending.kind != "task"
-            or pending.updated_at < datetime.utcnow() - timedelta(minutes=30)):
+            or pending.updated_at < utcnow() - timedelta(minutes=30)):
         return False
     return bool(re.match(
         r"^(?:han(?:\s+cua)?(?:\s+(?:task|cong viec))?(?:\s+cua toi)?|deadline)"
@@ -63,6 +69,7 @@ def is_pending_deadline_reply(actor, message, conversation=None):
 
 
 def _entity(rows, name_attr, message, label):
+    """Tìm đúng một bản ghi có tên xuất hiện trong câu (ưu tiên tên dài nhất)."""
     text = _normalize(message)
     matches = [row for row in rows if len(_normalize(getattr(row, name_attr))) >= 3
                and re.search(r"(?<!\w)" + re.escape(_normalize(getattr(row, name_attr))) + r"(?!\w)", text)]
@@ -79,6 +86,7 @@ def _entity(rows, name_attr, message, label):
 
 
 def _event(message):
+    """Sự kiện đang mở được nhắc trong câu (theo mã hoặc tên)."""
     events = Event.query.filter(Event.trang_thai.notin_(["da_ket_thuc", "cancelled"])).all()
     by_code = [row for row in events if re.search(
         r"(?<!\w)" + re.escape(row.ma_su_kien) + r"(?!\w)", message, re.I)]
@@ -88,6 +96,7 @@ def _event(message):
 
 
 def _ban(message):
+    """Ban được nhắc trong câu (theo số hoặc tên); nhiều ban thì yêu cầu chọn."""
     text = _normalize(message)
     match = re.search(r"\bban\s*#?\s*(\d+)\b", text)
     if match:
@@ -103,7 +112,8 @@ def _ban(message):
 
 
 def _assignee(actor, message):
-    members = visible_members(actor).all()
+    """Người phụ trách được nhắc trong câu (MSSV hoặc họ tên), trong phạm vi quản lý sự kiện."""
+    members = scoped_members(actor, Permission.MANAGE_EVENTS).all()
     codes = [row for row in members if re.search(
         r"(?<!\w)" + re.escape(row.mssv) + r"(?!\w)", message, re.I)]
     if len(codes) > 1:
@@ -130,10 +140,12 @@ def _assignee(actor, message):
 
 
 def _dates(message):
+    """Các mốc thời gian đầy đủ trong câu (dùng natural_datetime)."""
     return parse_natural_datetimes(message)
 
 
 def _brief(message, kind, event=None, ban=None, member=None, date_parts=()):
+    """Phần mô tả còn lại của câu sau khi bỏ các cụm đã nhận diện (sự kiện, ban, người, thời gian)."""
     text = message
     # Remove the relationship connector, not the word 'thuộc' in a task title.
     text = re.sub(r"(?i)\b(?:thuộc|thuoc)\s+ban\b", " ban ", text)
@@ -154,8 +166,11 @@ def _brief(message, kind, event=None, ban=None, member=None, date_parts=()):
 
 
 def maybe_create_natural_proposal(actor, message, conversation=None):
+    """Xử lý yêu cầu tạo sự kiện/task bằng ngôn ngữ tự nhiên: hỏi lại thông tin thiếu, đủ thì tạo
+    AIProposal chờ duyệt.
+    """
     pending = _pending(actor, conversation)
-    if pending and pending.updated_at < datetime.utcnow() - timedelta(minutes=30):
+    if pending and pending.updated_at < utcnow() - timedelta(minutes=30):
         db.session.delete(pending)
         pending = None
     if pending and _normalize(message).strip() in {"huy", "bo qua", "khong tao nua"}:
@@ -165,7 +180,7 @@ def maybe_create_natural_proposal(actor, message, conversation=None):
     current_kind = _kind(message)
     if not current_kind and not pending:
         return None
-    require(is_board(actor), "Chỉ BDH được tạo đề xuất sự kiện/task.")
+    require(can_manage_events(actor), "Chỉ người có quyền quản lý sự kiện được tạo đề xuất sự kiện/task.")
     kind = current_kind or pending.kind
     # A full new request replaces the prior incomplete request. Short answers
     # still add missing details to the pending conversation.
@@ -249,7 +264,7 @@ def maybe_create_natural_proposal(actor, message, conversation=None):
         resolved = f"Hạn task: {dates[-1][0]:%H:%M ngày %d/%m/%Y} (giờ CLB). "
     existing = (AIProposal.query.filter_by(created_by_id=actor.id, kind=kind,
                                             request_text=brief, status="pending")
-                .filter(AIProposal.created_at >= datetime.utcnow() - timedelta(minutes=30))
+                .filter(AIProposal.created_at >= utcnow() - timedelta(minutes=30))
                 .order_by(AIProposal.id.desc()).all())
     for row in existing:
         payload = row.payload

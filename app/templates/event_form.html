@@ -1,24 +1,24 @@
 {% extends "base.html" %}
-{% from "_ui.html" import icon %}
+{% from "_ui.html" import icon, form_field %}
 {% block title %}Tạo sự kiện{% endblock %}
 {% block content %}
 <div class="page-stack ops-preview ops-event-form">
     <section class="card event-form-card">
         <div class="card-header"><div><span class="eyebrow">LỊCH CLB</span><h2>Tạo sự kiện mới</h2><p class="small muted">Thông tin sự kiện sẽ được lưu vào hệ thống FIA.</p></div>{{ icon('calendar') }}</div>
         <div class="card-body">
-            <form method="post" class="modal-form">
-                <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
-                <label class="field"><span class="field-label">Tên sự kiện</span><input class="input" type="text" name="ten_su_kien" value="{{ form.get('ten_su_kien', '') }}" maxlength="150" required></label>
-                <label class="field"><span class="field-label">Mã sự kiện</span><input class="input" type="text" name="ma_su_kien" value="{{ form.get('ma_su_kien', '') }}" maxlength="30" required><span class="small muted">Mã viết tắt không trùng với sự kiện khác.</span></label>
+            <form method="post" class="modal-form" novalidate>
+                {{ form.hidden_tag() }}
+                {{ form_field(form.ten_su_kien, maxlength=150, required=true) }}
+                {{ form_field(form.ma_su_kien, help='Mã viết tắt không trùng với sự kiện khác (chữ, số, - _ .).', maxlength=30, required=true) }}
                 <div class="grid-12 form-grid">
-                    <div class="span-6"><label class="field"><span class="field-label">Thời gian bắt đầu</span><input class="input" type="datetime-local" name="thoi_gian_bat_dau" value="{{ form.get('thoi_gian_bat_dau', '') }}" required></label></div>
-                    <div class="span-6"><label class="field"><span class="field-label">Thời gian kết thúc</span><input class="input" type="datetime-local" name="thoi_gian_ket_thuc" value="{{ form.get('thoi_gian_ket_thuc', '') }}" required></label></div>
+                    <div class="span-6">{{ form_field(form.thoi_gian_bat_dau, required=true) }}</div>
+                    <div class="span-6">{{ form_field(form.thoi_gian_ket_thuc, required=true) }}</div>
                 </div>
-                <label class="field"><span class="field-label">Địa điểm</span><input class="input" type="text" name="dia_diem" value="{{ form.get('dia_diem', '') }}" maxlength="300"></label>
-                <label class="field"><span class="field-label">Nội dung</span><textarea class="textarea" name="noi_dung" maxlength="10000">{{ form.get('noi_dung', '') }}</textarea></label>
+                {{ form_field(form.dia_diem, maxlength=300) }}
+                {{ form_field(form.noi_dung, maxlength=10000) }}
                 <div class="grid-12 form-grid">
-                    <div class="span-6"><label class="field"><span class="field-label">Hạn đăng ký (nếu có)</span><input class="input" type="datetime-local" name="han_dang_ky" value="{{ form.get('han_dang_ky', '') }}"></label></div>
-                    <div class="span-6"><label class="field"><span class="field-label">Số người tối đa (nếu có)</span><input class="input" type="number" name="so_nguoi_toi_da" min="1" value="{{ form.get('so_nguoi_toi_da', '') }}"></label></div>
+                    <div class="span-6">{{ form_field(form.han_dang_ky) }}</div>
+                    <div class="span-6">{{ form_field(form.so_nguoi_toi_da, min=1) }}</div>
                 </div>
                 <div class="toolbar"><div class="toolbar-left"><a class="btn btn-ghost" href="{{ url_for('event.event_list') }}">Hủy</a></div><div class="toolbar-right"><button type="submit" class="btn btn-primary">{{ icon('plus') }} Tạo sự kiện</button></div></div>
             </form>

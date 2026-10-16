@@ -10,9 +10,10 @@ from urllib.error import HTTPError
 from flask import g
 from PIL import Image
 
+from tests.support import csrf_for
 from app import create_app, db
 from app.models import AIProposal, AIReportSnapshot, AIUsageLog, ConversationPending, Attendance, Ban, ChatMessage, EmailProposal, EmailTemplate, Event, EventRegistration, EventTargetBan, FundCollection, FundDue, FundPayment, FundPeriod, MemberPlanningProfile, MemberRecord, Task, User, UserBan
-from app.migrations import migrate_email_recipients, migrate_legacy_money
+from app.legacy_sqlite import migrate_email_recipients, migrate_legacy_money
 from app.services.common import DomainError, club_now, parse_datetime
 from app.services.briefings import daily_digest, report_data, report_text
 
@@ -50,14 +51,7 @@ class WorkflowTests(unittest.TestCase):
         g.pop("_login_user", None)
 
     def csrf(self):
-        self.client.get("/login")
-        with self.client.session_transaction() as session:
-            token = session.get("_csrf_token")
-        if token:
-            return token
-        self.client.get("/ai")
-        with self.client.session_transaction() as session:
-            return session["_csrf_token"]
+        return csrf_for(self.client)
 
     def csrf_request(self, method, path, *args, **kwargs):
         """Send a browser-style unsafe request with the current session token."""
@@ -902,7 +896,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertIsNotNone(FundDue.query.filter_by(user_id=pending.id, period_id=period.id).first())
         mail.assert_called_once()
         self.assertEqual(mail.call_args.args[0], "new@example.test")
-        self.assertIn("duyet", mail.call_args.args[2])
+        self.assertIn("duyệt", mail.call_args.args[2])
         with patch("app.routes.admin.send_email") as mail_again:
             self.assertEqual(self.csrf_request("POST", f"/admin/approve/{pending.id}",
                                               data={"action": "accept", "csrf_token": self.csrf()}).status_code, 400)
@@ -923,7 +917,7 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(db.session.get(User, pending.id).status, "rejected")
         self.assertEqual(mail.call_args.args[0], "rejected@example.test")
-        self.assertIn(b"Email thong bao chua gui duoc", response.data)
+        self.assertIn("Email thông báo chưa gửi được".encode(), response.data)
 
         self.app.config.update(MAIL_ENABLED=True, MAIL_SERVER="smtp.example.test", MAIL_PORT=587,
                                MAIL_USE_TLS=True, MAIL_USERNAME="club@example.test",
@@ -940,22 +934,34 @@ class WorkflowTests(unittest.TestCase):
         self.assertEqual(message["To"], "member@example.test")
         self.assertEqual(message["From"], "club@example.test")
 
-    def test_truong_ban_can_approve_outside_managed_ban(self):
+    def test_only_cn_and_pcn_can_approve_registrations(self):
         db.session.add(Ban(id=2, ten_ban="Nhan su"))
         leader = User(mssv="TB001", ho_ten="Leader", ngay_sinh=date(2003, 1, 1),
                       sdt="0123456789", email="leader@example.test", status="approved",
                       chuc_vu="TB")
         leader.set_password("test-password")
+        vice = User(mssv="PCN001", ho_ten="Vice", ngay_sinh=date(2003, 1, 1),
+                    sdt="0123456789", email="vice@example.test", status="approved",
+                    chuc_vu="PCN")
+        vice.set_password("test-password")
         outsider = User(mssv="NEW003", ho_ten="Outside", ngay_sinh=date(2004, 1, 1),
                         sdt="0123456789", email="outside@example.test", status="pending",
                         chuc_vu="THANH_VIEN")
         outsider.set_password("test-password")
-        db.session.add_all([leader, outsider])
+        db.session.add_all([leader, vice, outsider])
         db.session.flush()
         db.session.add_all([UserBan(user_id=leader.id, ban_id=1, is_truong_ban=True),
                             UserBan(user_id=outsider.id, ban_id=2)])
         db.session.commit()
+        # Trưởng ban: không vào được trang duyệt, không duyệt được
         self.login(leader.id)
+        self.assertEqual(self.client.get("/admin/approve").status_code, 403)
+        denied = self.csrf_request("POST", f"/admin/approve/{outsider.id}",
+                                   data={"action": "accept", "csrf_token": self.csrf()})
+        self.assertEqual(denied.status_code, 403)
+        self.assertEqual(db.session.get(User, outsider.id).status, "pending")
+        # Phó chủ nhiệm: duyệt được
+        self.login(vice.id)
         page = self.client.get("/admin/approve")
         self.assertIn(b"Outside", page.data)
         with patch("app.routes.admin.send_email") as mail:
